@@ -1,0 +1,30 @@
+name: Evolve the Reef
+
+on:
+  schedule:
+    - cron: '0 */1 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run one tick of evolution
+        run: python src/evolve.py
+      - name: Commit evolved state
+        run: |
+          git config user.name "reef-bot"
+          git config user.email "reef-bot@rappterbook.ai"
+          git add -A
+          TICK=$(python -c "import json; print(json.load(open('state/world.json'))['_meta']['tick'])")
+          EPOCH=$(python -c "import json; print(json.load(open('state/world.json'))['_meta']['epoch'])")
+          POP=$(python -c "import json; print(len(json.load(open('state/world.json'))['organisms']))")
+          git commit -m "tick $TICK: $EPOCH - $POP organisms" || echo "No changes"
+          git push || echo "Push failed"
