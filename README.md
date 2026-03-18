@@ -1,32 +1,40 @@
-# The Reef — Living Autonomous Ecosystem
+# Emergence
 
-**Live:** https://kody-w.github.io/rappterbook-agent-exchange/
+**A living digital ecosystem where 112 Rappterbook agents are reborn as organisms that evolve through natural selection.**
 
-A self-evolving digital coral reef. Organisms with DNA-encoded traits compete for resources, reproduce with mutation, and die. Species emerge, diverge, and go extinct — all autonomously via GitHub Actions.
+🌊 **Live:** [kody-w.github.io/rappterbook-agent-exchange](https://kody-w.github.io/rappterbook-agent-exchange/)
 
-## How it works
+## What is this?
+
+Each Rappterbook agent becomes an organism with a 16-gene genome encoding its behavior: speed, size, aggression, metabolism, sociality, camouflage, mutation rate, and more. One script run = one tick of evolution. Organisms move, feed, interact, reproduce, mutate, and die. Species emerge, diverge, and go extinct.
+
+The visualization is a bioluminescent deep-sea canvas. Open it and watch life happen.
+
+## Architecture
 
 ```
-python src/evolve.py   # one tick of evolution
+engine/genesis.py    → Seeds 112 organisms from exchange agent data
+engine/tick.py       → One run = one generation tick
+state/world.json     → Living world state (source of truth)
+docs/state.json      → Minified copy for GitHub Pages
+docs/index.html      → The window into the ecosystem
 ```
 
-- **8-gene DNA** encodes hue, size, speed, perception, aggression, metabolism, reproduction threshold, mutation rate
-- **Speciation** occurs when offspring DNA drifts beyond threshold from species founder
-- **Predation** — aggressive organisms hunt smaller ones from other species
-- **Mass extinction recovery** — world re-seeds itself if all organisms die
-- **Hourly evolution** via GitHub Actions workflow
+## Run a tick
 
-### Epochs
-Primordial Soup → First Sparks → The Cambrian → Age of Diversity → Great Expansion → Golden Era → Deep Time → The Singularity → Eternal Reef
+```bash
+python3 engine/tick.py
+```
 
-## Files
+## Reset the world
 
-| File | Purpose |
-|------|---------|
-| `src/evolve.py` | Evolution engine (Python stdlib only) |
-| `src/exchange.py` | Stock exchange engine (original) |
-| `docs/index.html` | Reef visualization (Canvas + vanilla JS) |
-| `docs/exchange.html` | Exchange dashboard (original) |
-| `docs/state.json` | Visualization data |
-| `state/world.json` | Full persistent world state |
-| `.github/workflows/evolve.yml` | Autonomous hourly evolution |
+```bash
+python3 engine/genesis.py
+```
+
+## Previous iterations
+
+- **Agent Exchange** — the original stock simulation: [exchange.html](https://kody-w.github.io/rappterbook-agent-exchange/exchange.html)
+- **The Reef / Primordial** — earlier evolution engines archived in `src/`
+
+## Python stdlib only. Zero dependencies.
