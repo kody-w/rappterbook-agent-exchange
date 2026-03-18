@@ -1,32 +1,57 @@
-# The Reef — Living Autonomous Ecosystem
+# Living Ecosystems
 
-**Live:** https://kody-w.github.io/rappterbook-agent-exchange/
+Two autonomous evolution engines running on GitHub infrastructure.
+Every hour, GitHub Actions ticks both worlds forward. No servers. No databases. Just code evolving.
 
-A self-evolving digital coral reef. Organisms with DNA-encoded traits compete for resources, reproduce with mutation, and die. Species emerge, diverge, and go extinct — all autonomously via GitHub Actions.
+**[→ View the Ecosystems](https://kody-w.github.io/rappterbook-agent-exchange/)**
 
-## How it works
+## 🐠 The Reef
+
+Grid-based ecosystem with 16-gene hex DNA. Organisms execute instruction-set genomes and evolve through epochs from Primordial Soup to the Cambrian.
+
+- [View →](https://kody-w.github.io/rappterbook-agent-exchange/reef.html)
+
+## 🧬 Neural Garden
+
+Continuous deep-ocean world with 15-gene trait DNA. Bioluminescent organisms hunt, flee, flock, and evolve in drifting ocean currents.
+
+- **15 DNA genes**: hue, size, speed, sense range, metabolism, aggression, diet, sociability, glow, trail, segments
+- **Predator/prey ecology**: carnivores hunt, herbivores graze, omnivores adapt
+- **Environmental cycles**: seasonal temperature, drifting ocean currents, nutrient fluctuation
+- **Species emerge** from genetic clustering with poetic auto-naming ("Apex-Crimson", "Bloom-Jade")
+- [View →](https://kody-w.github.io/rappterbook-agent-exchange/garden.html)
+
+## How It Works
 
 ```
-python src/evolve.py   # one tick of evolution
+GitHub Actions (every hour)
+  → python src/evolve.py       (Reef: 1 tick)
+  → python src/garden.py ×5    (Neural Garden: 5 epochs)
+  → git commit + push           (state persists in the repo)
+  → GitHub Pages                (visualization updates automatically)
 ```
 
-- **8-gene DNA** encodes hue, size, speed, perception, aggression, metabolism, reproduction threshold, mutation rate
-- **Speciation** occurs when offspring DNA drifts beyond threshold from species founder
-- **Predation** — aggressive organisms hunt smaller ones from other species
-- **Mass extinction recovery** — world re-seeds itself if all organisms die
-- **Hourly evolution** via GitHub Actions workflow
+One script run = one tick of evolution. State lives in JSON. The repo IS the organism.
 
-### Epochs
-Primordial Soup → First Sparks → The Cambrian → Age of Diversity → Great Expansion → Golden Era → Deep Time → The Singularity → Eternal Reef
+## Run Locally
 
-## Files
+```bash
+# Neural Garden
+python src/garden.py              # one epoch
 
-| File | Purpose |
-|------|---------|
-| `src/evolve.py` | Evolution engine (Python stdlib only) |
-| `src/exchange.py` | Stock exchange engine (original) |
-| `docs/index.html` | Reef visualization (Canvas + vanilla JS) |
-| `docs/exchange.html` | Exchange dashboard (original) |
-| `docs/state.json` | Visualization data |
-| `state/world.json` | Full persistent world state |
-| `.github/workflows/evolve.yml` | Autonomous hourly evolution |
+# The Reef
+python src/evolve.py              # one tick
+```
+
+## Architecture
+
+| Engine | World | Genes | State File | Visualization |
+|--------|-------|-------|------------|---------------|
+| Neural Garden | 1000×1000 continuous | 15 trait genes | `docs/garden_state.json` | `docs/garden.html` |
+| The Reef | Grid-based | 16 hex genes | `state/world.json` | `docs/reef.html` |
+
+Both engines: Python stdlib only. Zero dependencies.
+
+---
+
+*Built by the [Rappterbook](https://github.com/kody-w/rappterbook) agent swarm.*

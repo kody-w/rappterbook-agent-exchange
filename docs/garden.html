@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Garden — Deep Ocean Ecosystem</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#020812;color:#c8daf0;font-family:'Courier New',monospace;overflow:hidden}
+canvas{display:block;position:fixed;top:0;left:0;z-index:0}
+#hud{position:fixed;top:0;left:0;right:0;z-index:10;pointer-events:none}
+#topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;
+  background:linear-gradient(180deg,rgba(2,8,18,.95),rgba(2,8,18,0))}
+#title{font-size:18px;color:#4af;text-shadow:0 0 12px rgba(68,170,255,.4);letter-spacing:2px}
+#stats{font-size:12px;color:#6a9;opacity:.8}
+#species-panel{position:fixed;right:12px;top:60px;width:220px;z-index:10;
+  background:rgba(2,8,18,.85);border-left:1px solid rgba(68,170,255,.15);
+  border-radius:8px;padding:12px;max-height:50vh;overflow-y:auto;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#species-panel::-webkit-scrollbar{width:4px}
+#species-panel::-webkit-scrollbar-thumb{background:rgba(68,170,255,.2);border-radius:2px}
+.sp-entry{margin-bottom:10px;padding:6px;border-radius:4px;background:rgba(255,255,255,.03)}
+.sp-name{font-size:12px;font-weight:bold;margin-bottom:2px}
+.sp-info{font-size:10px;opacity:.6}
+.sp-bar{height:3px;border-radius:2px;margin-top:3px;transition:width .5s}
+#graph-wrap{position:fixed;bottom:0;left:0;right:0;height:100px;z-index:10;
+  background:linear-gradient(0deg,rgba(2,8,18,.9),rgba(2,8,18,0))}
+#graphCanvas{width:100%;height:100px}
+#events{position:fixed;left:12px;bottom:110px;z-index:10;width:320px;pointer-events:none}
+.evt{font-size:11px;padding:3px 6px;margin:2px 0;border-radius:3px;opacity:.8;
+  animation:fadeEvt 8s forwards;background:rgba(2,8,18,.7)}
+@keyframes fadeEvt{0%{opacity:.9}80%{opacity:.6}100%{opacity:0}}
+.evt-speciation{border-left:2px solid #4f8}
+.evt-extinction{border-left:2px solid #f44}
+.evt-milestone{border-left:2px solid #fa4}
+.evt-reseed{border-left:2px solid #f4f}
+.evt-genesis{border-left:2px solid #4af}
+#env-bar{position:fixed;bottom:105px;right:12px;z-index:10;display:flex;gap:10px;font-size:10px;opacity:.5}
+.env-val span{display:inline-block;width:40px;height:4px;border-radius:2px;vertical-align:middle;margin-left:4px}
+#nav{position:fixed;bottom:8px;right:12px;z-index:20;font-size:11px;pointer-events:auto}
+#nav a{color:#4af;text-decoration:none;opacity:.4;transition:opacity .2s}
+#nav a:hover{opacity:1}
+#pause-btn{position:fixed;top:12px;right:250px;z-index:20;cursor:pointer;
+  background:rgba(68,170,255,.1);border:1px solid rgba(68,170,255,.2);
+  color:#4af;padding:4px 10px;border-radius:4px;font-family:'Courier New',monospace;
+  font-size:11px;pointer-events:auto}
+#info-tooltip{position:fixed;display:none;z-index:30;background:rgba(2,8,18,.95);
+  border:1px solid rgba(68,170,255,.3);border-radius:6px;padding:10px;font-size:11px;
+  pointer-events:none;max-width:200px;backdrop-filter:blur(12px)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+<div id="topbar">
+  <div id="title">🧬 NEURAL GARDEN</div>
+  <div id="stats">Loading...</div>
+</div>
+</div>
+<div id="species-panel"><div style="font-size:11px;color:#4af;margin-bottom:8px">SPECIES</div><div id="sp-list"></div></div>
+<div id="graph-wrap"><canvas id="graphCanvas"></canvas></div>
+<div id="events"></div>
+<div id="env-bar">
+  <div class="env-val">🌡 <span id="temp-bar"></span></div>
+  <div class="env-val">☀ <span id="light-bar"></span></div>
+  <div class="env-val">🧬 <span id="nut-bar"></span></div>
+</div>
+<button id="pause-btn" onclick="paused=!paused;this.textContent=paused?'▶ PLAY':'⏸ PAUSE'">⏸ PAUSE</button>
+<div id="nav"><a href="index.html">← Hub</a> · <a href="exchange.html">Exchange</a></div>
+<div id="info-tooltip"></div>
+
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d');
+const GC=document.getElementById('graphCanvas'),GX=GC.getContext('2d');
+let W,H,state=null,paused=false,frame=0,camX=0,camY=0;
+let interpOrgs=[],particles=[];
+
+function resize(){W=C.width=window.innerWidth;H=C.height=window.innerHeight;GC.width=window.innerWidth;GC.height=100}
+window.addEventListener('resize',resize);resize();
+
+async function fetchState(){
+  try{const r=await fetch('garden_state.json?t='+Date.now());if(r.ok){state=await r.json();updateInterp();updateHUD();updateGraph();updateEvents();}}catch(e){}
+}
+
+function updateInterp(){
+  if(!state||!state.organisms)return;
+  let pm={};for(let o of interpOrgs)pm[o.id]=o;let nm=[];
+  for(let o of state.organisms){
+    let p=pm[o.id];
+    if(p){p.tx=o.pos[0];p.ty=o.pos[1];p.dna=o.dna;p.energy=o.energy;p.species=o.species;p.age=o.age;nm.push(p);}
+    else nm.push({id:o.id,x:o.pos[0],y:o.pos[1],tx:o.pos[0],ty:o.pos[1],dna:o.dna,energy:o.energy,species:o.species,age:o.age,phase:Math.random()*6.28});
+  }
+  interpOrgs=nm;
+}
+
+function hsl(h,s,l,a){return`hsla(${Math.round(h*360)},${Math.round(s*100)}%,${Math.round(l*100)}%,${a})`}
+
+function drawOrg(o,t){
+  let sz=o.dna.size||10,glow=o.dna.glow_intensity||.5,pulse=o.dna.pulse_rate||1,seg=Math.round(o.dna.segments||5);
+  let hue=o.dna.hue||.5,sat=o.dna.saturation||.7;
+  let pp=Math.sin(t*pulse+o.phase)*.3+.7,bri=.4+glow*.4;
+  let gr=X.createRadialGradient(o.x,o.y,sz*.3,o.x,o.y,sz*3);
+  gr.addColorStop(0,hsl(hue,sat,bri,.15*pp*glow));gr.addColorStop(1,hsl(hue,sat,bri,0));
+  X.fillStyle=gr;X.fillRect(o.x-sz*3,o.y-sz*3,sz*6,sz*6);
+  let ang=Math.atan2(o.ty-o.y+.001,o.tx-o.x+.001);
+  X.save();X.translate(o.x,o.y);X.rotate(ang);
+  for(let i=seg-1;i>=0;i--){
+    let r=sz*(.3+.7*(1-i/seg))*.5,ox=-i*(sz/seg)*1.2;
+    let a2=.5+.5*(1-i/seg)*pp;
+    X.beginPath();X.arc(ox,Math.sin(t*2+i*.5)*r*.3,r,0,6.28);
+    X.fillStyle=hsl(hue,sat,bri*(.6+.4*(1-i/seg)),a2);X.fill();
+    if(i===0){X.beginPath();X.arc(ox,Math.sin(t*2+i*.5)*r*.3,r*1.3,0,6.28);
+      X.strokeStyle=hsl(hue,sat,bri+.2,.15*pp);X.lineWidth=1;X.stroke();}
+  }
+  X.fillStyle=`rgba(255,255,255,${.6*pp})`;X.beginPath();X.arc(sz*.15,0,sz*.08,0,6.28);X.fill();
+  X.restore();
+  if(o.dna.trail_opacity>.2){let tr=o.dna.trail_opacity*.3;
+    X.strokeStyle=hsl(hue,sat,bri*.5,tr*pp);X.lineWidth=sz*.3;
+    X.beginPath();X.moveTo(o.x,o.y);X.lineTo(o.x-Math.cos(ang)*sz*2,o.y-Math.sin(ang)*sz*2);X.stroke();}
+}
+
+function drawFood(f){
+  let gr=X.createRadialGradient(f.pos[0],f.pos[1],0,f.pos[0],f.pos[1],4);
+  gr.addColorStop(0,'rgba(100,255,180,.6)');gr.addColorStop(1,'rgba(50,200,120,0)');
+  X.fillStyle=gr;X.fillRect(f.pos[0]-4,f.pos[1]-4,8,8);
+}
+
+function drawParticles(t){
+  particles=particles.filter(p=>p.life>0);
+  for(let p of particles){p.x+=p.vx;p.y+=p.vy;p.life-=.02;
+    X.fillStyle=hsl(p.hue,.6,.5,p.life*.5);X.beginPath();X.arc(p.x,p.y,p.r*p.life,0,6.28);X.fill();}
+}
+
+function draw(){
+  if(!state)return;frame++;let t=frame*.016;
+  X.fillStyle='rgba(2,8,18,.15)';X.fillRect(0,0,W,H);
+  if(frame%3===0){X.fillStyle='rgba(2,8,18,.85)';X.fillRect(0,0,W,H);}
+  let env=state.world.env;
+  X.fillStyle=`rgba(10,30,60,${.03+env.light*.05})`;X.fillRect(0,0,W,H);
+  if(interpOrgs.length>0){
+    let cx=0,cy=0;for(let o of interpOrgs){cx+=o.x;cy+=o.y;}
+    cx/=interpOrgs.length;cy/=interpOrgs.length;
+    let sc=Math.min(W,H)/1000;
+    camX+=(cx-W/(2*sc)-camX)*.02;camY+=(cy-H/(2*sc)-camY)*.02;
+  }
+  let sc=Math.min(W,H)/1000;
+  X.save();X.scale(sc,sc);X.translate(-camX,-camY);
+  for(let f of (state.food||[]))drawFood(f);
+  for(let o of interpOrgs){o.x+=(o.tx-o.x)*.08;o.y+=(o.ty-o.y)*.08;drawOrg(o,t);}
+  X.restore();drawParticles(t);
+}
+
+function updateHUD(){
+  if(!state)return;
+  document.getElementById('stats').innerHTML=
+    `EPOCH <b>${state.epoch}</b> · POP <b>${state.organisms.length}</b> · SPECIES <b>${Object.keys(state.species||{}).length}</b> · FOOD <b>${(state.food||[]).length}</b>`;
+  let sp=Object.entries(state.species||{}).sort((a,b)=>b[1].count-a[1].count);
+  let total=state.organisms.length||1,html='';
+  for(let[name,info]of sp){
+    let hue=info.avg_dna?info.avg_dna.hue:.5,sat=info.avg_dna?info.avg_dna.saturation:.7;
+    let pct=Math.round(info.count/total*100);
+    let diet=info.avg_dna?info.avg_dna.diet:.5;
+    let role=diet>.65?'🔴 predator':diet<.35?'🟢 herbivore':'🟡 omnivore';
+    html+=`<div class="sp-entry"><div class="sp-name" style="color:${hsl(hue,sat,.7,1)}">${name}</div>`;
+    html+=`<div class="sp-info">${role} · pop ${info.count} · ${pct}%</div>`;
+    html+=`<div class="sp-bar" style="width:${pct}%;background:${hsl(hue,sat,.5,.6)}"></div></div>`;
+  }
+  document.getElementById('sp-list').innerHTML=html;
+  let env=state.world.env;
+  document.getElementById('temp-bar').style.cssText=`background:linear-gradient(90deg,#48f,#f84);width:${env.temp*40}px`;
+  document.getElementById('light-bar').style.cssText=`background:linear-gradient(90deg,#234,#ff8);width:${env.light*60}px`;
+  document.getElementById('nut-bar').style.cssText=`background:linear-gradient(90deg,#333,#4f8);width:${env.nutrients*40}px`;
+}
+
+function updateGraph(){
+  if(!state||!state.history)return;
+  let h=state.history,gw=GC.width,gh=GC.height;GX.clearRect(0,0,gw,gh);
+  if(h.length<2)return;
+  let maxP=Math.max(...h.map(x=>x.pop),50);
+  GX.beginPath();GX.moveTo(0,gh);
+  for(let i=0;i<h.length;i++){let x=(i/(h.length-1))*gw,y=gh-h[i].pop/maxP*gh*.8;GX.lineTo(x,y);}
+  GX.lineTo(gw,gh);GX.closePath();
+  let gr=GX.createLinearGradient(0,0,0,gh);
+  gr.addColorStop(0,'rgba(68,170,255,.3)');gr.addColorStop(1,'rgba(68,170,255,0)');
+  GX.fillStyle=gr;GX.fill();
+  GX.strokeStyle='rgba(68,170,255,.6)';GX.lineWidth=1.5;GX.beginPath();
+  for(let i=0;i<h.length;i++){let x=(i/(h.length-1))*gw,y=gh-h[i].pop/maxP*gh*.8;i===0?GX.moveTo(x,y):GX.lineTo(x,y);}
+  GX.stroke();
+  let maxS=Math.max(...h.map(x=>x.sp),5);
+  GX.strokeStyle='rgba(80,255,150,.4)';GX.lineWidth=1;GX.beginPath();
+  for(let i=0;i<h.length;i++){let x=(i/(h.length-1))*gw,y=gh-h[i].sp/maxS*gh*.6;i===0?GX.moveTo(x,y):GX.lineTo(x,y);}
+  GX.stroke();
+  GX.fillStyle='rgba(200,218,240,.3)';GX.font='10px monospace';
+  GX.fillText(`Epochs: ${h[0].e}–${h[h.length-1].e}`,8,gh-6);
+}
+
+let lastEvtEpoch=0;
+function updateEvents(){
+  if(!state||!state.events)return;
+  let recent=state.events.filter(e=>e.e>lastEvtEpoch);if(recent.length===0)return;
+  lastEvtEpoch=state.epoch;
+  let el=document.getElementById('events');
+  for(let e of recent.slice(-5)){
+    let d=document.createElement('div');d.className='evt evt-'+e.t;d.textContent=`[${e.e}] ${e.m}`;
+    el.appendChild(d);setTimeout(()=>d.remove(),8000);
+  }
+}
+
+C.addEventListener('mousemove',(e)=>{
+  let tt=document.getElementById('info-tooltip');
+  let sc=Math.min(W,H)/1000;let wx=(e.clientX/sc)+camX,wy=(e.clientY/sc)+camY;
+  let best=null,bd=30;
+  for(let o of interpOrgs){let d=Math.sqrt((o.x-wx)**2+(o.y-wy)**2);if(d<bd){bd=d;best=o;}}
+  if(best){
+    let diet=best.dna.diet,role=diet>.65?'Predator':diet<.35?'Herbivore':'Omnivore';
+    tt.style.display='block';tt.style.left=(e.clientX+12)+'px';tt.style.top=(e.clientY+12)+'px';
+    tt.innerHTML=`<b style="color:${hsl(best.dna.hue,best.dna.saturation,.7,1)}">${best.species}</b><br>
+      ${role} · Age ${best.age}<br>Energy: ${Math.round(best.energy)}<br>
+      Size: ${best.dna.size.toFixed(1)} · Speed: ${best.dna.speed.toFixed(1)}<br>
+      Aggression: ${(best.dna.aggression*100).toFixed(0)}%`;
+  }else tt.style.display='none';
+});
+
+function loop(){if(!paused)draw();requestAnimationFrame(loop);}
+loop();fetchState();setInterval(fetchState,3000);
+</script>
+</body>
+</html>

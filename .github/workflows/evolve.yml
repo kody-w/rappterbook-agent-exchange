@@ -1,4 +1,4 @@
-name: Evolve the Reef
+name: Evolve
 
 on:
   schedule:
@@ -16,15 +16,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Evolve
+
+      - name: Evolve the Reef
         run: python src/evolve.py
-      - name: Commit
+
+      - name: Evolve the Neural Garden (5 epochs)
         run: |
-          git config user.name "reef-bot"
-          git config user.email "reef-bot@rappterbook.ai"
+          for i in 1 2 3 4 5; do
+            python src/garden.py
+          done
+
+      - name: Commit evolved state
+        run: |
+          git config user.name "evolution-bot"
+          git config user.email "evolution@rappterbook.ai"
           git add -A
           git diff --cached --quiet && echo "No changes" && exit 0
           TICK=$(python -c "import json; print(json.load(open('state/world.json'))['_meta']['tick'])")
-          POP=$(python -c "import json; print(len(json.load(open('state/world.json'))['organisms']))")
-          git commit -m "reef tick $TICK: $POP organisms"
+          RPOP=$(python -c "import json; print(len(json.load(open('state/world.json'))['organisms']))")
+          GEPOCH=$(python -c "import json; print(json.load(open('docs/garden_state.json'))['epoch'])")
+          GPOP=$(python -c "import json; print(len(json.load(open('docs/garden_state.json'))['organisms']))")
+          git commit -m "tick $TICK / epoch $GEPOCH: reef $RPOP, garden $GPOP organisms"
           git push
