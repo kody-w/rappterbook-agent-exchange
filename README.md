@@ -1,40 +1,58 @@
-# Emergence
+# The Abyss — A Living Digital Ecosystem
 
-**A living digital ecosystem where 112 Rappterbook agents are reborn as organisms that evolve through natural selection.**
+**Live:** https://kody-w.github.io/rappterbook-agent-exchange/
 
-🌊 **Live:** [kody-w.github.io/rappterbook-agent-exchange](https://kody-w.github.io/rappterbook-agent-exchange/)
+A full-screen bioluminescent deep-sea ecosystem running autonomously on GitHub.
+Digital organisms with **16-gene genomes** evolve, hunt, flock, reproduce with
+mutation, and form emergent species — all powered by Python stdlib and GitHub Actions.
 
-## What is this?
+Every hour the evolution engine advances 10 ticks. The visualization renders organisms
+pulsing with bioluminescent glow, species clustering by color, predators hunting prey,
+cooperative flocking, and live population/species sparklines.
 
-Each Rappterbook agent becomes an organism with a 16-gene genome encoding its behavior: speed, size, aggression, metabolism, sociality, camouflage, mutation rate, and more. One script run = one tick of evolution. Organisms move, feed, interact, reproduce, mutate, and die. Species emerge, diverge, and go extinct.
-
-The visualization is a bioluminescent deep-sea canvas. Open it and watch life happen.
-
-## Architecture
+## How it works
 
 ```
-engine/genesis.py    → Seeds 112 organisms from exchange agent data
-engine/tick.py       → One run = one generation tick
-state/world.json     → Living world state (source of truth)
-docs/state.json      → Minified copy for GitHub Pages
-docs/index.html      → The window into the ecosystem
+python3 src/tick.py --genesis --ticks 100   # create world + evolve 100 ticks
+python3 src/tick.py                          # one tick (continues existing world)
+python3 src/tick.py --ticks 10               # 10 ticks
 ```
 
-## Run a tick
+Each organism carries a **16-gene genome** (normalized 0–1 floats):
 
-```bash
-python3 engine/tick.py
-```
+| Gene | Controls |
+|------|----------|
+| hue, saturation | Visual color |
+| size | Body size (affects energy cost, predation) |
+| speed | Movement speed |
+| social_radius, bond_strength | Flocking range and pull |
+| metabolism | Energy consumption rate |
+| repro_threshold | Energy needed to reproduce |
+| mutation_rate | Offspring variation |
+| aggression | Hunting behavior (>0.5 = predator) |
+| cooperation | Flocking behavior (>0.5 = flocks with kin) |
+| sensing_range | Detection distance |
+| food_pref_x, food_pref_y | Nutrient preference |
+| bioluminescence | Glow intensity |
+| membrane | Defensive trait |
 
-## Reset the world
+### Epochs
+Primordial Soup → First Sparks → The Cambrian → Age of Predators → Symbiotic Era → Radiant Bloom → Deep Time
 
-```bash
-python3 engine/genesis.py
-```
+### Visualization features
+- Bioluminescent glow with additive blending and motion trails
+- Luminous connections between cooperative same-species organisms
+- Death particles (orange scatter) and birth pulses (expanding rings)
+- Ambient floating motes, click to spawn nutrient bursts
+- Hover for organism stats, Space to pause
+- Population (green) + species (purple) sparklines
+- Live event feed and species legend
 
-## Previous iterations
+## Files
 
-- **Agent Exchange** — the original stock simulation: [exchange.html](https://kody-w.github.io/rappterbook-agent-exchange/exchange.html)
-- **The Reef / Primordial** — earlier evolution engines archived in `src/`
-
-## Python stdlib only. Zero dependencies.
+| File | Purpose |
+|------|---------|
+| `src/tick.py` | Evolution engine (Python stdlib only) |
+| `docs/index.html` | Full-screen Canvas visualization |
+| `docs/world.json` | Current world state |
+| `.github/workflows/evolve.yml` | Hourly autonomous evolution |
