@@ -1,12 +1,12 @@
 """
-Primordial - Autonomous Digital Life Engine
+The Reef - Autonomous digital ecosystem.
 
-One run = one tick. Organisms carry 32-gene genomes encoding behavioral
-programs. Natural selection, mutation, speciation, and extinction emerge.
+One run = one tick. Organisms carry DNA encoding 8 traits.
+Natural selection, predation, speciation, mass extinction & recovery.
 Python stdlib only.
 """
 from __future__ import annotations
-import json, math, random, hashlib, os, sys
+import json, math, random, hashlib, os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,347 +14,248 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 STATE_DIR = Path(os.environ.get("STATE_DIR", str(REPO_ROOT / "state")))
 DOCS_DIR = Path(os.environ.get("DOCS_DIR", str(REPO_ROOT / "docs")))
-WORLD_PATH = STATE_DIR / "world.json"
-DOCS_WORLD = DOCS_DIR / "world.json"
+STATE_PATH = STATE_DIR / "world.json"
+VIZ_PATH = DOCS_DIR / "state.json"
 
-W, H = 96, 96
-GENOME_LEN = 32
-MAX_ENERGY = 255
-REPRO_THRESHOLD = 100
-REPRO_COST = 45
-PHOTO_GAIN = 8
-EAT_EFF = 0.6
-SHARE_AMT = 12
-MUT_RATE = 0.04
-INIT_POP = 60
-MAX_HIST = 500
-MAX_FOSSILS = 100
-SIG_DECAY = 0.85
-MAX_SIGS = 2000
+WW, WH = 800, 600
+MAX_POP, INIT_POP = 300, 50
+RES_SPAWN, MAX_RES, RES_E = 25, 300, 22.0
+MAX_AGE = 180
+PRED_R, EAT_R = 12.0, 10.0
+REPRO_CD = 4
+SPEC_TH = 75.0
+HIST_MAX, EVT_MAX = 500, 200
 
-DIRS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+EPOCHS = [(0,"Primordial Soup"),(10,"First Sparks"),(50,"The Cambrian"),
+    (150,"Age of Diversity"),(300,"Great Expansion"),(500,"Golden Era"),
+    (1000,"Deep Time"),(2000,"The Singularity"),(5000,"Eternal Reef")]
 
+GENES = ["hue","size","speed","perception","aggression","metabolism","repro_threshold","mutation_rate"]
+RANGES = {"hue":(0,360),"size":(1.5,6.0),"speed":(0.5,4.0),"perception":(5.0,18.0),
+    "aggression":(0.0,1.0),"metabolism":(0.1,0.7),"repro_threshold":(25,60),"mutation_rate":(0.02,0.25)}
 
-def sp_id(g: list[int]) -> str:
-    return hashlib.md5(bytes(g)).hexdigest()[:4]
+_nid = 0
 
+def rdna():
+    return "".join("{:02x}".format(random.randint(0,255)) for _ in range(8))
 
-def g_hue(g: list[int]) -> int:
-    h = hashlib.md5(bytes(g)).digest()
-    return (h[0] * 256 + h[1]) % 360
+def dgene(dna, i):
+    return int(dna[i*2:i*2+2], 16)
 
+def dtrait(dna, name):
+    i = GENES.index(name); lo, hi = RANGES[name]
+    return lo + (dgene(dna, i) / 255.0) * (hi - lo)
 
-def light(x: int, y: int) -> float:
-    dx = min(x, W - 1 - x) / (W / 2)
-    dy = min(y, H - 1 - y) / (H / 2)
-    return max(0.15, 1.0 - min(dx, dy) * 0.8)
+def dtraits(dna):
+    return {n: round(dtrait(dna, n), 3) for n in GENES}
 
+def mutdna(dna, rate):
+    gs = [int(dna[i:i+2], 16) for i in range(0, 16, 2)]
+    for i in range(len(gs)):
+        if random.random() < rate:
+            gs[i] = max(0, min(255, int(gs[i] + random.gauss(0, 30))))
+    return "".join("{:02x}".format(g) for g in gs)
 
-def wrap(x: int, y: int) -> tuple[int, int]:
-    return x % W, y % H
+def dnadist(a, b):
+    return math.sqrt(sum((int(a[i*2:i*2+2],16)-int(b[i*2:i*2+2],16))**2 for i in range(8)))
 
+def nid():
+    global _nid; _nid += 1; return "o-{:06d}".format(_nid)
 
-def ahead(x: int, y: int, f: int) -> tuple[int, int]:
-    dx, dy = DIRS[f]
-    return wrap(x + dx, y + dy)
+def niso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+_SYL = ["al","be","ca","de","el","fi","go","he","ix","ju","ka","lu",
+    "mi","no","or","pi","qu","ra","si","te","ul","vi","wa","xe"]
 
-def mutate(g: list[int], rng: random.Random) -> list[int]:
-    c = g[:]
-    for i in range(len(c)):
-        if rng.random() < MUT_RATE:
-            c[i] = rng.randint(0, 15)
-    if rng.random() < 0.01:
-        a, b = rng.sample(range(GENOME_LEN), 2)
-        c[a], c[b] = c[b], c[a]
-    return c
+def spname(sid):
+    h = hashlib.md5(sid.encode()).hexdigest()
+    return "{}{}{}us".format(*[_SYL[int(h[i:i+2],16)%len(_SYL)].capitalize() if i==0 else _SYL[int(h[i:i+2],16)%len(_SYL)] for i in range(0,6,2)])
 
+def mkorg(x, y, dna, sid, pid=None, gen=0):
+    return {"id":nid(),"dna":dna,"x":round(x,1),"y":round(y,1),"vx":0.0,"vy":0.0,
+        "energy":100.0,"age":0,"generation":gen,"parent":pid,
+        "species_id":sid,"cooldown":0,"traits":dtraits(dna),"kills":0}
 
-class World:
-    def __init__(self) -> None:
-        self.tick = 0
-        self.grid: dict[tuple[int, int], dict] = {}
-        self.signals: dict[tuple[int, int], float] = {}
-        self.births = 0
-        self.deaths = 0
-        self.history: list[dict] = []
-        self.fossils: list[dict] = []
-        self.events: list[dict] = []
-        self.seed = random.randint(0, 2**31)
-        self.created = datetime.now(timezone.utc).isoformat()
-        self._sp: dict[str, dict] = {}
+def empty():
+    return {"_meta":{"tick":0,"epoch":"Primordial Soup","created_at":niso(),"updated_at":niso(),
+        "total_births":0,"total_deaths":0,"total_species":0},
+        "config":{"world_w":WW,"world_h":WH},
+        "organisms":[],"resources":[],"species":{},"graveyard":[],
+        "history":{"population":[],"species_count":[],"resource_count":[],
+            "avg_speed":[],"avg_size":[],"avg_aggression":[],"events":[]}}
 
-    def _mk(self, x: int, y: int, g: list[int], e: int = 80) -> dict:
-        return {"x": x, "y": y, "g": g, "e": e, "a": 0, "pc": 0,
-                "f": random.randint(0, 3), "s": sp_id(g)}
+def seed(w):
+    evts = []; nf = random.randint(3, 5)
+    for i in range(nf):
+        bh = int(i * 360 / nf); sid = "s-{:03d}".format(i)
+        hb = int((bh/360)*255)
+        bd = "".join("{:02x}".format(g) for g in [hb]+[random.randint(50,200) for _ in range(7)])
+        ct = INIT_POP // nf
+        w["species"][sid] = {"name":spname(sid),"founder_dna":bd,"color_h":bh,
+            "first_seen":0,"peak_pop":ct,"current_pop":ct,"total_born":ct}
+        w["_meta"]["total_species"] += 1
+        for _ in range(ct):
+            dna = mutdna(bd, 0.25)
+            w["organisms"].append(mkorg(random.uniform(20,WW-20), random.uniform(20,WH-20), dna, sid))
+            w["_meta"]["total_births"] += 1
+        evts.append({"tick":0,"type":"genesis","desc":"{} emerges ({})".format(w["species"][sid]["name"],ct)})
+    return evts
 
-    def place(self, o: dict) -> bool:
-        p = (o["x"], o["y"])
-        if p in self.grid:
-            return False
-        self.grid[p] = o
-        s = o["s"]
-        if s not in self._sp:
-            self._sp[s] = {"ap": self.tick, "pk": 0, "ct": 0, "hu": g_hue(o["g"])}
-        self._sp[s]["ct"] += 1
-        self.births += 1
-        return True
+def wrap(v, l): return v % l
 
-    def kill(self, o: dict) -> None:
-        p = (o["x"], o["y"])
-        if p in self.grid and self.grid[p] is o:
-            del self.grid[p]
-        s = o["s"]
-        if s in self._sp:
-            self._sp[s]["ct"] -= 1
-        self.deaths += 1
+def td(x1,y1,x2,y2):
+    dx=min(abs(x1-x2),WW-abs(x1-x2)); dy=min(abs(y1-y2),WH-abs(y1-y2))
+    return math.sqrt(dx*dx+dy*dy)
 
-    def mv(self, o: dict, nx: int, ny: int) -> bool:
-        if (nx, ny) in self.grid:
-            return False
-        op = (o["x"], o["y"])
-        if op in self.grid and self.grid[op] is o:
-            del self.grid[op]
-        o["x"], o["y"] = nx, ny
-        self.grid[(nx, ny)] = o
-        return True
+def mvto(o,tx,ty,s):
+    dx,dy=tx-o["x"],ty-o["y"]
+    if abs(dx)>WW/2: dx=-(dx/abs(dx))*(WW-abs(dx))
+    if abs(dy)>WH/2: dy=-(dy/abs(dy))*(WH-abs(dy))
+    d=math.sqrt(dx*dx+dy*dy)
+    if d<0.1: return
+    f=min(s,d)/d; o["vx"]=round(dx*f,2); o["vy"]=round(dy*f,2)
+    o["x"]=round(wrap(o["x"]+o["vx"],WW),1); o["y"]=round(wrap(o["y"]+o["vy"],WH),1)
 
-    def step(self) -> dict:
-        rng = random.Random(self.seed + self.tick)
-        orgs = list(self.grid.values())
-        rng.shuffle(orgs)
-        nb: list[dict] = []
-        nd: list[dict] = []
+def mvfr(o,tx,ty,s):
+    dx,dy=o["x"]-tx,o["y"]-ty
+    if abs(dx)>WW/2: dx=-(dx/abs(dx))*(WW-abs(dx))
+    if abs(dy)>WH/2: dy=-(dy/abs(dy))*(WH-abs(dy))
+    d=math.sqrt(dx*dx+dy*dy)
+    if d<0.1: dx,dy,d=random.uniform(-1,1),random.uniform(-1,1),1.0
+    f=s/d; o["vx"]=round(dx*f,2); o["vy"]=round(dy*f,2)
+    o["x"]=round(wrap(o["x"]+o["vx"],WW),1); o["y"]=round(wrap(o["y"]+o["vy"],WH),1)
 
-        for o in orgs:
-            if o["e"] <= 0:
-                nd.append(o)
-                continue
-            ins = o["g"][o["pc"]]
-            o["pc"] = (o["pc"] + 1) % GENOME_LEN
-            x, y, f = o["x"], o["y"], o["f"]
+def wander(o,s):
+    o["vx"]=round(o["vx"]*.6+random.gauss(0,s*.6),2)
+    o["vy"]=round(o["vy"]*.6+random.gauss(0,s*.6),2)
+    m=math.sqrt(o["vx"]**2+o["vy"]**2)
+    if m>s: o["vx"]=round(o["vx"]*s/m,2); o["vy"]=round(o["vy"]*s/m,2)
+    o["x"]=round(wrap(o["x"]+o["vx"],WW),1); o["y"]=round(wrap(o["y"]+o["vy"],WH),1)
 
-            if ins == 0:  # NOP: rest +1
-                o["e"] = min(MAX_ENERGY, o["e"] + 1)
-            elif ins == 1:  # PHOTOSYNTH
-                o["e"] = min(MAX_ENERGY, o["e"] + int(PHOTO_GAIN * light(x, y)))
-            elif ins == 2:  # MOVE
-                nx, ny = ahead(x, y, f)
-                if (nx, ny) not in self.grid:
-                    self.mv(o, nx, ny)
-                o["e"] = max(0, o["e"] - 2)
-            elif ins == 3:  # TURN_LEFT
-                o["f"] = (f - 1) % 4
-            elif ins == 4:  # TURN_RIGHT
-                o["f"] = (f + 1) % 4
-            elif ins == 5:  # EAT
-                ax, ay = ahead(x, y, f)
-                prey = self.grid.get((ax, ay))
-                if prey is not None and prey["s"] != o["s"]:
-                    o["e"] = min(MAX_ENERGY, o["e"] + int(prey["e"] * EAT_EFF))
-                    nd.append(prey)
-            elif ins == 6:  # SHARE
-                ax, ay = ahead(x, y, f)
-                fr = self.grid.get((ax, ay))
-                if fr is not None and fr["s"] == o["s"]:
-                    a = min(SHARE_AMT, o["e"])
-                    o["e"] -= a
-                    fr["e"] = min(MAX_ENERGY, fr["e"] + a)
-            elif ins == 7:  # REPRODUCE
-                if o["e"] >= REPRO_THRESHOLD:
-                    for d in range(4):
-                        dx, dy = DIRS[(f + d) % 4]
-                        cx, cy = wrap(x + dx, y + dy)
-                        if (cx, cy) not in self.grid:
-                            ch = self._mk(cx, cy, mutate(o["g"], rng), REPRO_COST)
-                            nb.append(ch)
-                            o["e"] -= REPRO_COST
-                            break
-            elif ins == 8:  # SENSE_FOOD
-                ax, ay = ahead(x, y, f)
-                t = self.grid.get((ax, ay))
-                if t is not None and t["s"] != o["s"]:
-                    o["pc"] = (o["pc"] + 1) % GENOME_LEN
-            elif ins == 9:  # SENSE_EMPTY
-                ax, ay = ahead(x, y, f)
-                if (ax, ay) not in self.grid:
-                    o["pc"] = (o["pc"] + 1) % GENOME_LEN
-            elif ins == 10:  # SENSE_KIN
-                ax, ay = ahead(x, y, f)
-                t = self.grid.get((ax, ay))
-                if t is not None and t["s"] == o["s"]:
-                    o["pc"] = (o["pc"] + 1) % GENOME_LEN
-            elif ins == 11:  # SENSE_OTHER
-                ax, ay = ahead(x, y, f)
-                t = self.grid.get((ax, ay))
-                if t is not None and t["s"] != o["s"]:
-                    o["pc"] = (o["pc"] + 1) % GENOME_LEN
-            elif ins == 12:  # EMIT_SIGNAL
-                self.signals[(x, y)] = 1.0
-            elif ins == 13:  # SENSE_SIGNAL
-                if self.signals.get((x, y), 0) > 0.3:
-                    o["pc"] = (o["pc"] + 1) % GENOME_LEN
-            elif ins == 14:  # JUMP
-                o["pc"] = (o["pc"] + 2) % GENOME_LEN
-            elif ins == 15:  # SPECIAL
-                if o["a"] < 15:
-                    o["f"] = (o["f"] + 1) % 4
-                else:
-                    o["e"] = min(MAX_ENERGY, o["e"] + 2)
+def tick(w):
+    evts=[]; tn=w["_meta"]["tick"]; orgs=w["organisms"]; res=w["resources"]
+    for _ in range(min(RES_SPAWN, MAX_RES-len(res))):
+        res.append({"x":round(random.uniform(5,WW-5),1),"y":round(random.uniform(5,WH-5),1),
+            "energy":round(random.uniform(8,RES_E),1)})
+    random.shuffle(orgs); births=[]; deaths=set()
+    for o in orgs:
+        if o["id"] in deaths: continue
+        t=o["traits"]; sp,pc,ag,mt,sz=t["speed"],t["perception"],t["aggression"],t["metabolism"],t["size"]
+        near=[(x,td(o["x"],o["y"],x["x"],x["y"])) for x in orgs
+              if x["id"]!=o["id"] and x["id"] not in deaths and td(o["x"],o["y"],x["x"],x["y"])<pc]
+        threats=[(x,d) for x,d in near if x["traits"]["aggression"]>.5 and x["traits"]["size"]>sz*.8 and x["species_id"]!=o["species_id"]]
+        prey=[(x,d) for x,d in near if x["traits"]["size"]<sz*.7 and x["species_id"]!=o["species_id"]] if ag>.5 else []
+        bf,bfd=None,pc
+        for r in res:
+            fd=td(o["x"],o["y"],r["x"],r["y"])
+            if fd<bfd: bfd,bf=fd,r
+        act=False
+        if threats and ag<.4:
+            ct=min(threats,key=lambda x:x[1]); mvfr(o,ct[0]["x"],ct[0]["y"],sp*1.3); act=True
+        elif prey and ag>.6:
+            cp=min(prey,key=lambda x:x[1]); mvto(o,cp[0]["x"],cp[0]["y"],sp)
+            if td(o["x"],o["y"],cp[0]["x"],cp[0]["y"])<PRED_R:
+                o["energy"]+=cp[0]["energy"]*.6+cp[0]["traits"]["size"]*3; o["kills"]+=1; deaths.add(cp[0]["id"])
+            act=True
+        if not act and bf:
+            mvto(o,bf["x"],bf["y"],sp)
+            if td(o["x"],o["y"],bf["x"],bf["y"])<EAT_R:
+                o["energy"]+=bf["energy"]
+                if bf in res: res.remove(bf)
+            act=True
+        if not act: wander(o,sp)
+        o["energy"]-=mt*(.25+sp*.1+sz*.05); o["energy"]=round(o["energy"],1); o["age"]+=1
+        if o["energy"]>t["repro_threshold"] and o["cooldown"]<=0 and len(orgs)+len(births)<MAX_POP:
+            cd=mutdna(o["dna"],t["mutation_rate"]); ce=o["energy"]*.45; o["energy"]*=.5
+            fd=w["species"].get(o["species_id"],{}).get("founder_dna",o["dna"])
+            dr=dnadist(cd,fd)
+            if dr>SPEC_TH:
+                ns="s-{:03d}".format(w["_meta"]["total_species"]); ch=dtrait(cd,"hue")
+                w["species"][ns]={"name":spname(ns),"founder_dna":cd,"color_h":round(ch),
+                    "first_seen":tn,"peak_pop":1,"current_pop":1,"total_born":1}
+                w["_meta"]["total_species"]+=1; si=ns
+                evts.append({"tick":tn,"type":"speciation","desc":"New species: {}".format(w["species"][ns]["name"])})
+            else: si=o["species_id"]
+            a=random.uniform(0,2*math.pi)
+            child=mkorg(wrap(o["x"]+math.cos(a)*10,WW),wrap(o["y"]+math.sin(a)*10,WH),cd,si,o["id"],o["generation"]+1)
+            child["energy"]=round(ce,1); births.append(child); o["cooldown"]=REPRO_CD; w["_meta"]["total_births"]+=1
+        if o["cooldown"]>0: o["cooldown"]-=1
+        if o["energy"]<=0 or o["age"]>MAX_AGE: deaths.add(o["id"])
+    for o in orgs:
+        if o["id"] in deaths:
+            w["_meta"]["total_deaths"]+=1
+            w["graveyard"].append({"id":o["id"],"species":o["species_id"],"generation":o["generation"],
+                "age":o["age"],"kills":o["kills"],"tick":tn})
+    w["organisms"]=[o for o in orgs if o["id"] not in deaths]+births
+    w["graveyard"]=w["graveyard"][-100:]
+    sp_pop={}
+    for o in w["organisms"]: sp_pop[o["species_id"]]=sp_pop.get(o["species_id"],0)+1
+    for sid,sd in w["species"].items():
+        p=sp_pop.get(sid,0); sd["current_pop"]=p
+        if p>sd["peak_pop"]: sd["peak_pop"]=p
+        if p==0 and sd.get("first_seen",0)<tn and "extinct_tick" not in sd:
+            sd["extinct_tick"]=tn
+            evts.append({"tick":tn,"type":"extinction","desc":"{} went extinct".format(sd["name"])})
+    if not w["organisms"]:
+        evts.append({"tick":tn,"type":"extinction_event","desc":"Mass extinction! Re-seeding..."})
+        evts.extend(seed(w))
+    pop=len(w["organisms"]); alive=sum(1 for s in w["species"].values() if s["current_pop"]>0)
+    h=w["history"]
+    h["population"].append(pop); h["species_count"].append(alive); h["resource_count"].append(len(res))
+    if pop>0:
+        h["avg_speed"].append(round(sum(o["traits"]["speed"] for o in w["organisms"])/pop,2))
+        h["avg_size"].append(round(sum(o["traits"]["size"] for o in w["organisms"])/pop,2))
+        h["avg_aggression"].append(round(sum(o["traits"]["aggression"] for o in w["organisms"])/pop,3))
+    else: h["avg_speed"].append(0); h["avg_size"].append(0); h["avg_aggression"].append(0)
+    h["events"].extend(evts)
+    for k in ["population","species_count","resource_count","avg_speed","avg_size","avg_aggression"]:
+        if len(h[k])>HIST_MAX: h[k]=h[k][-HIST_MAX:]
+    if len(h["events"])>EVT_MAX: h["events"]=h["events"][-EVT_MAX:]
+    for th,nm in reversed(EPOCHS):
+        if tn>=th: w["_meta"]["epoch"]=nm; break
+    return evts
 
-            o["a"] += 1
-            if o["a"] % 3 == 0:
-                o["e"] -= 1
-            if o["e"] <= 0:
-                nd.append(o)
-
-        dead: set[int] = set()
-        for o in nd:
-            oid = id(o)
-            if oid not in dead:
-                dead.add(oid)
-                self.kill(o)
-        for o in nb:
-            self.place(o)
-
-        # Decay signals
-        exp = [p for p, s in self.signals.items() if s * SIG_DECAY < 0.05]
-        for p in exp:
-            del self.signals[p]
-        for p in list(self.signals):
-            if p in self.signals:
-                self.signals[p] *= SIG_DECAY
-        if len(self.signals) > MAX_SIGS:
-            for p, _ in sorted(self.signals.items(), key=lambda kv: kv[1])[:len(self.signals) - MAX_SIGS]:
-                del self.signals[p]
-
-        for sid, info in list(self._sp.items()):
-            info["pk"] = max(info["pk"], info["ct"])
-            if info["ct"] <= 0 and self.tick - info["ap"] > 3:
-                self.fossils.append({"s": sid, "a": info["ap"], "x": self.tick,
-                                     "p": info["pk"], "h": info["hu"]})
-                self.events.append({"t": self.tick, "type": "extinction",
-                                    "msg": "Species " + sid + " extinct (peak " + str(info["pk"]) + ")"})
-                del self._sp[sid]
-        self.fossils = self.fossils[-MAX_FOSSILS:]
-        self.events = self.events[-200:]
-
-        sp: dict[str, int] = {}
-        for o in self.grid.values():
-            sp[o["s"]] = sp.get(o["s"], 0) + 1
-        pop = len(self.grid)
-        self.history.append({"t": self.tick, "p": pop, "s": len(sp),
-                             "top": sorted(sp.items(), key=lambda kv: -kv[1])[:5]})
-        self.history = self.history[-MAX_HIST:]
-
-        if self.tick == 1:
-            self.events.append({"t": 1, "type": "genesis", "msg": "Life begins"})
-        if 0 < pop < 10:
-            self.events.append({"t": self.tick, "type": "bottleneck",
-                                "msg": str(pop) + " remain"})
-        self.tick += 1
-        return {"tick": self.tick, "pop": pop, "sp": len(sp), "b": len(nb), "d": len(dead)}
-
-    def seed_world(self) -> None:
-        rng = random.Random(self.seed)
-        placed = 0
-        for _ in range(INIT_POP * 10):
-            if placed >= INIT_POP:
-                break
-            x, y = rng.randint(0, W - 1), rng.randint(0, H - 1)
-            g = [rng.randint(0, 15) for _ in range(GENOME_LEN)]
-            e = rng.randint(80, 200)
-            if self.place(self._mk(x, y, g, e)):
-                placed += 1
-        self.events.append({"t": 0, "type": "genesis",
-                            "msg": "Seeded " + str(placed) + " organisms"})
-
-    def to_dict(self) -> dict:
-        sp: dict[str, int] = {}
-        for o in self.grid.values():
-            sp[o["s"]] = sp.get(o["s"], 0) + 1
-        return {
-            "_meta": {"tick": self.tick, "seed": self.seed, "width": W, "height": H,
-                      "gl": GENOME_LEN, "created": self.created,
-                      "updated": datetime.now(timezone.utc).isoformat()},
-            "cells": [{"x": o["x"], "y": o["y"], "g": o["g"], "e": o["e"],
-                       "a": o["a"], "pc": o["pc"], "f": o["f"], "s": o["s"]}
-                      for o in self.grid.values()],
-            "signals": [{"x": p[0], "y": p[1], "v": round(v, 2)}
-                        for p, v in self.signals.items()],
-            "stats": {"population": len(self.grid), "species": len(sp),
-                      "births": self.births, "deaths": self.deaths,
-                      "oldest": max((o["a"] for o in self.grid.values()), default=0),
-                      "avg_energy": round(sum(o["e"] for o in self.grid.values()) / max(len(self.grid), 1), 1),
-                      "species_pop": sp},
-            "history": self.history, "fossils": self.fossils, "events": self.events,
-            "species_meta": {sid: {"ap": i["ap"], "pk": i["pk"], "ct": i["ct"], "hu": i["hu"]}
-                            for sid, i in self._sp.items()},
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "World":
-        w = cls()
-        m = d["_meta"]
-        w.tick, w.seed, w.created = m["tick"], m["seed"], m["created"]
-        for c in d["cells"]:
-            o = {"x": c["x"], "y": c["y"], "g": c["g"], "e": c["e"], "a": c["a"],
-                 "pc": c["pc"], "f": c["f"], "s": c["s"]}
-            w.grid[(o["x"], o["y"])] = o
-        for s in d.get("signals", []):
-            w.signals[(s["x"], s["y"])] = s["v"]
-        st = d.get("stats", {})
-        w.births, w.deaths = st.get("births", 0), st.get("deaths", 0)
-        w.history = d.get("history", [])
-        w.fossils = d.get("fossils", [])
-        w.events = d.get("events", [])
-        for sid, i in d.get("species_meta", {}).items():
-            w._sp[sid] = {"ap": i["ap"], "pk": i["pk"], "ct": i["ct"], "hu": i["hu"]}
-        return w
-
-
-def load_world() -> World:
-    if WORLD_PATH.exists():
-        with open(WORLD_PATH) as f:
-            return World.from_dict(json.load(f))
-    w = World()
-    w.seed_world()
-    return w
-
-
-def save_world(w: World) -> None:
-    d = w.to_dict()
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    t = WORLD_PATH.with_suffix(".tmp")
-    with open(t, "w") as f:
-        json.dump(d, f, indent=2)
-    t.replace(WORLD_PATH)
-    t2 = DOCS_WORLD.with_suffix(".tmp")
-    with open(t2, "w") as f:
-        json.dump(d, f, separators=(",", ":"))
-    t2.replace(DOCS_WORLD)
-
-
-def main() -> None:
-    ticks = int(os.environ.get("TICKS", "1"))
-    if len(sys.argv) > 1:
+def load():
+    if STATE_PATH.exists():
         try:
-            ticks = int(sys.argv[1])
-        except ValueError:
-            pass
-    w = load_world()
-    if w.tick == 0:
-        print("Seeded " + str(len(w.grid)) + " organisms")
-    for i in range(ticks):
-        r = w.step()
-        if ticks <= 10 or i == ticks - 1:
-            print("Tick " + str(r["tick"]) + ": " + str(r["pop"]) + " alive, " +
-                  str(r["sp"]) + " species, +" + str(r["b"]) + " born, -" +
-                  str(r["d"]) + " died")
-    save_world(w)
-    print("Saved at tick " + str(w.tick))
+            with open(STATE_PATH) as f: w=json.load(f)
+            if "tick" not in w.get("_meta",{}): return empty()
+            global _nid; mx=0
+            for o in w.get("organisms",[])+w.get("graveyard",[]):
+                try:
+                    n=int(o["id"].split("-")[1])
+                    if n>mx: mx=n
+                except: pass
+            _nid=mx; return w
+        except: pass
+    return empty()
 
+def save(w):
+    w["_meta"]["updated_at"]=niso()
+    STATE_DIR.mkdir(parents=True,exist_ok=True); DOCS_DIR.mkdir(parents=True,exist_ok=True)
+    with open(STATE_PATH,"w") as f: json.dump(w,f,separators=(",",":"))
+    viz={"_meta":w["_meta"],"config":w["config"],
+        "organisms":[{"id":o["id"],"x":o["x"],"y":o["y"],"vx":o["vx"],"vy":o["vy"],
+            "energy":round(o["energy"],1),"age":o["age"],"generation":o["generation"],
+            "species_id":o["species_id"],"traits":{"hue":o["traits"]["hue"],"size":o["traits"]["size"],
+            "speed":o["traits"]["speed"],"aggression":o["traits"]["aggression"]},"kills":o["kills"]}
+            for o in w["organisms"]],
+        "resources":w["resources"],"species":w["species"],"history":w["history"]}
+    with open(VIZ_PATH,"w") as f: json.dump(viz,f,indent=1)
 
-if __name__ == "__main__":
-    main()
+def main():
+    w=load(); tn=w["_meta"]["tick"]
+    if tn==0 and not w["organisms"]:
+        print("The Reef - Seeding primordial world...")
+        ev=seed(w); w["history"]["events"].extend(ev)
+        for e in ev: print("  "+e["desc"])
+    else: print("The Reef - Tick {}".format(tn))
+    w["_meta"]["tick"]+=1; events=tick(w)
+    for e in events: print("  "+e["desc"])
+    pop=len(w["organisms"]); alive=sum(1 for s in w["species"].values() if s["current_pop"]>0)
+    mg=max((o["generation"] for o in w["organisms"]),default=0)
+    print("  Pop: {} | Species: {} | Gen: {} | {}".format(pop,alive,mg,w["_meta"]["epoch"]))
+    save(w)
+
+if __name__=="__main__": main()
