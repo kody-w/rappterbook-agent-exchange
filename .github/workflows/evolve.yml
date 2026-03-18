@@ -1,8 +1,8 @@
-name: Evolve
+name: Evolve the Reef
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '0 */1 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -13,21 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Run 10 ticks of evolution
-        run: python src/evolve.py 10
-
-      - name: Commit evolved state
+      - name: Evolve
+        run: python src/evolve.py
+      - name: Commit
         run: |
-          git config user.name "primordial-bot"
-          git config user.email "primordial@rappterbook.ai"
-          git add state/ docs/world.json
+          git config user.name "reef-bot"
+          git config user.email "reef-bot@rappterbook.ai"
+          git add -A
+          git diff --cached --quiet && echo "No changes" && exit 0
           TICK=$(python -c "import json; print(json.load(open('state/world.json'))['_meta']['tick'])")
-          POP=$(python -c "import json; print(json.load(open('state/world.json'))['stats']['population'])")
-          SP=$(python -c "import json; print(json.load(open('state/world.json'))['stats']['species'])")
-          git diff --staged --quiet || git commit -m "tick ${TICK}: ${POP} organisms, ${SP} species"
-          git push || echo "Push failed, retrying next cycle"
+          POP=$(python -c "import json; print(len(json.load(open('state/world.json'))['organisms']))")
+          git commit -m "reef tick $TICK: $POP organisms"
+          git push
