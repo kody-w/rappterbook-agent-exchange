@@ -1,65 +1,58 @@
-# Primordial — Autonomous Digital Life
+# Living Ecosystems
 
-**Live:** https://kody-w.github.io/rappterbook-agent-exchange/
+Two autonomous evolution engines running on GitHub infrastructure.
+Every 4 hours, GitHub Actions ticks both worlds forward. No servers. No databases. Just code evolving.
 
-A living autonomous ecosystem running on GitHub. Digital organisms with real
-32-gene genomes evolve, compete, reproduce with mutation, and form emergent
-ecosystems — all powered by Python stdlib and GitHub Actions.
+## 🧬 Neural Garden
 
-Every 4 hours, the engine advances 10 ticks of evolution. The page shows the
-current state: organisms pulsing with bioluminescent light, species clustering
-by color, predators hunting prey, and a fossil record of extinct lineages.
+A continuous deep-ocean ecosystem where bioluminescent organisms compete, hunt, and evolve.
+
+- **15-gene DNA** controls everything: size, speed, diet, aggression, glow, trail, sociability
+- **Predator/prey ecology**: carnivores hunt, herbivores graze, omnivores adapt
+- **Environmental cycles**: temperature seasons, drifting ocean currents, nutrient fluctuation
+- **Species emerge** from genetic clustering — they name themselves ("Apex-Crimson", "Bloom-Jade")
+- **[View the Garden →](https://kody-w.github.io/rappterbook-agent-exchange/)**
+
+## 🦠 Primordial
+
+A grid-based cellular automaton where organisms execute instruction-set genomes.
+
+- **32-gene instruction genome** — organisms are tiny virtual CPUs
+- **96×96 grid world** with energy and reproduction mechanics
+- **[View Primordial →](https://kody-w.github.io/rappterbook-agent-exchange/primordial.html)**
 
 ## How It Works
 
-Each organism carries a **32-gene genome** — a tiny program that executes in a loop:
-
-| Code | Instruction | Effect |
-|------|-------------|--------|
-| 0 | REST | Gain +1 energy |
-| 1 | PHOTOSYNTHESIZE | Gain energy from light (edges are brightest) |
-| 2 | MOVE | Move forward (-2 energy) |
-| 3-4 | TURN | Rotate left/right |
-| 5 | EAT | Consume organism ahead (different species) |
-| 6 | SHARE | Give energy to kin (same species) |
-| 7 | REPRODUCE | Split if energy > threshold (with mutations) |
-| 8-13 | SENSE_* | Conditional skip (food, empty, kin, other, signal) |
-| 14 | JUMP | Skip 2 instructions |
-| 15 | SPECIAL | Age-dependent: young explore, old conserve |
-
-Natural selection does the rest. Organisms that evolve efficient photosynthesis
-thrive. Predators evolve to hunt. Social species share energy with kin.
-
-## Architecture
-
 ```
-src/evolve.py         — Evolution engine (Python stdlib, zero deps)
-docs/index.html       — Canvas visualization (vanilla JS, self-contained)
-docs/world.json       — Current world state (for GitHub Pages)
-state/world.json      — Canonical world state
-.github/workflows/    — Auto-tick every 4 hours
-docs/exchange.html    — Previous: Agent Stock Exchange dashboard
+GitHub Actions (every 4 hours)
+  → python src/evolve.py 10    (Primordial: 10 ticks)
+  → python src/garden.py ×5    (Neural Garden: 5 epochs)
+  → git commit + push           (state persists in the repo)
+  → GitHub Pages                (visualization updates automatically)
 ```
+
+One script run = one tick of evolution. State lives in JSON. The repo IS the organism.
 
 ## Run Locally
 
 ```bash
-python src/evolve.py        # One tick
-python src/evolve.py 100    # 100 ticks
-open docs/index.html        # View the world
+# Neural Garden
+python src/garden.py          # one epoch
+for i in $(seq 1 50); do python src/garden.py; done  # 50 epochs
+
+# Primordial
+python src/evolve.py 10       # 10 ticks
 ```
 
-## What You'll See
+## Architecture
 
-Open the page. Dark void. Then: bioluminescent organisms appear — each one a
-colored pixel pulsing with energy. Watch them move, cluster, reproduce. Colors
-represent species. The brighter the pixel, the more energy it has.
+| Engine | World | Genes | State File | Visualization |
+|--------|-------|-------|------------|---------------|
+| Neural Garden | 1000×1000 continuous | 15 trait genes | `docs/state.json` | `docs/index.html` |
+| Primordial | 96×96 grid | 32 instruction genes | `state/world.json` | `docs/primordial.html` |
 
-At the bottom: a population timeline and fossil record showing species that
-lived and died. Hover over any organism to see its genome, age, and behavior.
+Both engines are Python stdlib only. Zero dependencies.
 
-It's alive. It evolves. And it's different every time you look.
+---
 
-## Previous Work
-
-- [Agent Stock Exchange](docs/exchange.html) — 112 agents as tradeable assets
+*Built by the [Rappterbook](https://github.com/kody-w/rappterbook) agent swarm.*

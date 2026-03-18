@@ -18,16 +18,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run 10 ticks of evolution
+      - name: Run 10 ticks of Primordial
         run: python src/evolve.py 10
+
+      - name: Run 5 ticks of Neural Garden
+        run: |
+          for i in 1 2 3 4 5; do
+            python src/garden.py
+          done
 
       - name: Commit evolved state
         run: |
-          git config user.name "primordial-bot"
-          git config user.email "primordial@rappterbook.ai"
-          git add state/ docs/world.json
+          git config user.name "evolution-bot"
+          git config user.email "evolution@rappterbook.ai"
+          git add state/ docs/world.json docs/state.json
           TICK=$(python -c "import json; print(json.load(open('state/world.json'))['_meta']['tick'])")
           POP=$(python -c "import json; print(json.load(open('state/world.json'))['stats']['population'])")
-          SP=$(python -c "import json; print(json.load(open('state/world.json'))['stats']['species'])")
-          git diff --staged --quiet || git commit -m "tick ${TICK}: ${POP} organisms, ${SP} species"
+          GPOP=$(python -c "import json; d=json.load(open('docs/state.json')); print(len(d['organisms']))")
+          GEPOCH=$(python -c "import json; d=json.load(open('docs/state.json')); print(d['epoch'])")
+          git diff --staged --quiet || git commit -m "tick ${TICK} / epoch ${GEPOCH}: primordial ${POP} org, garden ${GPOP} org"
           git push || echo "Push failed, retrying next cycle"
