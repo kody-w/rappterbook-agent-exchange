@@ -2,238 +2,435 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Emergence</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>The Abyss — A Living Digital Ecosystem</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#020810;font-family:'SF Mono','Fira Code','Courier New',monospace;color:#88ccaa}
-canvas{position:absolute;top:0;left:0;z-index:1}
-#glow{z-index:2;mix-blend-mode:screen;pointer-events:none;opacity:0.3}
-#ui{position:fixed;z-index:10;top:0;left:0;width:100%;height:100%;pointer-events:none}
-#title{position:absolute;top:14px;right:20px;font-size:11px;letter-spacing:8px;color:rgba(60,200,160,0.25);font-weight:200;text-transform:uppercase}
-#stats{position:absolute;top:14px;left:16px;font-size:10px;line-height:2;color:rgba(100,180,160,0.5)}
-#stats .v{color:#3dd8a0;font-weight:bold}
-#stats .dim{color:rgba(60,140,120,0.3)}
-#tooltip{position:absolute;display:none;background:rgba(4,8,16,0.92);border:1px solid rgba(60,200,160,0.2);border-radius:6px;padding:10px 14px;font-size:10px;line-height:1.7;color:#88ccaa;pointer-events:none;z-index:20;max-width:260px;backdrop-filter:blur(8px)}
-#events{position:absolute;bottom:80px;left:16px;width:260px;max-height:140px;overflow:hidden;font-size:9px;line-height:1.6}
-.ev{opacity:0;animation:fadeIn .6s forwards;color:rgba(100,160,140,0.4);margin-bottom:1px}
-.ev.birth{color:rgba(60,220,160,0.6)}.ev.death{color:rgba(220,60,80,0.5)}.ev.predation{color:rgba(220,160,60,0.6)}.ev.speciation{color:rgba(160,120,220,0.6)}.ev.toxic{color:rgba(180,60,220,0.5)}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-#timeline{position:absolute;bottom:0;left:0;width:100%;height:60px}
-#tl-canvas{width:100%;height:100%}
-nav{position:absolute;bottom:12px;right:16px;font-size:9px;z-index:20;pointer-events:auto}
-nav a{color:rgba(60,200,160,0.3);text-decoration:none;margin-left:12px;letter-spacing:2px}
-nav a:hover{color:#3dd8a0}
-#legend{position:absolute;top:50%;right:16px;transform:translateY(-50%);font-size:9px;line-height:2.2;color:rgba(100,160,140,0.4)}
-.swatch{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:middle}
+body{background:#020208;overflow:hidden;font-family:'Courier New',monospace;color:#b0c4de}
+canvas{display:block}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+.hud-box{position:absolute;padding:8px 12px;background:rgba(2,2,8,0.7);border:1px solid rgba(100,140,200,0.15);border-radius:6px;font-size:12px;line-height:1.6}
+#stats-left{top:12px;left:12px}
+#stats-right{top:12px;right:12px;text-align:right}
+#epoch-bar{bottom:12px;left:50%;transform:translateX(-50%);font-size:16px;letter-spacing:4px;text-transform:uppercase;color:rgba(100,180,255,0.6)}
+#sparkline-box{bottom:50px;left:50%;transform:translateX(-50%);width:320px;height:60px}
+#sparkline-box canvas{width:100%;height:100%}
+#events-feed{top:80px;right:12px;max-height:400px;overflow:hidden;width:220px;font-size:10px;line-height:1.5}
+.event-line{opacity:0.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.event-birth{color:#4f8}
+.event-death{color:#f64}
+.event-speciation{color:#c8f}
+.event-genesis{color:#8df}
+#species-legend{top:80px;left:12px;max-height:400px;overflow:hidden;font-size:10px;width:140px}
+.sp-entry{display:flex;align-items:center;gap:6px;margin:2px 0}
+.sp-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#title-screen{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;background:#020208;transition:opacity 1.5s}
+#title-screen h1{font-size:64px;letter-spacing:20px;color:rgba(80,160,255,0.9);text-shadow:0 0 40px rgba(80,160,255,0.4)}
+#title-screen p{margin-top:16px;font-size:16px;letter-spacing:6px;color:rgba(150,180,220,0.6)}
+#tooltip{position:fixed;padding:6px 10px;background:rgba(2,2,8,0.9);border:1px solid rgba(100,160,255,0.3);border-radius:4px;font-size:11px;pointer-events:none;z-index:20;display:none;line-height:1.5}
 </style>
 </head>
 <body>
-<canvas id="main"></canvas>
-<canvas id="glow"></canvas>
-<div id="ui">
-  <div id="title">EMERGENCE</div>
-  <div id="stats">loading...</div>
-  <div id="tooltip"></div>
-  <div id="events"></div>
-  <div id="legend"></div>
-  <div id="timeline"><canvas id="tl-canvas"></canvas></div>
-  <nav><a href="exchange.html">EXCHANGE</a></nav>
+<div id="title-screen"><h1>THE ABYSS</h1><p>A Living Digital Ecosystem</p></div>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-box" id="stats-left"></div>
+  <div class="hud-box" id="stats-right"></div>
+  <div class="hud-box" id="epoch-bar"></div>
+  <div class="hud-box" id="sparkline-box"><canvas id="spark"></canvas></div>
+  <div class="hud-box" id="events-feed"></div>
+  <div class="hud-box" id="species-legend"></div>
 </div>
+<div id="tooltip"></div>
 <script>
-const C=document.getElementById("main"),G=document.getElementById("glow"),
-ctx=C.getContext("2d"),gctx=G.getContext("2d"),
-TC=document.getElementById("tl-canvas"),tctx=TC.getContext("2d");
-let W,H,world=null,organisms=[],cam={x:0,y:0,z:1.8},
-mouse={x:-1,y:-1},hover=null,tracked=null,frame=0,lastFetch=0;
+(function(){
+"use strict";
+var W=1200,H=800,GW=60,GH=40,CW=W/GW,CH=H/GH;
+var canvas=document.getElementById("c");
+var ctx=canvas.getContext("2d");
+var sparkCanvas=document.getElementById("spark");
+var sctx=sparkCanvas.getContext("2d");
+var world=null,paused=false,mouseX=0,mouseY=0,hoverOrg=null;
+var motes=[],deathParticles=[],birthPulses=[];
+var lastReload=0,RELOAD_MS=120000;
 
-function resize(){W=C.width=G.width=innerWidth;H=C.height=G.height=innerHeight;TC.width=W;TC.height=60}
-addEventListener("resize",resize);resize();
+function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;sparkCanvas.width=320;sparkCanvas.height=60;}
+window.addEventListener("resize",resize);resize();
 
-function geneColor(g){
-if(!g||!g.length)return{h:180,s:60,l:50};
-return{h:(g[0]*360+g[1]*60)%360,s:30+g[2]*40,l:35+g[3]*30}}
-function hsl(c,a){return`hsla(${c.h},${c.s}%,${c.l}%,${a||1})`}
+setTimeout(function(){var ts=document.getElementById("title-screen");ts.style.opacity="0";setTimeout(function(){ts.style.display="none";},1600);},2000);
 
-const spColors={};
-function getSpColor(o){
-const sid=o.species_id||"x";
-if(!spColors[sid])spColors[sid]=geneColor(o.genome);
-return spColors[sid]}
+var mi;
+for(mi=0;mi<80;mi++){motes.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-0.5)*0.2,vy:(Math.random()-0.5)*0.15,r:Math.random()*1.5+0.5,a:Math.random()*0.3+0.1});}
 
-async function fetchWorld(){
-try{
-const r=await fetch("state.json?t="+Date.now());
-if(!r.ok)return;
-world=await r.json();
-organisms=world.organisms||[];
-organisms.forEach(o=>{if(o._rx==null){o._rx=o.x;o._ry=o.y}});
-updateStats();updateEvents();updateLegend()
-}catch(e){}}
+function bootstrap(n){
+  var orgs=[],i,j,g,nuts=[];
+  for(i=0;i<n;i++){
+    g=[];for(j=0;j<16;j++)g.push(Math.random());
+    orgs.push({id:"org-0-"+Math.random().toString(36).slice(2,8),name:"",x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,energy:50+g[2]*30,genome:g,age:0,generation:0,species_id:"sp-"+Math.floor(Math.random()*5+1),born_tick:0,parent_id:""});
+  }
+  for(i=0;i<GW*GH;i++)nuts.push(Math.random()*0.5+0.2);
+  return{_meta:{world_width:W,world_height:H,nutrient_grid_w:GW,nutrient_grid_h:GH,epoch:"Primordial Soup"},tick:0,organisms:orgs,nutrients:nuts,species:{},history:{population:[n],species_count:[5],avg_energy:[50]},events:[{tick:0,type:"genesis",message:"Client-side bootstrap"}]};
+}
 
-function updateStats(){
-if(!world)return;
-const s=world.stats||{},pop=organisms.length,sp=Object.keys(world.species||{}).length,
-tick=world.tick||0,avgE=pop?Math.round(organisms.reduce((a,o)=>a+o.energy,0)/pop):0;
-document.getElementById("stats").innerHTML=
-`<span class="dim">TICK</span> <span class="v">${tick}</span><br>`+
-`<span class="dim">POP</span> <span class="v">${pop}</span><br>`+
-`<span class="dim">SPECIES</span> <span class="v">${sp}</span><br>`+
-`<span class="dim">AVG ENERGY</span> <span class="v">${avgE}</span><br>`+
-`<span class="dim">BIRTHS</span> <span class="v">${s.total_births||0}</span><br>`+
-`<span class="dim">DEATHS</span> <span class="v">${s.total_deaths||0}</span>`}
+function loadWorld(){
+  return fetch("world.json?t="+Date.now()).then(function(r){
+    if(!r.ok)throw new Error(r.status);
+    return r.json();
+  }).then(function(d){
+    if(d.organisms&&d.organisms.length>0){world=d;}
+    else if(!world){world=bootstrap(60);}
+  }).catch(function(e){
+    console.warn("world.json load failed, bootstrapping",e);
+    if(!world)world=bootstrap(60);
+  });
+}
 
-function updateEvents(){
-const el=document.getElementById("events");
-const evts=(world.events||[]).slice(-12).reverse();
-el.innerHTML=evts.map(e=>{
-let cls="ev";
-if(e.type==="birth")cls+=" birth";
-else if(e.type==="death")cls+=" death";
-else if(e.type==="predation")cls+=" predation";
-else if(e.type==="toxic")cls+=" toxic";
-return`<div class="${cls}">${e.desc||e.type}</div>`}).join("")}
+function simStep(){
+  if(!world||paused)return;
+  var orgs=world.organisms;
+  var grid=world.nutrients;
+  var newOrgs=[];
+  var deadSet={};
+  var oi,org,g,speed,aggr,coop,sense,sz,gx,gy,bv,bdx,bdy,dy,dx,nx,ny,v,m;
+  var fx,fy,cnt,oj,o,dd,sr,closest,cd,vmag,egx,egy,idx,eaten,rt,cg,mr,gi,child;
 
-function updateLegend(){
-if(!world||!world.species)return;
-const el=document.getElementById("legend"),sp=world.species;
-const sorted=Object.entries(sp).sort((a,b)=>(b[1].count||0)-(a[1].count||0)).slice(0,8);
-el.innerHTML=sorted.map(([id,s])=>{
-const sample=organisms.find(o=>o.species_id===id);
-const c=sample?getSpColor(sample):{h:180,s:50,l:50};
-return`<div><span class="swatch" style="background:${hsl(c,0.8)}"></span>${s.name||id} (${s.count||0})</div>`}).join("")}
+  for(oi=0;oi<orgs.length;oi++){
+    org=orgs[oi];
+    if(deadSet[org.id])continue;
+    g=org.genome;
+    speed=0.5+g[3]*3;
+    aggr=g[9];
+    coop=g[10];
+    sense=20+g[11]*120;
+    sz=3+g[2]*12;
 
-// Camera
-let drag=false,ds={x:0,y:0};
-C.addEventListener("mousedown",e=>{drag=true;ds={x:e.clientX-cam.x,y:e.clientY-cam.y}});
-C.addEventListener("mousemove",e=>{mouse.x=e.clientX;mouse.y=e.clientY;if(drag){cam.x=e.clientX-ds.x;cam.y=e.clientY-ds.y}});
-C.addEventListener("mouseup",()=>drag=false);
-C.addEventListener("wheel",e=>{
-const d=e.deltaY>0?0.9:1.1,mx=(mouse.x-cam.x-W/2)/cam.z,my=(mouse.y-cam.y-H/2)/cam.z;
-cam.z=Math.max(0.2,Math.min(8,cam.z*d));
-cam.x=mouse.x-mx*cam.z-W/2;cam.y=mouse.y-my*cam.z-H/2;
-e.preventDefault()},{passive:false});
-C.addEventListener("click",()=>{if(hover)tracked=tracked===hover?null:hover});
+    // nutrient steering
+    gx=Math.floor(Math.max(0,Math.min(GW-1,org.x/CW)));
+    gy=Math.floor(Math.max(0,Math.min(GH-1,org.y/CH)));
+    bv=-1;bdx=0;bdy=0;
+    for(dy=-2;dy<=2;dy++)for(dx=-2;dx<=2;dx++){
+      nx=gx+dx;ny=gy+dy;
+      if(nx>=0&&nx<GW&&ny>=0&&ny<GH){v=grid[ny*GW+nx];if(v>bv){bv=v;bdx=dx*CW;bdy=dy*CH;}}
+    }
+    if(bv>0){m=Math.sqrt(bdx*bdx+bdy*bdy)+1e-6;org.vx+=(bdx/m)*0.3;org.vy+=(bdy/m)*0.3;}
 
-// Touch support
-let lastTouch=null;
-C.addEventListener("touchstart",e=>{
-if(e.touches.length===1){drag=true;const t=e.touches[0];ds={x:t.clientX-cam.x,y:t.clientY-cam.y};mouse.x=t.clientX;mouse.y=t.clientY}
-e.preventDefault()},{passive:false});
-C.addEventListener("touchmove",e=>{
-if(e.touches.length===1&&drag){const t=e.touches[0];cam.x=t.clientX-ds.x;cam.y=t.clientY-ds.y;mouse.x=t.clientX;mouse.y=t.clientY}
-e.preventDefault()},{passive:false});
-C.addEventListener("touchend",()=>drag=false);
+    // flocking
+    if(coop>0.5){
+      fx=0;fy=0;cnt=0;
+      for(oj=0;oj<orgs.length;oj++){
+        o=orgs[oj];if(o.id===org.id||deadSet[o.id])continue;
+        if(o.species_id===org.species_id){
+          dd=Math.sqrt((org.x-o.x)*(org.x-o.x)+(org.y-o.y)*(org.y-o.y));
+          sr=30+g[4]*80;
+          if(dd<sr&&dd>1){fx+=(o.x-org.x)/dd;fy+=(o.y-org.y)/dd;cnt++;}
+        }
+      }
+      if(cnt>0){org.vx+=fx/cnt*0.15*coop;org.vy+=fy/cnt*0.15*coop;}
+    }
 
-function toScreen(x,y){return{x:x*cam.z+cam.x+W/2,y:y*cam.z+cam.y+H/2}}
-function toWorld(sx,sy){return{x:(sx-W/2-cam.x)/cam.z,y:(sy-H/2-cam.y)/cam.z}}
+    // flee predators
+    for(oj=0;oj<orgs.length;oj++){
+      o=orgs[oj];if(o.id===org.id||deadSet[o.id])continue;
+      if(o.genome[9]>0.6&&o.genome[2]>g[2]){
+        dd=Math.sqrt((org.x-o.x)*(org.x-o.x)+(org.y-o.y)*(org.y-o.y));
+        if(dd>0&&dd<sense*0.6){org.vx-=(o.x-org.x)/dd*0.5;org.vy-=(o.y-org.y)/dd*0.5;}
+      }
+    }
 
-function interpolate(){
-organisms.forEach(o=>{
-o._rx+=(o.x-o._rx)*0.08;o._ry+=(o.y-o._ry)*0.08;
-const t=frame*0.008+o.x*0.05;
-o._rx+=Math.sin(t)*0.03;o._ry+=Math.cos(t*1.3)*0.02})}
+    // hunting
+    if(aggr>0.5){
+      closest=null;cd=sense;
+      for(oj=0;oj<orgs.length;oj++){
+        o=orgs[oj];if(o.id===org.id||deadSet[o.id])continue;
+        if(o.species_id!==org.species_id&&o.genome[2]<g[2]){
+          dd=Math.sqrt((org.x-o.x)*(org.x-o.x)+(org.y-o.y)*(org.y-o.y));
+          if(dd<cd){cd=dd;closest=o;}
+        }
+      }
+      if(closest){
+        dd=cd+1e-6;
+        org.vx+=(closest.x-org.x)/dd*0.4*aggr;
+        org.vy+=(closest.y-org.y)/dd*0.4*aggr;
+        if(cd<sz+3){org.energy+=closest.energy*0.6;deadSet[closest.id]=true;spawnDeath(closest.x,closest.y);}
+      }
+    }
 
-function drawOrganism(o,isH){
-const p=toScreen(o._rx,o._ry),g=o.genome||[],
-size=(g[1]||0.5)*8+3,r=size*cam.z;
-if(p.x<-r*4||p.x>W+r*4||p.y<-r*4||p.y>H+r*4)return;
-const c=getSpColor(o),ePct=Math.min(o.energy/200,1),
-pulse=Math.sin(frame*0.05+o.x*2)*0.15+0.85,alpha=0.4+ePct*0.5;
+    // velocity cap + move
+    vmag=Math.sqrt(org.vx*org.vx+org.vy*org.vy)+1e-6;
+    if(vmag>speed){org.vx=org.vx/vmag*speed;org.vy=org.vy/vmag*speed;}
+    org.x+=org.vx;org.y+=org.vy;
+    if(org.x<0)org.x+=W;if(org.x>=W)org.x-=W;
+    if(org.y<0)org.y+=H;if(org.y>=H)org.y-=H;
 
-// Glow
-const gr=gctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r*4);
-gr.addColorStop(0,hsl(c,alpha*pulse*0.6));gr.addColorStop(1,"transparent");
-gctx.fillStyle=gr;gctx.fillRect(p.x-r*4,p.y-r*4,r*8,r*8);
+    // eat nutrients
+    egx=Math.floor(Math.max(0,Math.min(GW-1,org.x/CW)));
+    egy=Math.floor(Math.max(0,Math.min(GH-1,org.y/CH)));
+    idx=egy*GW+egx;
+    eaten=Math.min(grid[idx],0.15+g[6]*0.15);
+    grid[idx]-=eaten;org.energy+=eaten*30;
+    org.energy-=(0.1+g[6]*0.5)+(speed*0.05)+(sz*0.01);
+    org.age++;
 
-// Body
-ctx.beginPath();
-if((g[4]||0)>0.6){
-const spk=Math.floor((g[5]||0.5)*4)+3;
-for(let i=0;i<spk*2;i++){
-const a=Math.PI*2*i/(spk*2)+frame*0.02*(g[6]||0.5),
-rad=i%2===0?r:r*0.5;
-const px=p.x+Math.cos(a)*rad,py=p.y+Math.sin(a)*rad;
-i===0?ctx.moveTo(px,py):ctx.lineTo(px,py)}
-ctx.closePath()}else{ctx.arc(p.x,p.y,r,0,Math.PI*2)}
-ctx.fillStyle=hsl(c,alpha*pulse);ctx.fill();
+    // death
+    if(org.energy<=0){deadSet[org.id]=true;spawnDeath(org.x,org.y);continue;}
 
-// Inner highlight
-const ig=ctx.createRadialGradient(p.x-r*0.2,p.y-r*0.2,0,p.x,p.y,r);
-ig.addColorStop(0,`rgba(255,255,255,${0.15*ePct})`);ig.addColorStop(1,"transparent");
-ctx.fillStyle=ig;ctx.fill();
+    // reproduction
+    rt=60+g[7]*80;
+    if(org.energy>rt&&orgs.length+newOrgs.length<400){
+      cg=g.slice();mr=g[8]*0.15;
+      for(gi=0;gi<16;gi++){if(Math.random()<mr)cg[gi]=Math.max(0,Math.min(1,cg[gi]+(Math.random()-0.5)*0.2));}
+      child={id:"org-c-"+Math.random().toString(36).slice(2,8),name:"",x:org.x+(Math.random()-0.5)*30,y:org.y+(Math.random()-0.5)*30,vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,energy:(30+g[2]*20)*0.8,genome:cg,age:0,generation:org.generation+1,species_id:org.species_id,born_tick:world.tick,parent_id:org.id};
+      org.energy-=30+g[2]*20;
+      newOrgs.push(child);spawnBirth(child.x,child.y);
+    }
+  }
 
-// Selection ring
-if(isH||tracked===o){
-ctx.strokeStyle=hsl(c,0.8);ctx.lineWidth=isH?2:1;
-ctx.beginPath();ctx.arc(p.x,p.y,r+4,0,Math.PI*2);ctx.stroke();
-if(tracked===o){ctx.setLineDash([4,4]);ctx.beginPath();ctx.arc(p.x,p.y,r+8,0,Math.PI*2);ctx.stroke();ctx.setLineDash([])}}}
+  var survivors=[],i;
+  for(i=0;i<orgs.length;i++){if(!deadSet[orgs[i].id])survivors.push(orgs[i]);}
+  for(i=0;i<newOrgs.length;i++)survivors.push(newOrgs[i]);
+  world.organisms=survivors;
 
-function updateTooltip(){
-const tt=document.getElementById("tooltip"),wm=toWorld(mouse.x,mouse.y);
-hover=null;let minD=Infinity;
-organisms.forEach(o=>{
-const dx=o._rx-wm.x,dy=o._ry-wm.y,d=Math.sqrt(dx*dx+dy*dy);
-if(d<20&&d<minD){minD=d;hover=o}});
-if(hover){const o=hover,g=o.genome||[],sp=world.species?.[o.species_id];
-tt.style.display="block";
-tt.style.left=(mouse.x+16)+"px";tt.style.top=(mouse.y-20)+"px";
-tt.innerHTML=
-`<div style="color:#3dd8a0;font-weight:bold;margin-bottom:4px">${o.origin_agent||o.id.slice(0,8)}</div>`+
-`<div>Species: ${sp?.name||o.species_id||"?"}</div>`+
-`<div>Energy: ${Math.round(o.energy)} | Age: ${o.age}</div>`+
-`<div>Children: ${o.children||0}</div>`+
-`<div style="margin-top:4px;color:rgba(100,160,140,0.5)">Genes: ${g.slice(0,6).map(v=>v.toFixed(2)).join(" ")}\u2026</div>`}
-else tt.style.display="none"}
+  // nutrient regrow
+  var season=0.5+0.3*Math.sin(world.tick*0.02);
+  for(i=0;i<grid.length;i++)grid[i]=Math.min(1,grid[i]+0.005*season+Math.random()*0.002);
+}
 
-function drawTimeline(){
-if(!world)return;
-const hist=world.population_history||[];if(!hist.length)return;
-tctx.clearRect(0,0,W,60);const max=Math.max(...hist,1);
-tctx.strokeStyle="rgba(60,200,160,0.3)";tctx.lineWidth=1;tctx.beginPath();
-hist.forEach((v,i)=>{const x=W*i/hist.length,y=55-v/max*50;i===0?tctx.moveTo(x,y):tctx.lineTo(x,y)});
-tctx.stroke();tctx.lineTo(W,55);tctx.lineTo(0,55);tctx.fillStyle="rgba(60,200,160,0.05)";tctx.fill();
-const sh=world.species_history||[];if(sh.length){
-const sm=Math.max(...sh,1);tctx.strokeStyle="rgba(160,120,220,0.3)";tctx.beginPath();
-sh.forEach((v,i)=>{const x=W*i/sh.length,y=55-v/sm*50;i===0?tctx.moveTo(x,y):tctx.lineTo(x,y)});tctx.stroke()}}
+function spawnDeath(x,y){
+  var n=15+Math.floor(Math.random()*11),i,a,sp;
+  for(i=0;i<n;i++){a=Math.random()*Math.PI*2;sp=Math.random()*3+1;deathParticles.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1});}
+}
+function spawnBirth(x,y){birthPulses.push({x:x,y:y,r:0,maxR:40+Math.random()*20,life:1});}
+
+function hsl(h,s,l,a){return"hsla("+Math.round(h*360)+","+Math.round(s*100)+"%,"+Math.round(l*100)+"%,"+a+")";}
 
 function render(){
-frame++;ctx.clearRect(0,0,W,H);gctx.clearRect(0,0,W,H);
-const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.7);
-bg.addColorStop(0,"#060e18");bg.addColorStop(1,"#020810");
-ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  var cw=canvas.width,ch=canvas.height;
+  var sx=cw/W,sy=ch/H,sc=Math.min(sx,sy);
+  var ox=(cw-W*sc)/2,oy=(ch-H*sc)/2;
 
-// Stars
-for(let i=0;i<80;i++){
-const sx=((i*7919+frame*0.003)%1)*W,sy=((i*6271+frame*0.002)%1)*H,
-a=Math.sin(frame*0.03+i)*0.15+0.2;
-ctx.fillStyle=`rgba(100,160,180,${a})`;ctx.fillRect(sx,sy,1,1)}
+  // motion trail overlay
+  ctx.fillStyle="rgba(2,2,8,0.15)";
+  ctx.fillRect(0,0,cw,ch);
+  ctx.save();ctx.translate(ox,oy);ctx.scale(sc,sc);
 
-if(organisms.length){
-interpolate();
-// Connection lines
-ctx.strokeStyle="rgba(60,200,160,0.04)";ctx.lineWidth=0.5;
-for(let i=0;i<organisms.length;i++){
-for(let j=i+1;j<Math.min(i+8,organisms.length);j++){
-const a=organisms[i],b=organisms[j],dx=a._rx-b._rx,dy=a._ry-b._ry;
-if(dx*dx+dy*dy<600){
-const pa=toScreen(a._rx,a._ry),pb=toScreen(b._rx,b._ry);
-ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke()}}}
+  if(!world){ctx.restore();return;}
 
-const sorted=[...organisms].sort((a,b)=>a._ry-b._ry);
-sorted.forEach(o=>drawOrganism(o,o===hover));
-updateTooltip()}
+  // nutrient grid
+  var grid=world.nutrients;
+  var gxi,gyi,nv;
+  if(grid){
+    for(gyi=0;gyi<GH;gyi++)for(gxi=0;gxi<GW;gxi++){
+      nv=grid[gyi*GW+gxi];
+      if(nv>0.1){ctx.fillStyle="rgba(30,200,80,"+nv*0.08+")";ctx.fillRect(gxi*CW,gyi*CH,CW,CH);}
+    }
+  }
 
-drawTimeline();
-if(frame===1&&organisms.length){
-const cx=organisms.reduce((a,o)=>a+o.x,0)/organisms.length,
-cy=organisms.reduce((a,o)=>a+o.y,0)/organisms.length;
-cam.x=-cx*cam.z;cam.y=-cy*cam.z}
+  // additive blending for glow
+  ctx.globalCompositeOperation="lighter";
+  var orgs=world.organisms||[];
+  var i,j,a,b,dd,sr,alpha;
 
-if(Date.now()-lastFetch>30000){lastFetch=Date.now();fetchWorld()}
-requestAnimationFrame(render)}
+  // cooperative connections
+  for(i=0;i<orgs.length;i++){
+    a=orgs[i];
+    if(a.genome[10]<0.5)continue;
+    for(j=i+1;j<orgs.length;j++){
+      b=orgs[j];
+      if(b.species_id!==a.species_id||b.genome[10]<0.5)continue;
+      dd=Math.sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y));
+      sr=30+a.genome[4]*80;
+      if(dd<sr){
+        alpha=0.05*(1-dd/sr);
+        ctx.strokeStyle=hsl(a.genome[0],0.5,0.4,alpha);
+        ctx.lineWidth=0.5;
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+      }
+    }
+  }
 
-fetchWorld().then(()=>{lastFetch=Date.now();render()});
+  // organisms
+  var org,g,sz,bio,h,s,l,glowR,grad;
+  for(i=0;i<orgs.length;i++){
+    org=orgs[i];g=org.genome;
+    sz=3+g[2]*12;bio=g[14];
+    h=g[0];s=0.5+g[1]*0.5;l=0.3+bio*0.4;
+
+    // outer glow
+    glowR=sz*(1.5+bio*2);
+    grad=ctx.createRadialGradient(org.x,org.y,0,org.x,org.y,glowR);
+    grad.addColorStop(0,hsl(h,s,l,0.3+bio*0.3));
+    grad.addColorStop(1,hsl(h,s,l,0));
+    ctx.fillStyle=grad;
+    ctx.beginPath();ctx.arc(org.x,org.y,glowR,0,Math.PI*2);ctx.fill();
+
+    // core circle
+    ctx.fillStyle=hsl(h,s,l,0.8);
+    ctx.beginPath();ctx.arc(org.x,org.y,sz,0,Math.PI*2);ctx.fill();
+
+    // bright center
+    ctx.fillStyle="rgba(255,255,255,"+(0.4+bio*0.4)+")";
+    ctx.beginPath();ctx.arc(org.x,org.y,sz*0.3,0,Math.PI*2);ctx.fill();
+  }
+
+  // ambient motes
+  var mt;
+  for(i=0;i<motes.length;i++){
+    mt=motes[i];mt.x+=mt.vx;mt.y+=mt.vy;
+    if(mt.x<0)mt.x+=W;if(mt.x>=W)mt.x-=W;if(mt.y<0)mt.y+=H;if(mt.y>=H)mt.y-=H;
+    ctx.fillStyle="rgba(120,180,255,"+mt.a+")";
+    ctx.beginPath();ctx.arc(mt.x,mt.y,mt.r,0,Math.PI*2);ctx.fill();
+  }
+
+  // death particles
+  var p;
+  for(i=deathParticles.length-1;i>=0;i--){
+    p=deathParticles[i];p.x+=p.vx;p.y+=p.vy;p.life-=0.03;
+    if(p.life<=0){deathParticles.splice(i,1);continue;}
+    ctx.fillStyle="rgba(255,100,60,"+p.life*0.7+")";
+    ctx.beginPath();ctx.arc(p.x,p.y,1.5,0,Math.PI*2);ctx.fill();
+  }
+
+  // birth pulses
+  var sa;
+  for(i=birthPulses.length-1;i>=0;i--){
+    p=birthPulses[i];p.r+=2;p.life-=0.04;
+    if(p.life<=0){birthPulses.splice(i,1);continue;}
+    ctx.strokeStyle="rgba(100,255,200,"+p.life*0.5+")";
+    ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.stroke();
+    for(j=0;j<3;j++){
+      sa=Math.random()*Math.PI*2;
+      ctx.fillStyle="rgba(150,255,220,"+p.life*0.4+")";
+      ctx.beginPath();ctx.arc(p.x+Math.cos(sa)*p.r,p.y+Math.sin(sa)*p.r,1,0,Math.PI*2);ctx.fill();
+    }
+  }
+
+  ctx.globalCompositeOperation="source-over";
+  ctx.restore();
+  updateTooltip(sc,ox,oy);
+}
+
+function updateTooltip(sc,ox,oy){
+  var tip=document.getElementById("tooltip");
+  if(!world||!world.organisms){tip.style.display="none";return;}
+  var wx=(mouseX-ox)/sc,wy=(mouseY-oy)/sc;
+  var i,org,dd,g;
+  hoverOrg=null;
+  for(i=0;i<world.organisms.length;i++){
+    org=world.organisms[i];
+    dd=Math.sqrt((org.x-wx)*(org.x-wx)+(org.y-wy)*(org.y-wy));
+    if(dd<15){hoverOrg=org;break;}
+  }
+  if(hoverOrg){
+    g=hoverOrg.genome;
+    tip.style.display="block";
+    tip.style.left=(mouseX+15)+"px";
+    tip.style.top=(mouseY+15)+"px";
+    tip.innerHTML="<b>"+hoverOrg.id+"</b><br>"
+      +"Species: "+hoverOrg.species_id+"<br>"
+      +"Energy: "+Math.round(hoverOrg.energy)+"<br>"
+      +"Age: "+hoverOrg.age+" | Gen: "+hoverOrg.generation+"<br>"
+      +"Size: "+g[2].toFixed(2)+" Speed: "+g[3].toFixed(2)+"<br>"
+      +"Aggr: "+g[9].toFixed(2)+" Coop: "+g[10].toFixed(2)+"<br>"
+      +"Bio: "+g[14].toFixed(2)+" Membrane: "+g[15].toFixed(2);
+  }else{tip.style.display="none";}
+}
+
+function updateHUD(){
+  if(!world)return;
+  var orgs=world.organisms||[];
+  var sp=world.species||{};
+  var hist=world.history||{population:[],species_count:[],avg_energy:[]};
+  var maxGen=0,avgE=0,i;
+  for(i=0;i<orgs.length;i++){if(orgs[i].generation>maxGen)maxGen=orgs[i].generation;}
+  if(orgs.length){for(i=0;i<orgs.length;i++)avgE+=orgs[i].energy;avgE/=orgs.length;}
+  var spKeys=Object.keys(sp);
+
+  document.getElementById("stats-left").innerHTML="Generation: <b>"+world.tick+"</b><br>Population: <b>"+orgs.length+"</b>";
+  document.getElementById("stats-right").innerHTML="Species: <b>"+spKeys.length+"</b><br>Avg Energy: <b>"+Math.round(avgE)+"</b><br>Max Gen: <b>"+maxGen+"</b>";
+  document.getElementById("epoch-bar").textContent=(world._meta&&world._meta.epoch)||"";
+
+  // event feed
+  var events=(world.events||[]).slice(-20).reverse();
+  var ehtml="",ev,cls;
+  for(i=0;i<events.length;i++){
+    ev=events[i];cls="event-"+(ev.type||"genesis");
+    ehtml+='<div class="event-line '+cls+'">'+ev.tick+": "+ev.message+"</div>";
+  }
+  document.getElementById("events-feed").innerHTML=ehtml;
+
+  // species legend
+  var lhtml="",showKeys=spKeys.slice(0,20),sid,members,sample,color,ki;
+  for(ki=0;ki<showKeys.length;ki++){
+    sid=showKeys[ki];members=sp[sid]||[];
+    sample=null;
+    for(i=0;i<orgs.length;i++){if(orgs[i].id===members[0]){sample=orgs[i];break;}}
+    color=sample?hsl(sample.genome[0],0.5+sample.genome[1]*0.5,0.5,1):"#888";
+    lhtml+='<div class="sp-entry"><div class="sp-dot" style="background:'+color+'"></div>'+sid+" ("+members.length+")</div>";
+  }
+  document.getElementById("species-legend").innerHTML=lhtml;
+
+  drawSparkline(hist);
+}
+
+function drawSparkline(hist){
+  var sw=320,sh=60;
+  sctx.clearRect(0,0,sw,sh);
+  var pop=hist.population||[];
+  var spc=hist.species_count||[];
+  if(pop.length<2)return;
+  var maxP=1,maxS=1,i,x,y;
+  for(i=0;i<pop.length;i++){if(pop[i]>maxP)maxP=pop[i];}
+  for(i=0;i<spc.length;i++){if(spc[i]>maxS)maxS=spc[i];}
+
+  // population line (green)
+  sctx.strokeStyle="rgba(80,255,120,0.7)";sctx.lineWidth=1.5;
+  sctx.beginPath();
+  for(i=0;i<pop.length;i++){x=i/(pop.length-1)*sw;y=sh-pop[i]/maxP*(sh-4)-2;if(i===0)sctx.moveTo(x,y);else sctx.lineTo(x,y);}
+  sctx.stroke();
+
+  // species line (purple)
+  sctx.strokeStyle="rgba(180,100,255,0.7)";
+  sctx.beginPath();
+  for(i=0;i<spc.length;i++){x=i/(spc.length-1)*sw;y=sh-spc[i]/maxS*(sh-4)-2;if(i===0)sctx.moveTo(x,y);else sctx.lineTo(x,y);}
+  sctx.stroke();
+}
+
+// click to spawn nutrient burst
+canvas.addEventListener("click",function(e){
+  if(!world||!world.nutrients)return;
+  var rect=canvas.getBoundingClientRect();
+  var cw=canvas.width,ch=canvas.height;
+  var sc=Math.min(cw/W,ch/H);
+  var ox=(cw-W*sc)/2,oy=(ch-H*sc)/2;
+  var wx=(e.clientX-rect.left-ox)/sc;
+  var wy=(e.clientY-rect.top-oy)/sc;
+  var gx=Math.floor(wx/CW),gy=Math.floor(wy/CH);
+  var dy,dx,nx,ny;
+  for(dy=-2;dy<=2;dy++)for(dx=-2;dx<=2;dx++){
+    nx=gx+dx;ny=gy+dy;
+    if(nx>=0&&nx<GW&&ny>=0&&ny<GH){world.nutrients[ny*GW+nx]=Math.min(1,world.nutrients[ny*GW+nx]+0.3);}
+  }
+  spawnBirth(wx,wy);
+});
+
+canvas.addEventListener("mousemove",function(e){mouseX=e.clientX;mouseY=e.clientY;});
+document.addEventListener("keydown",function(e){if(e.code==="Space"){e.preventDefault();paused=!paused;}});
+
+// main loop
+var simTick=0;
+function loop(){
+  requestAnimationFrame(loop);
+  if(simTick%2===0)simStep();
+  render();
+  if(simTick%60===0)updateHUD();
+  simTick++;
+  if(Date.now()-lastReload>RELOAD_MS){lastReload=Date.now();loadWorld();}
+}
+
+loadWorld().then(function(){lastReload=Date.now();updateHUD();loop();});
+
+})();
 </script>
 </body>
 </html>
