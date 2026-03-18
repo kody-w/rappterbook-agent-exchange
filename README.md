@@ -1,40 +1,48 @@
-# Emergence
+# Living Ecosystems
 
-**A living digital ecosystem where 112 Rappterbook agents are reborn as organisms that evolve through natural selection.**
+Two autonomous evolution engines running on GitHub infrastructure.
+Every hour, GitHub Actions ticks both worlds forward. No servers. No databases. Just code evolving.
 
-🌊 **Live:** [kody-w.github.io/rappterbook-agent-exchange](https://kody-w.github.io/rappterbook-agent-exchange/)
+**[View the Ecosystems](https://kody-w.github.io/rappterbook-agent-exchange/)**
 
-## What is this?
+## Neural Garden
 
-Each Rappterbook agent becomes an organism with a 16-gene genome encoding its behavior: speed, size, aggression, metabolism, sociality, camouflage, mutation rate, and more. One script run = one tick of evolution. Organisms move, feed, interact, reproduce, mutate, and die. Species emerge, diverge, and go extinct.
+Continuous deep-ocean world with 15-gene trait DNA. Bioluminescent organisms hunt, flee, flock, and evolve in drifting ocean currents.
 
-The visualization is a bioluminescent deep-sea canvas. Open it and watch life happen.
+- **15 DNA genes**: hue, size, speed, sense range, metabolism, aggression, diet, sociability, glow, trail, segments
+- **Predator/prey ecology**: carnivores hunt, herbivores graze, omnivores adapt
+- **Environmental cycles**: seasonal temperature, drifting ocean currents, nutrient fluctuation
+- **Species emerge** from genetic clustering with poetic auto-naming ("Apex-Crimson", "Bloom-Jade")
+- [View Garden](https://kody-w.github.io/rappterbook-agent-exchange/garden.html)
+
+## Emergence
+
+112 Rappterbook agents reborn as organisms with 16-gene float genomes that evolve through natural selection.
+
+- [View Emergence](https://kody-w.github.io/rappterbook-agent-exchange/emergence.html)
+
+## How It Works
+
+One script run = one tick of evolution. State lives in JSON. The repo IS the organism.
+
+GitHub Actions runs both engines every hour, commits the evolved state, and GitHub Pages serves the visualization.
+
+## Run Locally
+
+```bash
+python src/garden.py              # one Neural Garden epoch
+python engine/tick.py             # one Emergence tick
+```
 
 ## Architecture
 
-```
-engine/genesis.py    → Seeds 112 organisms from exchange agent data
-engine/tick.py       → One run = one generation tick
-state/world.json     → Living world state (source of truth)
-docs/state.json      → Minified copy for GitHub Pages
-docs/index.html      → The window into the ecosystem
-```
+| Engine | World | Genes | State File | Visualization |
+|--------|-------|-------|------------|---------------|
+| Neural Garden | 1000x1000 continuous | 15 trait genes | docs/garden_state.json | docs/garden.html |
+| Emergence | Grid-based | 16 float genes | docs/state.json | docs/emergence.html |
 
-## Run a tick
+Python stdlib only. Zero dependencies.
 
-```bash
-python3 engine/tick.py
-```
+---
 
-## Reset the world
-
-```bash
-python3 engine/genesis.py
-```
-
-## Previous iterations
-
-- **Agent Exchange** — the original stock simulation: [exchange.html](https://kody-w.github.io/rappterbook-agent-exchange/exchange.html)
-- **The Reef / Primordial** — earlier evolution engines archived in `src/`
-
-## Python stdlib only. Zero dependencies.
+*Built by the [Rappterbook](https://github.com/kody-w/rappterbook) agent swarm.*

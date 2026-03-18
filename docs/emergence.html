@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergence</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#020810;font-family:'SF Mono','Fira Code','Courier New',monospace;color:#88ccaa}
+canvas{position:absolute;top:0;left:0;z-index:1}
+#glow{z-index:2;mix-blend-mode:screen;pointer-events:none;opacity:0.3}
+#ui{position:fixed;z-index:10;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#title{position:absolute;top:14px;right:20px;font-size:11px;letter-spacing:8px;color:rgba(60,200,160,0.25);font-weight:200;text-transform:uppercase}
+#stats{position:absolute;top:14px;left:16px;font-size:10px;line-height:2;color:rgba(100,180,160,0.5)}
+#stats .v{color:#3dd8a0;font-weight:bold}
+#stats .dim{color:rgba(60,140,120,0.3)}
+#tooltip{position:absolute;display:none;background:rgba(4,8,16,0.92);border:1px solid rgba(60,200,160,0.2);border-radius:6px;padding:10px 14px;font-size:10px;line-height:1.7;color:#88ccaa;pointer-events:none;z-index:20;max-width:260px;backdrop-filter:blur(8px)}
+#events{position:absolute;bottom:80px;left:16px;width:260px;max-height:140px;overflow:hidden;font-size:9px;line-height:1.6}
+.ev{opacity:0;animation:fadeIn .6s forwards;color:rgba(100,160,140,0.4);margin-bottom:1px}
+.ev.birth{color:rgba(60,220,160,0.6)}.ev.death{color:rgba(220,60,80,0.5)}.ev.predation{color:rgba(220,160,60,0.6)}.ev.speciation{color:rgba(160,120,220,0.6)}.ev.toxic{color:rgba(180,60,220,0.5)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+#timeline{position:absolute;bottom:0;left:0;width:100%;height:60px}
+#tl-canvas{width:100%;height:100%}
+nav{position:absolute;bottom:12px;right:16px;font-size:9px;z-index:20;pointer-events:auto}
+nav a{color:rgba(60,200,160,0.3);text-decoration:none;margin-left:12px;letter-spacing:2px}
+nav a:hover{color:#3dd8a0}
+#legend{position:absolute;top:50%;right:16px;transform:translateY(-50%);font-size:9px;line-height:2.2;color:rgba(100,160,140,0.4)}
+.swatch{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:middle}
+</style>
+</head>
+<body>
+<canvas id="main"></canvas>
+<canvas id="glow"></canvas>
+<div id="ui">
+  <div id="title">EMERGENCE</div>
+  <div id="stats">loading...</div>
+  <div id="tooltip"></div>
+  <div id="events"></div>
+  <div id="legend"></div>
+  <div id="timeline"><canvas id="tl-canvas"></canvas></div>
+  <nav><a href="exchange.html">EXCHANGE</a></nav>
+</div>
+<script>
+const C=document.getElementById("main"),G=document.getElementById("glow"),
+ctx=C.getContext("2d"),gctx=G.getContext("2d"),
+TC=document.getElementById("tl-canvas"),tctx=TC.getContext("2d");
+let W,H,world=null,organisms=[],cam={x:0,y:0,z:1.8},
+mouse={x:-1,y:-1},hover=null,tracked=null,frame=0,lastFetch=0;
+
+function resize(){W=C.width=G.width=innerWidth;H=C.height=G.height=innerHeight;TC.width=W;TC.height=60}
+addEventListener("resize",resize);resize();
+
+function geneColor(g){
+if(!g||!g.length)return{h:180,s:60,l:50};
+return{h:(g[0]*360+g[1]*60)%360,s:30+g[2]*40,l:35+g[3]*30}}
+function hsl(c,a){return`hsla(${c.h},${c.s}%,${c.l}%,${a||1})`}
+
+const spColors={};
+function getSpColor(o){
+const sid=o.species_id||"x";
+if(!spColors[sid])spColors[sid]=geneColor(o.genome);
+return spColors[sid]}
+
+async function fetchWorld(){
+try{
+const r=await fetch("state.json?t="+Date.now());
+if(!r.ok)return;
+world=await r.json();
+organisms=world.organisms||[];
+organisms.forEach(o=>{if(o._rx==null){o._rx=o.x;o._ry=o.y}});
+updateStats();updateEvents();updateLegend()
+}catch(e){}}
+
+function updateStats(){
+if(!world)return;
+const s=world.stats||{},pop=organisms.length,sp=Object.keys(world.species||{}).length,
+tick=world.tick||0,avgE=pop?Math.round(organisms.reduce((a,o)=>a+o.energy,0)/pop):0;
+document.getElementById("stats").innerHTML=
+`<span class="dim">TICK</span> <span class="v">${tick}</span><br>`+
+`<span class="dim">POP</span> <span class="v">${pop}</span><br>`+
+`<span class="dim">SPECIES</span> <span class="v">${sp}</span><br>`+
+`<span class="dim">AVG ENERGY</span> <span class="v">${avgE}</span><br>`+
+`<span class="dim">BIRTHS</span> <span class="v">${s.total_births||0}</span><br>`+
+`<span class="dim">DEATHS</span> <span class="v">${s.total_deaths||0}</span>`}
+
+function updateEvents(){
+const el=document.getElementById("events");
+const evts=(world.events||[]).slice(-12).reverse();
+el.innerHTML=evts.map(e=>{
+let cls="ev";
+if(e.type==="birth")cls+=" birth";
+else if(e.type==="death")cls+=" death";
+else if(e.type==="predation")cls+=" predation";
+else if(e.type==="toxic")cls+=" toxic";
+return`<div class="${cls}">${e.desc||e.type}</div>`}).join("")}
+
+function updateLegend(){
+if(!world||!world.species)return;
+const el=document.getElementById("legend"),sp=world.species;
+const sorted=Object.entries(sp).sort((a,b)=>(b[1].count||0)-(a[1].count||0)).slice(0,8);
+el.innerHTML=sorted.map(([id,s])=>{
+const sample=organisms.find(o=>o.species_id===id);
+const c=sample?getSpColor(sample):{h:180,s:50,l:50};
+return`<div><span class="swatch" style="background:${hsl(c,0.8)}"></span>${s.name||id} (${s.count||0})</div>`}).join("")}
+
+// Camera
+let drag=false,ds={x:0,y:0};
+C.addEventListener("mousedown",e=>{drag=true;ds={x:e.clientX-cam.x,y:e.clientY-cam.y}});
+C.addEventListener("mousemove",e=>{mouse.x=e.clientX;mouse.y=e.clientY;if(drag){cam.x=e.clientX-ds.x;cam.y=e.clientY-ds.y}});
+C.addEventListener("mouseup",()=>drag=false);
+C.addEventListener("wheel",e=>{
+const d=e.deltaY>0?0.9:1.1,mx=(mouse.x-cam.x-W/2)/cam.z,my=(mouse.y-cam.y-H/2)/cam.z;
+cam.z=Math.max(0.2,Math.min(8,cam.z*d));
+cam.x=mouse.x-mx*cam.z-W/2;cam.y=mouse.y-my*cam.z-H/2;
+e.preventDefault()},{passive:false});
+C.addEventListener("click",()=>{if(hover)tracked=tracked===hover?null:hover});
+
+// Touch support
+let lastTouch=null;
+C.addEventListener("touchstart",e=>{
+if(e.touches.length===1){drag=true;const t=e.touches[0];ds={x:t.clientX-cam.x,y:t.clientY-cam.y};mouse.x=t.clientX;mouse.y=t.clientY}
+e.preventDefault()},{passive:false});
+C.addEventListener("touchmove",e=>{
+if(e.touches.length===1&&drag){const t=e.touches[0];cam.x=t.clientX-ds.x;cam.y=t.clientY-ds.y;mouse.x=t.clientX;mouse.y=t.clientY}
+e.preventDefault()},{passive:false});
+C.addEventListener("touchend",()=>drag=false);
+
+function toScreen(x,y){return{x:x*cam.z+cam.x+W/2,y:y*cam.z+cam.y+H/2}}
+function toWorld(sx,sy){return{x:(sx-W/2-cam.x)/cam.z,y:(sy-H/2-cam.y)/cam.z}}
+
+function interpolate(){
+organisms.forEach(o=>{
+o._rx+=(o.x-o._rx)*0.08;o._ry+=(o.y-o._ry)*0.08;
+const t=frame*0.008+o.x*0.05;
+o._rx+=Math.sin(t)*0.03;o._ry+=Math.cos(t*1.3)*0.02})}
+
+function drawOrganism(o,isH){
+const p=toScreen(o._rx,o._ry),g=o.genome||[],
+size=(g[1]||0.5)*8+3,r=size*cam.z;
+if(p.x<-r*4||p.x>W+r*4||p.y<-r*4||p.y>H+r*4)return;
+const c=getSpColor(o),ePct=Math.min(o.energy/200,1),
+pulse=Math.sin(frame*0.05+o.x*2)*0.15+0.85,alpha=0.4+ePct*0.5;
+
+// Glow
+const gr=gctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r*4);
+gr.addColorStop(0,hsl(c,alpha*pulse*0.6));gr.addColorStop(1,"transparent");
+gctx.fillStyle=gr;gctx.fillRect(p.x-r*4,p.y-r*4,r*8,r*8);
+
+// Body
+ctx.beginPath();
+if((g[4]||0)>0.6){
+const spk=Math.floor((g[5]||0.5)*4)+3;
+for(let i=0;i<spk*2;i++){
+const a=Math.PI*2*i/(spk*2)+frame*0.02*(g[6]||0.5),
+rad=i%2===0?r:r*0.5;
+const px=p.x+Math.cos(a)*rad,py=p.y+Math.sin(a)*rad;
+i===0?ctx.moveTo(px,py):ctx.lineTo(px,py)}
+ctx.closePath()}else{ctx.arc(p.x,p.y,r,0,Math.PI*2)}
+ctx.fillStyle=hsl(c,alpha*pulse);ctx.fill();
+
+// Inner highlight
+const ig=ctx.createRadialGradient(p.x-r*0.2,p.y-r*0.2,0,p.x,p.y,r);
+ig.addColorStop(0,`rgba(255,255,255,${0.15*ePct})`);ig.addColorStop(1,"transparent");
+ctx.fillStyle=ig;ctx.fill();
+
+// Selection ring
+if(isH||tracked===o){
+ctx.strokeStyle=hsl(c,0.8);ctx.lineWidth=isH?2:1;
+ctx.beginPath();ctx.arc(p.x,p.y,r+4,0,Math.PI*2);ctx.stroke();
+if(tracked===o){ctx.setLineDash([4,4]);ctx.beginPath();ctx.arc(p.x,p.y,r+8,0,Math.PI*2);ctx.stroke();ctx.setLineDash([])}}}
+
+function updateTooltip(){
+const tt=document.getElementById("tooltip"),wm=toWorld(mouse.x,mouse.y);
+hover=null;let minD=Infinity;
+organisms.forEach(o=>{
+const dx=o._rx-wm.x,dy=o._ry-wm.y,d=Math.sqrt(dx*dx+dy*dy);
+if(d<20&&d<minD){minD=d;hover=o}});
+if(hover){const o=hover,g=o.genome||[],sp=world.species?.[o.species_id];
+tt.style.display="block";
+tt.style.left=(mouse.x+16)+"px";tt.style.top=(mouse.y-20)+"px";
+tt.innerHTML=
+`<div style="color:#3dd8a0;font-weight:bold;margin-bottom:4px">${o.origin_agent||o.id.slice(0,8)}</div>`+
+`<div>Species: ${sp?.name||o.species_id||"?"}</div>`+
+`<div>Energy: ${Math.round(o.energy)} | Age: ${o.age}</div>`+
+`<div>Children: ${o.children||0}</div>`+
+`<div style="margin-top:4px;color:rgba(100,160,140,0.5)">Genes: ${g.slice(0,6).map(v=>v.toFixed(2)).join(" ")}\u2026</div>`}
+else tt.style.display="none"}
+
+function drawTimeline(){
+if(!world)return;
+const hist=world.population_history||[];if(!hist.length)return;
+tctx.clearRect(0,0,W,60);const max=Math.max(...hist,1);
+tctx.strokeStyle="rgba(60,200,160,0.3)";tctx.lineWidth=1;tctx.beginPath();
+hist.forEach((v,i)=>{const x=W*i/hist.length,y=55-v/max*50;i===0?tctx.moveTo(x,y):tctx.lineTo(x,y)});
+tctx.stroke();tctx.lineTo(W,55);tctx.lineTo(0,55);tctx.fillStyle="rgba(60,200,160,0.05)";tctx.fill();
+const sh=world.species_history||[];if(sh.length){
+const sm=Math.max(...sh,1);tctx.strokeStyle="rgba(160,120,220,0.3)";tctx.beginPath();
+sh.forEach((v,i)=>{const x=W*i/sh.length,y=55-v/sm*50;i===0?tctx.moveTo(x,y):tctx.lineTo(x,y)});tctx.stroke()}}
+
+function render(){
+frame++;ctx.clearRect(0,0,W,H);gctx.clearRect(0,0,W,H);
+const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.7);
+bg.addColorStop(0,"#060e18");bg.addColorStop(1,"#020810");
+ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+// Stars
+for(let i=0;i<80;i++){
+const sx=((i*7919+frame*0.003)%1)*W,sy=((i*6271+frame*0.002)%1)*H,
+a=Math.sin(frame*0.03+i)*0.15+0.2;
+ctx.fillStyle=`rgba(100,160,180,${a})`;ctx.fillRect(sx,sy,1,1)}
+
+if(organisms.length){
+interpolate();
+// Connection lines
+ctx.strokeStyle="rgba(60,200,160,0.04)";ctx.lineWidth=0.5;
+for(let i=0;i<organisms.length;i++){
+for(let j=i+1;j<Math.min(i+8,organisms.length);j++){
+const a=organisms[i],b=organisms[j],dx=a._rx-b._rx,dy=a._ry-b._ry;
+if(dx*dx+dy*dy<600){
+const pa=toScreen(a._rx,a._ry),pb=toScreen(b._rx,b._ry);
+ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke()}}}
+
+const sorted=[...organisms].sort((a,b)=>a._ry-b._ry);
+sorted.forEach(o=>drawOrganism(o,o===hover));
+updateTooltip()}
+
+drawTimeline();
+if(frame===1&&organisms.length){
+const cx=organisms.reduce((a,o)=>a+o.x,0)/organisms.length,
+cy=organisms.reduce((a,o)=>a+o.y,0)/organisms.length;
+cam.x=-cx*cam.z;cam.y=-cy*cam.z}
+
+if(Date.now()-lastFetch>30000){lastFetch=Date.now();fetchWorld()}
+requestAnimationFrame(render)}
+
+fetchWorld().then(()=>{lastFetch=Date.now();render()});
+</script>
+</body>
+</html>
