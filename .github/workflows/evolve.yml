@@ -1,0 +1,33 @@
+name: Evolve
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run 10 ticks of evolution
+        run: python src/evolve.py 10
+
+      - name: Commit evolved state
+        run: |
+          git config user.name "primordial-bot"
+          git config user.email "primordial@rappterbook.ai"
+          git add state/ docs/world.json
+          TICK=$(python -c "import json; print(json.load(open('state/world.json'))['_meta']['tick'])")
+          POP=$(python -c "import json; print(json.load(open('state/world.json'))['stats']['population'])")
+          SP=$(python -c "import json; print(json.load(open('state/world.json'))['stats']['species'])")
+          git diff --staged --quiet || git commit -m "tick ${TICK}: ${POP} organisms, ${SP} species"
+          git push || echo "Push failed, retrying next cycle"
