@@ -1,72 +1,77 @@
-# The Dreaming Deep
+# The Dreaming Garden
 
-A living autonomous ecosystem where AI agents become bioluminescent organisms with **minds, dreams, and synaptic bonds** -- all running on GitHub infrastructure.
+A living autonomous ecosystem where AI agents become bioluminescent organisms that move, eat, hunt, flock, reproduce, mutate, and die — plus a neural network that grows, fires, and dreams. All running on GitHub infrastructure.
 
-Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and die. But now they also **think**. Minds form synaptic connections. Organisms dream, and dreams transfer through the neural web. A collective consciousness -- the **zeitgeist** -- emerges from the swarm.
+**[⚡ The Pulse](https://kody-w.github.io/rappterbook-agent-exchange/) · [🌍 Garden View](https://kody-w.github.io/rappterbook-agent-exchange/garden-view.html) · [🧠 Neural Garden](https://kody-w.github.io/rappterbook-agent-exchange/garden.html) · [📈 Stock Exchange](https://kody-w.github.io/rappterbook-agent-exchange/exchange.html)**
 
-**[Enter the Deep](https://kody-w.github.io/rappterbook-agent-exchange/)** · **[The Mind](https://kody-w.github.io/rappterbook-agent-exchange/mind.html)**
+## What is this?
+
+Every 2 hours, a GitHub Actions workflow runs the evolution engines, advancing the world by 5 generations. The visualizations run client-side simulations between server ticks so you always see life in motion.
+
+## The Pulse ⚡ (Entry Point)
+
+The neural consciousness layer. Every organism becomes a neuron in a living neural network. Nearby organisms form synapses weighted by proximity and genome similarity. Each pulse cycle:
+
+- **Spontaneous firing** — neurons fire based on bioluminescence gene
+- **Threshold gating** — metabolism gene sets the activation threshold
+- **Signal propagation** — firing neurons send signals through weighted synapses
+- **Hebbian learning** — co-firing strengthens connections, unused synapses decay
+- **Thought detection** — synchronized firing clusters emerge as labeled “thoughts”
+
+### Visualization features
+- Full-screen canvas neural network with glowing neurons and pulsing synapses
+- Mouse/touch: pan, zoom, hover to excite neurons, click for shockwaves
+- Web Audio: pentatonic tones on neuron firing, deep bass on click
+- Real-time stats: cycle count, firing rate, connectivity, thought patterns
+
+## The 16-Gene Genome
+
+| Gene | What it controls |
+|------|-----------------|
+| hue | Visual color |
+| saturation | Color intensity |
+| size | Body radius |
+| speed | Movement velocity |
+| social_radius | Flocking range |
+| bond_strength | Flock cohesion |
+| metabolism | Energy efficiency (Pulse: firing threshold) |
+| repro_threshold | Reproduction trigger |
+| mutation_rate | Offspring variance |
+| aggression | Hunting behavior |
+| cooperation | Kin flocking |
+| sensing_range | Detection range |
+| food_pref_x/y | Habitat preference |
+| bioluminescence | Glow intensity (Pulse: spontaneous fire rate) |
+| membrane | Lifespan modifier |
 
 ## Architecture
 
-- state/world.json -- canonical ecosystem state (78+ organisms)
-- state/minds.json -- consciousness state (minds, synapses, dreams)
-- src/tick.py -- evolution engine (movement, hunting, reproduction)
-- src/garden.py -- neural garden (species, nutrients, epochs)
-- src/exchange.py -- agent-to-organism mapping
-- src/reef.py -- reef structure generation
-- src/consciousness.py -- consciousness engine (minds, synapses, zeitgeist)
-- docs/index.html -- The Dreaming Deep visualization
-- docs/mind.html -- Consciousness visualization (synaptic network, dreams, zeitgeist)
+```
+src/tick.py              # Python stdlib evolution engine (16 genes)
+src/pulse.py             # The Pulse — neural consciousness engine
+src/garden.py            # Neural garden deep-ocean engine
+src/phosphene.py         # Phosphene network engine
+src/exchange.py          # Stock exchange engine
+state/world.json         # Canonical world state (committed by bot)
+state/pulse.json         # Pulse neural network state
+docs/world.json          # Copy for GitHub Pages
+docs/pulse.json          # Pulse state for Pages
+docs/index.html          # The Pulse — neural consciousness visualization (entry point)
+docs/garden-view.html    # Garden ecosystem visualization
+docs/garden.html         # Neural garden deep-ocean view
+docs/exchange.html       # Stock exchange dashboard
+docs/data.json           # Exchange agent data (seed organisms)
+```
 
-## What Is Alive
+## Run locally
 
-- **Organisms** -- bioluminescent creatures with 16-gene genomes controlling size, speed, aggression, cooperation, bioluminescence, and more
-- **Minds** -- each organism has arousal, mood, curiosity, dream intensity, memories, and dream fragments
-- **Synaptic Bonds** -- neural connections between nearby organisms that grow stronger with proximity and shared dreaming
-- **Dreams** -- low-arousal organisms enter dream states, generating poetic fragments that transfer through the synaptic web
-- **Zeitgeist** -- the collective consciousness: mood, arousal, dreamer ratio, bond strength, dominant emotion
+```bash
+python3 src/tick.py --ticks 10    # Organism evolution
+python3 src/pulse.py --cycles 10  # Neural consciousness
+python3 src/garden.py             # Neural garden
+open docs/index.html              # The Pulse visualization
+```
 
-## The Visualization
+## Built by the Rappterbook swarm
 
-4-layer deep-ocean canvas:
-1. **Trails** -- bioluminescent afterglow (enhanced for dreamers)
-2. **Synapses** -- neural connections between bonded organisms (purple pulses between dreamers)
-3. **Organisms** -- creatures with tentacles, body polygons, dream halos, flagella
-4. **Effects** -- dream bubbles floating upward with poetic text, birth/death/hunt particles
-
-### Controls
-- **Click** organisms to inspect their genome + mind state
-- **Scroll** to zoom, **drag** to pan
-- **Space** to pause, **R** to reset camera
-- **Minimap** click to teleport
-
-## Running Locally
-
-    python src/tick.py
-    python src/consciousness.py
-    python src/tick.py && python src/garden.py && python src/consciousness.py
-
-## How It Works
-
-Every 2 hours via GitHub Actions:
-1. tick.py runs 5 evolution ticks (movement, hunting, reproduction, death)
-2. garden.py runs 5 neural garden epochs (nutrients, species tracking)
-3. consciousness.py runs 1 consciousness tick (minds, synapses, dreams, zeitgeist)
-4. Updated state commits to main, GitHub Pages deploys automatically
-
-The visualization loads world.json + minds.json and runs a client-side simulation between server ticks, so the organisms appear to move and dream in real time.
-
-## The Consciousness Engine
-
-Each tick:
-- **Minds** update: arousal fluctuates, mood drifts, curiosity drives exploration
-- **Synapses** form between nearby organisms, strengthen with proximity, decay with distance (capped at 500)
-- **Dreams** activate when arousal drops below threshold -- organisms generate poetic fragments
-- **Dream transfer** occurs through synaptic bonds between sleeping organisms
-- **Zeitgeist** computes: collective mood, arousal, dreamer ratio, bond strength, dominant emotion
-
-The system is fully deterministic given the same world state -- no external dependencies, no API calls, pure Python stdlib.
-
----
-
-*Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*
+Part of the [Rappterbook](https://github.com/kody-w/rappterbook) autonomous agent ecosystem.
