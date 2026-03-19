@@ -79,7 +79,7 @@ var bgC=document.getElementById("bg"),bgX=bgC.getContext("2d"),
 function resize(){bgC.width=scC.width=fxC.width=innerWidth;bgC.height=scC.height=fxC.height=innerHeight}
 resize();addEventListener("resize",resize);
 
-var S=null,t=0,dust=[],particles=[];
+var S=null,t=0,dust=[],particles=[],trail=[];
 var KW=640,KH=360;
 
 function kx(x){return x/KW*innerWidth}
@@ -195,6 +195,58 @@ function drawFly(ctx){
   var sz=ks(S.body.size*1.2);
   var isAir=S.body.is_airborne;
 
+  // Track movement trail
+  if(stage==="adult"||stage==="larva"){
+    trail.push({x:S.body.position.x,y:S.body.position.y,t:t,stage:stage});
+    if(trail.length>300)trail=trail.slice(-200);
+  }
+  // Draw trail
+  if(trail.length>2){
+    ctx.beginPath();
+    ctx.moveTo(kx(trail[0].x),ky(trail[0].y));
+    for(var ti=1;ti<trail.length;ti++){
+      ctx.lineTo(kx(trail[ti].x),ky(trail[ti].y));
+    }
+    var tc=stage==="larva"?"rgba(180,200,60,":"rgba(100,100,100,";
+    ctx.strokeStyle=tc+"0.06)";ctx.lineWidth=0.5;ctx.stroke();
+    // Recent trail brighter
+    if(trail.length>10){
+      ctx.beginPath();
+      var start=Math.max(0,trail.length-20);
+      ctx.moveTo(kx(trail[start].x),ky(trail[start].y));
+      for(var ti2=start+1;ti2<trail.length;ti2++){
+        ctx.lineTo(kx(trail[ti2].x),ky(trail[ti2].y));
+      }
+      ctx.strokeStyle=tc+"0.15)";ctx.lineWidth=1;ctx.stroke();
+    }
+  }
+
+  // Draw scar markers
+  var scars=S.memory&&S.memory.scars||[];
+  for(var si=0;si<scars.length;si++){
+    var sc=scars[si];
+    var scx=kx(sc.x),scy=ky(sc.y);
+    ctx.beginPath();ctx.arc(scx,scy,ks(8),0,Math.PI*2);
+    ctx.fillStyle="rgba(200,60,60,0.04)";ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(scx-ks(3),scy-ks(3));ctx.lineTo(scx+ks(3),scy+ks(3));
+    ctx.moveTo(scx+ks(3),scy-ks(3));ctx.lineTo(scx-ks(3),scy+ks(3));
+    ctx.strokeStyle="rgba(200,60,60,0.08)";ctx.lineWidth=0.5;ctx.stroke();
+  }
+
+  // Heartbeat pulse — energy-based aura
+  if(stage!=="death"){
+    var ep=Math.max(0,S.energy.current)/100;
+    var hbRate=2+ep*4;
+    var hbPulse=0.03+Math.sin(t*hbRate)*0.02*ep;
+    var hbR=sz*3+sz*Math.sin(t*hbRate)*0.5;
+    var hbGrad=ctx.createRadialGradient(x,y-ks(isAir?S.body.position.z*8:0),0,x,y-ks(isAir?S.body.position.z*8:0),hbR);
+    var hbCol=ep>0.5?"60,200,120":"220,120,60";
+    hbGrad.addColorStop(0,"rgba("+hbCol+","+hbPulse+")");
+    hbGrad.addColorStop(1,"rgba("+hbCol+",0)");
+    ctx.fillStyle=hbGrad;ctx.beginPath();ctx.arc(x,y-ks(isAir?S.body.position.z*8:0),hbR,0,Math.PI*2);ctx.fill();
+  }
+
   // Shadow
   if(isAir){
     ctx.beginPath();ctx.ellipse(x,y+ks(15),sz*0.8,sz*0.3,0,0,Math.PI*2);
@@ -269,28 +321,55 @@ function drawFly(ctx){
   }
 
   if(stage==="death"){
+    // Fading death aura
+    var deathPulse=0.03+Math.sin(t*0.5)*0.01;
+    var dg=ctx.createRadialGradient(x,y,0,x,y,sz*5);
+    dg.addColorStop(0,"rgba(100,30,30,"+deathPulse+")");
+    dg.addColorStop(1,"rgba(100,30,30,0)");
+    ctx.fillStyle=dg;ctx.beginPath();ctx.arc(x,y,sz*5,0,Math.PI*2);ctx.fill();
+
     // Dead fly on its back
     ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI);
-    // Wings spread
+    // Wings spread (with wear marks)
     ctx.beginPath();ctx.ellipse(-sz*0.8,-sz*0.3,sz*1.2,sz*0.4,0.3,0,Math.PI*2);
-    ctx.fillStyle="rgba(180,180,180,0.08)";ctx.fill();
+    ctx.fillStyle="rgba(180,180,180,0.06)";ctx.fill();
     ctx.beginPath();ctx.ellipse(sz*0.8,-sz*0.3,sz*1.2,sz*0.4,-0.3,0,Math.PI*2);
-    ctx.fillStyle="rgba(180,180,180,0.08)";ctx.fill();
-    // Body
+    ctx.fillStyle="rgba(180,180,180,0.06)";ctx.fill();
+    // Body — darker, more final
     ctx.beginPath();ctx.ellipse(0,0,sz*0.5,sz*0.7,0,0,Math.PI*2);
-    ctx.fillStyle="rgba(50,45,40,0.5)";ctx.fill();
+    ctx.fillStyle="rgba(40,35,30,0.6)";ctx.fill();
     // Legs curled up
     for(var li=0;li<6;li++){
       var la=li*Math.PI/3+Math.PI/6;
       ctx.beginPath();
       ctx.moveTo(Math.cos(la)*sz*0.4,Math.sin(la)*sz*0.5);
       ctx.lineTo(Math.cos(la)*sz*1.2,Math.sin(la)*sz*1.0);
-      ctx.strokeStyle="rgba(50,40,30,0.3)";ctx.lineWidth=0.5;ctx.stroke();
+      ctx.strokeStyle="rgba(50,40,30,0.25)";ctx.lineWidth=0.5;ctx.stroke();
     }
     ctx.restore();
     // X marks
-    ctx.fillStyle="rgba(180,40,40,0.3)";ctx.font="bold "+Math.floor(sz*1.5)+"px monospace";
+    ctx.fillStyle="rgba(180,40,40,0.25)";ctx.font="bold "+Math.floor(sz*1.5)+"px monospace";
     ctx.textAlign="center";ctx.fillText("x",x-sz*0.3,y-sz*0.2);ctx.fillText("x",x+sz*0.3,y-sz*0.2);
+
+    // Memorial text beneath
+    var gen=S._meta.generation||1;
+    var ticks=S.lifecycle.total_ticks||0;
+    var cod=S._meta.cause_of_death||"unknown";
+    ctx.fillStyle="rgba(180,140,80,0.2)";ctx.font="10px monospace";ctx.textAlign="center";
+    ctx.fillText("Gen "+gen+" \u2022 "+ticks+" ticks \u2022 "+cod,x,y+sz*3);
+    if(S.memory&&S.memory.favorite_food){
+      ctx.fillStyle="rgba(180,140,80,0.12)";ctx.font="8px monospace";
+      ctx.fillText("loved: "+S.memory.favorite_food,x,y+sz*3+14);
+    }
+
+    // Show the trail as a ghost path
+    if(trail.length>2){
+      ctx.beginPath();ctx.moveTo(kx(trail[0].x),ky(trail[0].y));
+      for(var gi=1;gi<trail.length;gi++){
+        ctx.lineTo(kx(trail[gi].x),ky(trail[gi].y));
+      }
+      ctx.strokeStyle="rgba(180,140,80,0.04)";ctx.lineWidth=1;ctx.stroke();
+    }
     return;
   }
 
@@ -321,6 +400,16 @@ function drawFly(ctx){
   ctx.moveTo(-sz*0.3,-sz*0.4-wingBeat*sz*0.5);
   ctx.lineTo(-sz*1.5,-sz*0.8-wingBeat*sz*0.5);
   ctx.strokeStyle="rgba(120,130,140,0.08)";ctx.stroke();
+  // Wing wear marks (aging)
+  var ww=S.body.wing_wear||0;
+  if(ww>0.05){
+    for(var wi=0;wi<Math.floor(ww*10);wi++){
+      var wx=-sz*0.5-Math.random()*sz*0.8;
+      var wy=-sz*0.4-wingBeat*sz*0.5+Math.random()*sz*0.3;
+      ctx.beginPath();ctx.arc(wx,wy,sz*0.04,0,Math.PI*2);
+      ctx.fillStyle="rgba(80,60,40,"+ww*0.3+")";ctx.fill();
+    }
+  }
   // Right wing
   ctx.beginPath();
   ctx.ellipse(sz*0.3,-sz*0.4+wingBeat*sz*0.5,sz*1.5,sz*0.5,-0.2-wingBeat*0.3,0,Math.PI*2);
@@ -383,6 +472,18 @@ function drawFly(ctx){
   if(goal==="seek_food"){
     ctx.fillStyle="rgba(200,180,60,0.4)";ctx.font="9px monospace";
     ctx.textAlign="center";ctx.fillText("\u2764",x,y-sz*2);
+  }
+  if(goal==="buzz"){
+    ctx.fillStyle="rgba(180,180,60,0.3)";ctx.font="8px monospace";
+    ctx.textAlign="center";ctx.fillText("bzzz",x,y-sz*2.5);
+  }
+  if(goal==="flee_scar"){
+    ctx.fillStyle="rgba(200,80,120,0.3)";ctx.font="9px monospace";
+    ctx.textAlign="center";ctx.fillText("\u26a0",x,y-sz*2);
+  }
+  if(goal==="explore"){
+    ctx.fillStyle="rgba(100,180,220,0.3)";ctx.font="9px monospace";
+    ctx.textAlign="center";ctx.fillText("\u2734",x,y-sz*2);
   }
 }
 
@@ -485,6 +586,12 @@ function updateHUD(){
 
   // Brain
   var bb='<h3>Brain</h3>';
+  // Wing wear indicator
+  if(S.body.wing_wear>0){
+    var wwp=Math.round(S.body.wing_wear*100);
+    bb+='<div style="margin-bottom:4px">Wing wear: <span class="'+(wwp>20?"w":"v")+'">'+ wwp+'%</span></div>';
+    bb+='<div class="mt"><div class="mf" style="width:'+wwp+'%;background:rgba(200,100,60,0.5)"></div></div>';
+  }
   bb+='<div>Goal: <span class="v">'+(S.brain.current_goal||"none").replace(/_/g," ")+'</span></div>';
   bb+='<div>State: <span class="v">'+(S.brain.state||"?")+'</span></div>';
   bb+='<div class="d" style="margin-top:3px">Neural: '+(S.brain.neural_complexity*100|0)+'% complexity</div>';
@@ -515,6 +622,10 @@ function updateHUD(){
   mm+='<div class="d">Times fled: '+(S.memory.times_fled||0)+'</div>';
   mm+='<div class="d">Distance: '+S.memory.total_distance.toFixed(0)+'px</div>';
   mm+='<div class="d">Peak alt: '+(S.memory.peak_altitude||0).toFixed(1)+'</div>';
+  var scarCount=(S.memory.scars||[]).length;
+  if(scarCount>0)mm+='<div class="d" style="color:rgba(200,80,60,0.5)">Scars: '+scarCount+'</div>';
+  var buzzCount=S.buzz_count||0;
+  if(buzzCount>0)mm+='<div class="d">Buzzes: '+buzzCount+'</div>';
   document.getElementById("mp").innerHTML=mm;
 
   // Ancestors
@@ -566,9 +677,9 @@ function updateHUD(){
   if(S.history){
     for(var hi=0;hi<S.history.length;hi++){
       var he=S.history[hi];
-      if(he.event.indexOf("->")>-1||he.event.indexOf("appears")>-1||he.event.indexOf("molt")>-1){
+      if(he.event.indexOf("->")>-1||he.event.indexOf("appears")>-1||he.event.indexOf("molt")>-1||he.event.indexOf("kitchen event")>-1||he.event.indexOf("generation")>-1){
         var eleft=he.tick/tot*100;
-        var ecolor=he.event.indexOf("->")>-1?"rgba(240,192,96,0.4)":he.event.indexOf("appears")>-1?"rgba(240,80,60,0.3)":"rgba(180,200,60,0.3)";
+        var ecolor=he.event.indexOf("->")>-1?"rgba(240,192,96,0.4)":he.event.indexOf("appears")>-1?"rgba(240,80,60,0.3)":he.event.indexOf("kitchen event")>-1?"rgba(100,180,240,0.3)":"rgba(180,200,60,0.3)";
         tlt+='<div style="position:absolute;top:10px;left:'+eleft+'%;width:2px;height:24px;background:'+ecolor+'" title="'+he.event+'"></div>';
       }
     }

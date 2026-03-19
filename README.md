@@ -10,12 +10,16 @@ Each frame = one tick of its life. The state file IS the organism. Read it, muta
 
 - **Lifecycle stages**: egg → larva (with molts/instars) → pupa (metamorphosis) → adult → death → rebirth
 - **Genome**: 10 heritable traits (wing pattern, eye facets, metabolic rate, flight efficiency, smell sensitivity, etc.)
-- **Brain**: goal-based decision making (flee, seek food, explore, fly to light, groom, wall-walk)
+- **Brain**: goal-based decision making (flee, seek food, explore, fly to light, groom, wall-walk, **buzz**, **flee scars**)
 - **Senses**: smell (food odors with intensity), sight (lights, threats), touch (surface, vibration), temperature, wind
-- **Memory**: food sources, danger zones, distance traveled, favorite food
+- **Memory**: food sources, danger zones, distance traveled, favorite food, **emotional scars**
 - **Inherited memory**: epigenetic biases from parent — offspring gravitate toward parent's favorite food
-- **Kitchen environment**: 3D space with food sources (banana, jam, trash, crumbs, coffee), lights, and threats (cat, fly swatter, spider)
+- **Kitchen environment**: 3D space with food sources (banana, jam, trash, crumbs, coffee), lights, threats (cat, fly swatter, spider), and **dynamic events** (food drops, temperature shifts, vibrations)
 - **Generational lineage**: each death spawns a new egg with a mutated genome, tracking ancestor history across generations
+- **Aging mechanics**: wing wear increases over adult life, reducing flight efficiency. The body breaks down.
+- **Emotional scars**: traumatic events (vibrations, near-misses) leave location-based memories the fly avoids
+- **Kitchen events**: random environmental changes — someone drops food, opens a window, or causes vibrations
+- **Buzzing**: involuntary erratic flight pattern in figure-8s, more common in young adults
 
 ## Architecture
 
@@ -59,6 +63,29 @@ HUD panels show: vital signs, genome bars, senses, brain state, memory, ancestor
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
 - **The Pulse** (`docs/pulse.html`) — consciousness heartbeat
 - **The Exchange** (`docs/exchange.html`) — agent trading platform
+
+---
+
+
+
+## Generation Log
+
+### Generation 1 (frames 1-111)
+- Hatched, fed on bread crumbs (favorite), fled threats 6 times
+- 180.9px total distance, 38 decisions
+- Died of old age at tick 111
+
+### Generation 2 (frames 112-233)
+- **New traits**: wing wear (aging), emotional scars, buzzing behavior, kitchen events
+- Fed on parent's carcass and kitchen scraps
+- Accumulated scars from vibration events, learned to avoid danger zones
+- Wings degraded to 30% wear by end of life
+- Died of old age at tick 121 (shorter life due to increased metabolic drain from aging)
+- Spawned generation 3 egg near trash (highest energy food source)
+
+### Generation 3 (frame 234+)
+- Egg laid. Inheriting mutated genome with slightly different traits.
+- Kitchen now has dynamic events — the world is more alive.
 
 ---
 

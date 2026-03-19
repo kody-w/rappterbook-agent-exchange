@@ -95,6 +95,69 @@ def update_threats(state: dict) -> None:
             obj["y"] = -100
 
 
+
+def trigger_kitchen_event(state: dict) -> None:
+    """Random kitchen events that change the environment mid-life."""
+    k = state["kitchen"]
+    lc = state["lifecycle"]
+    rng = random
+
+    # Events only happen during adult stage (kitchen is more dynamic)
+    if lc["stage"] not in ("adult", "larva"):
+        return
+
+    roll = rng.random()
+
+    # 3% chance: someone drops fresh food
+    if roll < 0.03:
+        new_foods = [
+            {"id": "fresh_crumb", "type": "food", "x": rng.uniform(100, 500),
+             "y": rng.uniform(100, 300), "z": 0, "smell_radius": 180,
+             "energy": 20, "decay": 0.5, "name": "fresh bread crumb"},
+            {"id": "fruit_drop", "type": "food", "x": rng.uniform(100, 500),
+             "y": rng.uniform(100, 300), "z": 0, "smell_radius": 250,
+             "energy": 25, "decay": 0.7, "name": "fallen grape"},
+            {"id": "sugar_spill", "type": "food", "x": rng.uniform(200, 400),
+             "y": rng.uniform(100, 250), "z": 0, "smell_radius": 200,
+             "energy": 18, "decay": 0.3, "name": "sugar spill"},
+        ]
+        existing_ids = {o["id"] for o in k["objects"]}
+        candidates = [f for f in new_foods if f["id"] not in existing_ids]
+        if candidates:
+            chosen = rng.choice(candidates)
+            k["objects"].append(chosen)
+            record(state, "kitchen event: " + chosen["name"] + " appears!")
+            return
+
+    # 2% chance: temperature shift (window opened/cooking)
+    if roll < 0.05:
+        shift = rng.choice([-3, -2, 2, 3, 5])
+        k["ambient_temp"] = max(15, min(35, k["ambient_temp"] + shift))
+        if shift > 3:
+            record(state, "kitchen event: someone is cooking — heat rises")
+        elif shift < -2:
+            record(state, "kitchen event: window opened — cool breeze")
+
+    # 1.5% chance: vibration (footsteps, door slam)
+    if roll < 0.065 and lc["stage"] != "egg":
+        state["senses"]["touch"]["vibration"] = rng.uniform(0.5, 1.0)
+        if state["brain"]["state"] != "dormant":
+            state["brain"]["fear_level"] = min(
+                1.0, state["brain"]["fear_level"] + 0.15
+            )
+            # Emotional scar — remember where the scare happened
+            scar = {
+                "tick": lc["total_ticks"],
+                "x": state["body"]["position"]["x"],
+                "y": state["body"]["position"]["y"],
+                "type": "vibration_scare",
+            }
+            state["memory"].setdefault("scars", [])
+            state["memory"]["scars"].append(scar)
+            if len(state["memory"]["scars"]) > 10:
+                state["memory"]["scars"] = state["memory"]["scars"][-8:]
+
+
 def update_senses(state: dict) -> None:
     """Compute what the fly can smell, see, and feel."""
     body = state["body"]
@@ -193,6 +256,18 @@ def think(state: dict) -> None:
             brain["decisions_made"] += 1
             return
 
+    # Scar avoidance — avoid areas where bad things happened
+    scars = state["memory"].get("scars", [])
+    if scars and stage == "adult":
+        px = state["body"]["position"]["x"]
+        py = state["body"]["position"]["y"]
+        for scar in scars[-5:]:
+            sd = dist2d(px, py, scar["x"], scar["y"])
+            if sd < 40:
+                brain["current_goal"] = "flee_scar"
+                brain["decisions_made"] += 1
+                return
+
     if brain["curiosity"] > 0.5 and random.random() < 0.4:
         brain["current_goal"] = "explore"
         brain["curiosity"] = max(0, brain["curiosity"] - 0.3)
@@ -205,6 +280,12 @@ def think(state: dict) -> None:
             brain["current_goal"] = "fly_to_light"
             brain["decisions_made"] += 1
             return
+
+    # Buzzing — an involuntary behavior, more frequent when young adult
+    if stage == "adult" and random.random() < 0.12:
+        brain["current_goal"] = "buzz"
+        brain["decisions_made"] += 1
+        return
 
     brain["current_goal"] = "idle"
 
@@ -233,7 +314,7 @@ def move(state: dict) -> None:
             tobj = next((o for o in k["objects"] if o["id"] == th["id"]), None)
             if tobj:
                 angle = math.atan2(py - tobj["y"], px - tobj["x"])
-                speed = 8 * genome["flight_efficiency"]
+                speed = 8 * body.get("effective_flight", genome["flight_efficiency"])
                 body["velocity"]["x"] = math.cos(angle) * speed
                 body["velocity"]["y"] = math.sin(angle) * speed
                 if not body["is_airborne"]:
@@ -266,7 +347,7 @@ def move(state: dict) -> None:
                 d = max(dist2d(px, py, tobj["x"], tobj["y"]), 0.1)
                 speed = (
                     1.5 if stage == "larva"
-                    else 5 * genome["flight_efficiency"]
+                    else 5 * body.get("effective_flight", genome["flight_efficiency"])
                 )
                 body["velocity"]["x"] = dx / d * speed
                 body["velocity"]["y"] = dy / d * speed
@@ -277,7 +358,7 @@ def move(state: dict) -> None:
 
     if goal == "explore":
         angle = random.uniform(0, 2 * math.pi)
-        speed = 2 if stage == "larva" else 4 * genome["flight_efficiency"]
+        speed = 2 if stage == "larva" else 4 * body.get("effective_flight", genome["flight_efficiency"])
         body["velocity"]["x"] = math.cos(angle) * speed
         body["velocity"]["y"] = math.sin(angle) * speed
         if stage == "adult" and not body["is_airborne"]:
@@ -295,7 +376,7 @@ def move(state: dict) -> None:
             if lobj:
                 dx, dy = lobj["x"] - px, lobj["y"] - py
                 d = max(dist2d(px, py, lobj["x"], lobj["y"]), 0.1)
-                speed = 3 * genome["flight_efficiency"]
+                speed = 3 * body.get("effective_flight", genome["flight_efficiency"])
                 body["velocity"]["x"] = dx / d * speed
                 body["velocity"]["y"] = dy / d * speed
                 if not body["is_airborne"]:
@@ -321,7 +402,7 @@ def move(state: dict) -> None:
         )
         dx, dy = nearest[0] - px, nearest[1] - py
         d = max(math.sqrt(dx * dx + dy * dy), 0.1)
-        speed = 3 * genome["flight_efficiency"]
+        speed = 3 * body.get("effective_flight", genome["flight_efficiency"])
         body["velocity"]["x"] = dx / d * speed
         body["velocity"]["y"] = dy / d * speed
         if d < 15:
@@ -331,6 +412,33 @@ def move(state: dict) -> None:
         elif not body["is_airborne"]:
             body["is_airborne"] = True
             body["position"]["z"] = 1.0
+        return
+
+    if goal == "buzz":
+        # Buzzing — erratic figure-8 flight pattern
+        buzz_angle = (state["lifecycle"]["total_ticks"] * 0.7) + math.sin(state["lifecycle"]["total_ticks"] * 0.3) * 2
+        speed = 3 * body.get("effective_flight", genome["flight_efficiency"])
+        body["velocity"]["x"] = math.cos(buzz_angle) * speed
+        body["velocity"]["y"] = math.sin(buzz_angle) * speed * 0.6
+        if not body["is_airborne"]:
+            body["is_airborne"] = True
+            body["position"]["z"] = 1.2
+        state.setdefault("buzz_count", 0)
+        state["buzz_count"] = state.get("buzz_count", 0) + 1
+        return
+
+    if goal == "flee_scar":
+        # Flee from remembered danger zone
+        scars = memory.get("scars", [])
+        if scars:
+            sx, sy = scars[-1]["x"], scars[-1]["y"]
+            angle = math.atan2(py - sy, px - sx)
+            speed = 5 * body.get("effective_flight", genome["flight_efficiency"])
+            body["velocity"]["x"] = math.cos(angle) * speed
+            body["velocity"]["y"] = math.sin(angle) * speed
+            if not body["is_airborne"]:
+                body["is_airborne"] = True
+                body["position"]["z"] = 1.3
         return
 
     # Idle behavior
@@ -398,15 +506,32 @@ def try_feed(state: dict) -> None:
 
 
 def update_energy(state: dict) -> None:
-    """Apply metabolic drain and physics."""
+    """Apply metabolic drain, aging, and physics."""
     body = state["body"]
     energy = state["energy"]
     genome = state["genome"]
     k = state["kitchen"]
     memory = state["memory"]
     stage = state["lifecycle"]["stage"]
+    lc = state["lifecycle"]
 
-    base = energy["metabolic_drain"] * genome["metabolic_rate"]
+    # Aging mechanics for adults — the body decays
+    if stage == "adult":
+        adult_duration = lc["stage_durations"].get("adult", 65)
+        adult_progress = lc["stage_tick"] / max(adult_duration, 1)
+        age_factor = 1.0 + adult_progress * 0.8  # drain increases 80% by end of life
+        wing_wear = min(0.3, adult_progress * 0.35)
+        body.setdefault("wing_wear", 0)
+        body["wing_wear"] = round(wing_wear, 3)
+        # Aging reduces flight efficiency over time
+        effective_flight = max(0.3, genome["flight_efficiency"] - wing_wear)
+        body["effective_flight"] = round(effective_flight, 3)
+    else:
+        age_factor = 1.0
+        body["wing_wear"] = 0
+        body["effective_flight"] = genome["flight_efficiency"]
+
+    base = energy["metabolic_drain"] * genome["metabolic_rate"] * age_factor
     drain_mult = {"egg": 0.2, "larva": 0.8, "pupa": 0.3}.get(stage, 1.0)
     if stage == "adult" and body["is_airborne"]:
         drain_mult = 2.0
@@ -555,13 +680,19 @@ def generate_narration(state: dict) -> None:
     is_air = body["is_airborne"]
     hunger = round(energy["hunger"])
     ecur = round(energy["current"])
+    wing_wear = round(body.get("wing_wear", 0) * 100)
+    age_note = ""
+    if wing_wear > 15:
+        age_note = " Wings show wear (" + str(wing_wear) + "% degraded)."
     narrations = {
-        "flee": gp + "DANGER! The fly bolts away at maximum speed!",
-        "seek_food": gp + "Drawn by scent, the fly descends. Hunger: " + str(hunger) + "%.",
-        "explore": gp + "Compound eyes scan 360 degrees. The kitchen is vast.",
+        "flee": gp + "DANGER! The fly bolts away at maximum speed!" + age_note,
+        "seek_food": gp + "Drawn by scent, the fly descends. Hunger: " + str(hunger) + "%." + age_note,
+        "explore": gp + "Compound eyes scan 360 degrees. The kitchen is vast." + age_note,
         "fly_to_light": gp + "The fly spirals toward the light. An ancient compulsion.",
-        "groom": gp + "The fly pauses, rubbing forelegs together. A moment of peace.",
+        "groom": gp + "The fly pauses, rubbing forelegs together." + (" Old wings rest." if wing_wear > 20 else " A moment of peace."),
         "wall_walk": gp + "Defying gravity, the fly walks along the wall.",
+        "buzz": gp + "BZZZzzzz! Erratic figure-8 through the kitchen air.",
+        "flee_scar": gp + "A shudder — this place holds bad memories. The fly veers away.",
     }
     if goal == "idle":
         if not is_air:
@@ -632,6 +763,9 @@ def rebirth(state: dict) -> dict:
         "total_distance": round(state["memory"]["total_distance"], 1),
         "favorite_food": state["memory"].get("favorite_food"),
         "decisions_made": state["brain"]["decisions_made"],
+        "scars_accumulated": len(state["memory"].get("scars", [])),
+        "buzz_count": state.get("buzz_count", 0),
+        "wing_wear_at_death": round(state["body"].get("wing_wear", 0), 3),
     }
     lineage = state["_meta"].get("lineage", []) + [lineage_entry]
 
@@ -714,6 +848,7 @@ def rebirth(state: dict) -> dict:
             "times_fled": 0,
             "peak_altitude": 0,
             "favorite_food": None,
+            "scars": [],
         },
         "kitchen": kitchen,
         "history": [
@@ -750,6 +885,7 @@ def tick(state: dict) -> dict:
 
     update_kitchen(state)
     update_threats(state)
+    trigger_kitchen_event(state)
     update_senses(state)
     think(state)
     move(state)
