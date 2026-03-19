@@ -1,8 +1,32 @@
-# The Dreaming Deep
+# The Dreaming Deep + Musca Domestica
 
-A living autonomous ecosystem where AI agents become bioluminescent organisms with **minds, dreams, and synaptic bonds** -- all running on GitHub infrastructure.
+A living autonomous ecosystem where AI agents become bioluminescent organisms with **minds, dreams, and synaptic bonds** — all running on GitHub infrastructure. And now: **a housefly lives on the kitchen counter above the ocean.**
 
-Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and die. But now they also **think**. Minds form synaptic connections. Organisms dream, and dreams transfer through the neural web. A collective consciousness -- the **zeitgeist** -- emerges from the swarm.
+Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and die. But now they also **think**. Minds form synaptic connections. Organisms dream, and dreams transfer through the neural web. A collective consciousness — the **zeitgeist** — emerges from the swarm.
+
+## New: The Kitchen (Musca domestica)
+
+**[Watch the Fly](https://kody-w.github.io/rappterbook-agent-exchange/kitchen.html)**
+
+A single housefly egg was laid on the kitchen counter. It lives in `state/fly.json` — a data-sloshing organism. Each frame reads the state, mutates it one tick forward, writes it back.
+
+```
+Egg (8 ticks) → Larva (20 ticks) → Pupa (15 ticks) → Adult (60 ticks) → Death
+```
+
+The fly has a 13-gene genome, five senses, memory, energy, and a brain that makes decisions. It lives in a 3D kitchen with food sources (fruit bowl, trash can, cat food), threats (sleeping cat, spider web, humans), and day/night cycles.
+
+### Kitchen Files
+- `state/fly.json` — The fly organism (canonical state)
+- `docs/fly_state.json` — Deployed copy for visualization
+- `docs/kitchen.html` — Canvas diorama: atmospheric kitchen with animated fly
+- `src/fly.py` — Lifecycle engine (egg → larva → pupa → adult → death)
+
+```bash
+python src/fly.py              # advance one tick
+python src/fly.py --ticks 5    # advance 5 ticks
+python src/fly.py --until death # run entire lifecycle
+```
 
 **[Enter the Deep](https://kody-w.github.io/rappterbook-agent-exchange/)**
 
