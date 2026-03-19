@@ -17,13 +17,14 @@ canvas{position:fixed;top:0;left:0;display:block}
 #tb a{color:rgba(200,168,100,0.3);text-decoration:none;font-size:9px;letter-spacing:1px}
 #tb a:hover{color:rgba(200,168,100,0.7)}
 .ns{margin:0 6px;opacity:0.3}
-#vi{top:12px;left:12px;min-width:190px}
-#gp{top:320px;left:12px;min-width:190px;max-height:260px;overflow:hidden}
+#vi{top:12px;left:12px;min-width:200px}
+#gp{top:340px;left:12px;min-width:190px;max-height:260px;overflow:hidden}
 #sp{top:12px;right:12px;min-width:200px}
 #bp{top:240px;right:12px;min-width:200px}
-#mp{bottom:120px;right:12px;min-width:200px;max-height:180px;overflow:hidden}
-#tl{bottom:12px;left:12px;right:12px;height:90px;text-align:center}
-#nr{bottom:110px;left:50%;transform:translateX(-50%);text-align:center;max-width:500px;font-size:11px;letter-spacing:0.5px;color:rgba(200,168,100,0.35);font-style:italic}
+#mp{bottom:140px;right:12px;min-width:200px;max-height:180px;overflow:hidden}
+#lp{bottom:140px;left:12px;min-width:200px;max-height:160px;overflow:auto}
+#tl{bottom:12px;left:12px;right:12px;height:110px;text-align:center}
+#nr{bottom:130px;left:50%;transform:translateX(-50%);text-align:center;max-width:500px;font-size:11px;letter-spacing:0.5px;color:rgba(200,168,100,0.35);font-style:italic}
 h3{font-size:10px;color:rgba(180,140,70,0.5);margin-bottom:4px;letter-spacing:1.5px;font-weight:normal;text-transform:uppercase}
 .v{color:rgba(220,180,100,0.85)}.d{color:rgba(140,110,60,0.4)}.w{color:#e06040}
 .gr{display:flex;align-items:center;margin:2px 0}
@@ -37,8 +38,16 @@ h3{font-size:10px;color:rgba(180,140,70,0.5);margin-bottom:4px;letter-spacing:1.
 .st-pupa{background:rgba(120,80,40,0.15);color:#a07030}
 .st-adult{background:rgba(60,60,60,0.15);color:#a0a0a0}
 .st-death{background:rgba(100,30,30,0.15);color:#c04040}
+.st-decomposing{background:rgba(80,60,20,0.15);color:#8a6030}
 .mt{height:6px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;margin:3px 0}
 .mf{height:100%;border-radius:3px;transition:width .6s}
+.gen-badge{display:inline-block;padding:1px 6px;border-radius:8px;font-size:8px;letter-spacing:1px;background:rgba(200,168,100,0.1);color:rgba(200,168,100,0.6);margin-left:6px}
+.lineage-row{padding:3px 0;border-bottom:1px solid rgba(180,140,60,0.06);font-size:9px}
+.lineage-row .gen-num{color:rgba(200,168,100,0.5);font-weight:bold;margin-right:4px}
+.lineage-row .cause{color:rgba(200,100,60,0.4);font-size:8px}
+.decomp-bar{height:8px;background:rgba(60,40,20,0.3);border-radius:4px;overflow:hidden;margin:4px 0}
+.decomp-fill{height:100%;border-radius:4px;transition:width .6s;background:linear-gradient(90deg,#4a3020,#6a4030,#3a2510)}
+.bacteria-count{color:rgba(180,200,60,0.5);font-size:9px}
 </style>
 </head>
 <body>
@@ -58,6 +67,7 @@ h3{font-size:10px;color:rgba(180,140,70,0.5);margin-bottom:4px;letter-spacing:1.
   <div class="p" id="sp"></div>
   <div class="p" id="bp"></div>
   <div class="p" id="mp"></div>
+  <div class="p" id="lp" style="display:none"></div>
   <div class="p" id="tl"></div>
   <div id="nr"></div>
 </div>
@@ -70,7 +80,7 @@ var bgC=document.getElementById("bg"),bgX=bgC.getContext("2d"),
 function resize(){bgC.width=scC.width=fxC.width=innerWidth;bgC.height=scC.height=fxC.height=innerHeight}
 resize();addEventListener("resize",resize);
 
-var S=null,t=0,dust=[];
+var S=null,t=0,dust=[],bacteria=[],rebirthFx=[];
 var KW=640,KH=360;
 
 function kx(x){return x/KW*innerWidth}
@@ -85,36 +95,43 @@ for(var i=0;i<80;i++)dust.push({x:Math.random()*KW,y:Math.random()*KH,
 function loadState(){
   return fetch("fly_state.json?t="+Date.now())
     .then(function(r){return r.json()})
-    .then(function(d){S=d;KW=d.kitchen.width;KH=d.kitchen.height})
+    .then(function(d){
+      var oldGen=S?S._meta.generation:null;
+      S=d;KW=d.kitchen.width;KH=d.kitchen.height;
+      // Spawn rebirth particles on generation change
+      if(oldGen&&d._meta.generation&&d._meta.generation>oldGen){
+        for(var ri=0;ri<40;ri++){
+          rebirthFx.push({
+            x:d.body.position.x,y:d.body.position.y,
+            vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,
+            life:1,hue:45+Math.random()*30
+          });
+        }
+      }
+    })
     .catch(function(e){console.error("Load:",e)})
 }
 
 function drawBG(ctx){
   var w=innerWidth,h=innerHeight,cy=0.28*h;
   var isDay=S&&S.kitchen.lights_on;
-  // Wall
   var wg=ctx.createLinearGradient(0,0,0,cy);
   if(isDay){wg.addColorStop(0,"#f5e8d4");wg.addColorStop(1,"#e0cdb0")}
   else{wg.addColorStop(0,"#2a2218");wg.addColorStop(1,"#1a150e")}
   ctx.fillStyle=wg;ctx.fillRect(0,0,w,cy);
-  // Tile lines
   ctx.strokeStyle=isDay?"rgba(200,180,150,0.06)":"rgba(100,80,60,0.04)";ctx.lineWidth=1;
   for(var tx=0;tx<w;tx+=ks(40)){ctx.beginPath();ctx.moveTo(tx,0);ctx.lineTo(tx,cy);ctx.stroke()}
   for(var ty=0;ty<cy;ty+=30){ctx.beginPath();ctx.moveTo(0,ty);ctx.lineTo(w,ty);ctx.stroke()}
-  // Counter surface
   var ch=ks(6);
   var cg=ctx.createLinearGradient(0,cy,0,cy+ch);
   cg.addColorStop(0,isDay?"#d8cbb8":"#3a3028");cg.addColorStop(1,isDay?"#c8bca8":"#2a2418");
   ctx.fillStyle=cg;ctx.fillRect(0,cy,w,ch);
-  // Counter top
   var ctg=ctx.createLinearGradient(0,cy-2,0,cy+ch);
   ctg.addColorStop(0,isDay?"#e8dcc8":"#4a3e30");ctg.addColorStop(1,isDay?"#d0c4a8":"#3a3020");
   ctx.fillStyle=ctg;ctx.fillRect(0,cy,w,2);
-  // Cabinets
   var cabg=ctx.createLinearGradient(0,cy+ch,0,h);
   cabg.addColorStop(0,isDay?"#5a3e28":"#1a1008");cabg.addColorStop(1,isDay?"#3a2618":"#0a0804");
   ctx.fillStyle=cabg;ctx.fillRect(0,cy+ch,w,h-cy-ch);
-  // Cabinet panels
   ctx.strokeStyle=isDay?"rgba(90,65,40,0.25)":"rgba(50,35,20,0.15)";
   var pw=ks(110);
   for(var px=ks(20);px<w-ks(20);px+=pw+ks(10)){
@@ -123,7 +140,6 @@ function drawBG(ctx){
     ctx.fillStyle=isDay?"rgba(80,55,30,0.08)":"rgba(30,20,10,0.1)";
     ctx.fillRect(px+2,py2+2,pw-4,ph2-4);
   }
-  // Window (top-right of wall)
   if(S){
     var winObj=null;
     for(var oi=0;oi<S.kitchen.objects.length;oi++){
@@ -138,7 +154,6 @@ function drawBG(ctx){
       var skyB=Math.floor(200+55*Math.max(0,Math.sin(tod*3.14)));
       ctx.fillStyle="rgb("+skyR+","+skyG+","+skyB+")";ctx.fillRect(wx,wy,ww,wh);
       ctx.fillStyle="#3a3020";ctx.fillRect(wx+ww/2-1.5,wy,3,wh);ctx.fillRect(wx,wy+wh/2-1.5,ww,3);
-      // Light rays
       if(isDay){
         ctx.save();ctx.globalAlpha=.06+Math.sin(t*.3)*.01;
         var rg=ctx.createLinearGradient(wx+ww,wy,wx-ks(200),cy);
@@ -159,7 +174,6 @@ function drawObjs(ctx){
     if(o.id==="window"||o.id==="light")continue;
     if(o.x<0)continue;
     var ox=kx(o.x),oy=ky(o.y),r=ks(14);
-    // Shadow
     ctx.fillStyle="rgba(0,0,0,.04)";
     ctx.beginPath();ctx.ellipse(ox,oy+r*.25,r*.7,r*.12,0,0,6.28);ctx.fill();
     var colors={"banana":"#d4a846","jam":"#c04060","trash":"#556","crumbs":"#c8b888",
@@ -168,25 +182,21 @@ function drawObjs(ctx){
     if(o.type==="threat"&&o.active){col="#c04040"}
     ctx.fillStyle=col;ctx.globalAlpha=o.type==="threat"?0.6:0.8;
     ctx.beginPath();ctx.arc(ox,oy,r,0,6.28);ctx.fill();ctx.globalAlpha=1;
-    // Smell aura for food
     if(o.type==="food"&&o.smell_radius){
       var sr=ks(o.smell_radius);
       var sg=ctx.createRadialGradient(ox,oy,r,ox,oy,sr);
       sg.addColorStop(0,"rgba(200,160,40,0.03)");sg.addColorStop(1,"rgba(200,160,40,0)");
       ctx.fillStyle=sg;ctx.beginPath();ctx.arc(ox,oy,sr,0,6.28);ctx.fill();
     }
-    // Threat danger zone
     if(o.type==="threat"&&o.active){
       var dr=ks(60);
       ctx.save();ctx.globalAlpha=.08+Math.sin(t*3)*.03;
       ctx.fillStyle="rgba(200,40,20,0.15)";ctx.beginPath();ctx.arc(ox,oy,dr,0,6.28);ctx.fill();
       ctx.restore();
     }
-    // Label
     ctx.fillStyle="rgba(200,168,100,0.2)";ctx.font="7px monospace";ctx.textAlign="center";
     ctx.fillText(o.name||o.id,ox,oy-r-4);
   }
-  // Overhead light
   for(var li=0;li<objs.length;li++){
     var lo=objs[li];
     if(lo.id==="light"&&S.kitchen.lights_on){
@@ -199,49 +209,118 @@ function drawObjs(ctx){
   }
 }
 
-function drawAdult(ctx,x,y,facing){
+function drawAdult(ctx,x,y,facing,alpha){
   var sc=ks(7),wf=Math.sin(t*30)*.25;
   ctx.save();ctx.translate(x,y);ctx.rotate(facing||0);
-  // Wings
+  if(alpha!==undefined)ctx.globalAlpha=alpha;
   ctx.fillStyle="rgba(180,200,220,0.15)";
   ctx.save();ctx.rotate(-.3+wf);ctx.beginPath();ctx.ellipse(-sc*.1,-sc*.6,sc*1.4,sc*.4,0,0,6.28);ctx.fill();ctx.restore();
   ctx.save();ctx.rotate(.3-wf);ctx.beginPath();ctx.ellipse(-sc*.1,-sc*.6,sc*1.4,sc*.4,0,0,6.28);ctx.fill();ctx.restore();
-  // Thorax
   ctx.fillStyle="rgba(40,35,30,0.9)";ctx.beginPath();ctx.ellipse(0,0,sc*.35,sc*.4,0,0,6.28);ctx.fill();
-  // Abdomen
   ctx.fillStyle="rgba(50,45,35,0.85)";ctx.beginPath();ctx.ellipse(sc*.55,sc*.05,sc*.55,sc*.35,.15,0,6.28);ctx.fill();
-  // Head
   ctx.fillStyle="rgba(35,30,25,0.9)";ctx.beginPath();ctx.arc(-sc*.4,0,sc*.25,0,6.28);ctx.fill();
-  // Compound eyes
   var eg=.7+Math.sin(t*4)*.1;
   ctx.fillStyle="rgba(180,20,20,"+eg+")";
   ctx.beginPath();ctx.arc(-sc*.52,-sc*.12,sc*.1,0,6.28);ctx.fill();
   ctx.beginPath();ctx.arc(-sc*.52,sc*.12,sc*.1,0,6.28);ctx.fill();
-  // Legs
   ctx.strokeStyle="rgba(30,25,20,0.4)";ctx.lineWidth=.6;
   for(var li=0;li<3;li++){
     var la=-.5+li*.35,ll=sc*.6,lx=li*sc*.22-sc*.1;
     ctx.beginPath();ctx.moveTo(lx,sc*.2);ctx.lineTo(lx+Math.cos(la)*ll,sc*.2+Math.sin(la)*ll);ctx.stroke();
     ctx.beginPath();ctx.moveTo(lx,-sc*.2);ctx.lineTo(lx+Math.cos(-la)*ll,-sc*.2-Math.sin(la)*ll);ctx.stroke();
   }
-  // Antennae
   ctx.strokeStyle="rgba(40,30,20,0.3)";ctx.lineWidth=.4;
   ctx.beginPath();ctx.moveTo(-sc*.5,-sc*.2);ctx.quadraticCurveTo(-sc*.7,-sc*.45,-sc*.6,-sc*.5);ctx.stroke();
   ctx.beginPath();ctx.moveTo(-sc*.5,sc*.15);ctx.quadraticCurveTo(-sc*.7,sc*.35,-sc*.6,sc*.42);ctx.stroke();
   ctx.restore();
 }
 
+function drawDecomposing(ctx,x,y,decomp){
+  if(!decomp)return;
+  var prog=decomp.progress||0;
+  var facing=S.body.facing||0;
+
+  // Darkening corpse
+  var alpha=Math.max(0.08,0.3-prog*0.25);
+  drawAdult(ctx,x,y,facing+3.14,alpha);
+
+  // Decomposition stain spreading outward
+  var stainR=ks(8+prog*25);
+  var sg=ctx.createRadialGradient(x,y,ks(2),x,y,stainR);
+  var stainA=Math.min(0.15,prog*0.2);
+  sg.addColorStop(0,"rgba(60,40,20,"+stainA+")");
+  sg.addColorStop(0.6,"rgba(40,30,15,"+(stainA*0.5)+")");
+  sg.addColorStop(1,"rgba(40,30,15,0)");
+  ctx.fillStyle=sg;ctx.beginPath();ctx.arc(x,y,stainR,0,6.28);ctx.fill();
+
+  // Bacteria dots
+  var bCount=Math.min(decomp.bacteria_count||0,60);
+  for(var bi=0;bi<bCount;bi++){
+    var ba=t*0.5+bi*2.39996;
+    var br=ks(3+prog*18)*(0.3+Math.sin(ba*1.3+bi)*.7);
+    var bx=x+Math.cos(ba)*br;
+    var by=y+Math.sin(ba)*br;
+    var bSize=0.5+Math.random()*1;
+    ctx.fillStyle="rgba(180,200,60,"+(0.15+Math.sin(t*3+bi)*0.05)+")";
+    ctx.beginPath();ctx.arc(bx,by,bSize,0,6.28);ctx.fill();
+  }
+
+  // Nutrient wisps rising (advanced decomp)
+  if(prog>0.3){
+    for(var wi=0;wi<Math.floor(prog*8);wi++){
+      var wx=x+(Math.sin(t*0.7+wi*1.7))*ks(15);
+      var wy=y-ks(5+Math.sin(t*0.4+wi)*20*prog);
+      var wa=0.03+0.04*Math.sin(t+wi*2);
+      ctx.fillStyle="rgba(200,180,100,"+wa+")";
+      ctx.beginPath();ctx.arc(wx,wy,1+Math.sin(t+wi)*0.5,0,6.28);ctx.fill();
+    }
+  }
+
+  // Attracted organisms
+  var attracted=decomp.attracted_organisms||[];
+  for(var ai=0;ai<attracted.length;ai++){
+    var aa=t*0.3+ai*1.26;
+    var arad=ks(30+ai*8);
+    var ax=x+Math.cos(aa)*arad;
+    var ay=y+Math.sin(aa)*arad;
+    ctx.fillStyle="rgba(140,120,80,0.2)";ctx.font="7px monospace";ctx.textAlign="center";
+    ctx.fillText(attracted[ai],ax,ay);
+    ctx.fillStyle="rgba(100,80,40,0.15)";
+    ctx.beginPath();ctx.arc(ax,ay-4,2,0,6.28);ctx.fill();
+  }
+
+  // Chitin fragments (late stage)
+  if(prog>0.7){
+    ctx.strokeStyle="rgba(80,60,30,"+(0.1*(1-prog))+")";ctx.lineWidth=0.5;
+    for(var ci=0;ci<4;ci++){
+      var cx=x+Math.cos(ci*1.57)*ks(4*(1-prog));
+      var cy2=y+Math.sin(ci*1.57)*ks(3*(1-prog));
+      ctx.beginPath();ctx.moveTo(cx-2,cy2);ctx.lineTo(cx+2,cy2);ctx.stroke();
+    }
+  }
+
+  // Stage label
+  var stageLabel=(decomp.stage||"decomposing").replace(/_/g," ");
+  ctx.fillStyle="rgba(180,140,60,0.25)";ctx.font="9px monospace";ctx.textAlign="center";
+  ctx.fillText(stageLabel+" "+(prog*100|0)+"%",x,y-ks(20));
+}
+
 function drawFly(ctx){
   if(!S||!S.body)return;
   var fx=kx(S.body.position.x),fy=ky(S.body.position.y);
-  var st=S.lifecycle.stage,dead=S._meta.cause_of_death!=null;
+  var st=S.lifecycle.stage;
   var facing=S.body.facing||0;
+  var isDecomposing=S.decomposition&&S.lifecycle.stage==="death";
 
-  if(dead){
+  if(isDecomposing){
+    drawDecomposing(ctx,fx,fy,S.decomposition);
+    return;
+  }
+
+  if(st==="death"&&!isDecomposing){
     ctx.save();ctx.globalAlpha=.25;
     drawAdult(ctx,fx,fy,facing+3.14);
     ctx.restore();
-    // X mark
     ctx.strokeStyle="rgba(200,40,40,0.4)";ctx.lineWidth=2;
     ctx.beginPath();ctx.moveTo(fx-6,fy-6);ctx.lineTo(fx+6,fy+6);ctx.stroke();
     ctx.beginPath();ctx.moveTo(fx+6,fy-6);ctx.lineTo(fx-6,fy+6);ctx.stroke();
@@ -252,30 +331,34 @@ function drawFly(ctx){
 
   if(st==="egg"){
     var pu=.7+Math.sin(t*2)*.15,eR=ks(4);
-    // Glow
-    var eg=ctx.createRadialGradient(fx,fy,0,fx,fy,eR*5);
-    eg.addColorStop(0,"rgba(255,250,230,"+(0.08*pu)+")");eg.addColorStop(1,"rgba(255,250,230,0)");
-    ctx.fillStyle=eg;ctx.beginPath();ctx.arc(fx,fy,eR*5,0,6.28);ctx.fill();
-    // Egg shape
+    var eg2=ctx.createRadialGradient(fx,fy,0,fx,fy,eR*5);
+    eg2.addColorStop(0,"rgba(255,250,230,"+(0.08*pu)+")");eg2.addColorStop(1,"rgba(255,250,230,0)");
+    ctx.fillStyle=eg2;ctx.beginPath();ctx.arc(fx,fy,eR*5,0,6.28);ctx.fill();
     ctx.fillStyle="rgba(255,252,240,"+pu+")";
     ctx.beginPath();ctx.ellipse(fx,fy,eR*.4,eR*.7,0,0,6.28);ctx.fill();
-    // Specular
     ctx.fillStyle="rgba(255,255,255,0.25)";
     ctx.beginPath();ctx.ellipse(fx-eR*.06,fy-eR*.15,eR*.06,eR*.14,0,0,6.28);ctx.fill();
+    var gen=S._meta.generation||1;
     ctx.fillStyle="rgba(255,250,230,0.3)";ctx.font="9px monospace";ctx.textAlign="center";
-    ctx.fillText("egg",fx,fy-eR*3);
+    ctx.fillText("egg"+(gen>1?" (gen "+gen+")":""),fx,fy-eR*3);
+    // Rebirth glow for gen > 1
+    if(gen>1){
+      var rg2=ctx.createRadialGradient(fx,fy,0,fx,fy,eR*8);
+      rg2.addColorStop(0,"rgba(255,200,60,"+(0.04+Math.sin(t*1.5)*0.02)+")");
+      rg2.addColorStop(1,"rgba(255,200,60,0)");
+      ctx.fillStyle=rg2;ctx.beginPath();ctx.arc(fx,fy,eR*8,0,6.28);ctx.fill();
+    }
   }
   else if(st==="larva"){
     var sz=ks(Math.max(S.body.size||1.5,1.5)),segs=5+Math.floor(S.body.size||1.5);
     ctx.save();ctx.translate(fx,fy);ctx.rotate(facing);
     for(var si=0;si<segs;si++){
-      var sx=si*sz*.35-segs*sz*.17;
+      var sx2=si*sz*.35-segs*sz*.17;
       var wig=Math.sin(t*5+si*.8)*sz*.12;
       var segR=sz*.22*(1-Math.abs(si-segs/2)/(segs/2)*.3);
       ctx.fillStyle=hsla(50,20,75+si%2*5,.85);
-      ctx.beginPath();ctx.ellipse(sx,wig,segR,segR*.7,0,0,6.28);ctx.fill();
+      ctx.beginPath();ctx.ellipse(sx2,wig,segR,segR*.7,0,0,6.28);ctx.fill();
     }
-    // Head
     ctx.fillStyle="rgba(100,80,50,0.7)";
     ctx.beginPath();ctx.arc(-segs*sz*.17-sz*.15,Math.sin(t*5)*sz*.08,sz*.13,0,6.28);ctx.fill();
     ctx.restore();
@@ -283,26 +366,23 @@ function drawFly(ctx){
     ctx.fillText("larva "+S.body.size.toFixed(1)+"mm",fx,fy-sz*2);
   }
   else if(st==="pupa"){
-    var pr=ks(5),prog=S.lifecycle.stage_tick/Math.max(S.lifecycle.stage_durations.pupa,1);
+    var pr=ks(5),prog2=S.lifecycle.stage_tick/Math.max(S.lifecycle.stage_durations.pupa,1);
     ctx.fillStyle="rgba(80,50,25,0.85)";
     ctx.beginPath();ctx.ellipse(fx,fy,pr*.6,pr,0,0,6.28);ctx.fill();
-    // Internal glow showing transformation
     var ig=ctx.createRadialGradient(fx,fy,0,fx,fy,pr);
-    ig.addColorStop(0,hsla(30,60,40+prog*20,.3*prog));ig.addColorStop(1,hsla(30,60,20,0));
+    ig.addColorStop(0,hsla(30,60,40+prog2*20,.3*prog2));ig.addColorStop(1,hsla(30,60,20,0));
     ctx.fillStyle=ig;ctx.beginPath();ctx.ellipse(fx,fy,pr*.5,pr*.9,0,0,6.28);ctx.fill();
     ctx.fillStyle="rgba(160,100,40,0.3)";ctx.font="9px monospace";ctx.textAlign="center";
-    ctx.fillText("pupa "+(prog*100|0)+"%",fx,fy-pr*3);
+    ctx.fillText("pupa "+(prog2*100|0)+"%",fx,fy-pr*3);
   }
   else if(st==="adult"){
     drawAdult(ctx,fx,fy,facing);
-    // Flight trail
     if(S.body.is_airborne){
       ctx.strokeStyle="rgba(200,200,200,0.03)";ctx.lineWidth=1;
       ctx.beginPath();ctx.moveTo(fx,fy);
       ctx.lineTo(fx-ks(S.body.velocity.x*3),fy-ks(S.body.velocity.y*3));ctx.stroke();
     }
   }
-  // Highlight ring
   ctx.strokeStyle="rgba(255,200,60,0.08)";ctx.lineWidth=1;ctx.setLineDash([3,3]);
   ctx.beginPath();ctx.arc(fx,fy,ks(12),0,6.28);ctx.stroke();ctx.setLineDash([]);
 }
@@ -317,123 +397,257 @@ function drawDust(ctx){
     ctx.fillStyle="rgba(255,240,200,"+(inLight?p.a*2:p.a*.2)+")";
     ctx.beginPath();ctx.arc(kx(p.x),ky(p.y),p.r*ks(.6),0,6.28);ctx.fill();
   }
+  // Rebirth particles
+  for(var ri=rebirthFx.length-1;ri>=0;ri--){
+    var rf=rebirthFx[ri];
+    rf.x+=rf.vx;rf.y+=rf.vy;rf.life-=0.015;rf.vy+=0.02;
+    if(rf.life<=0){rebirthFx.splice(ri,1);continue}
+    ctx.fillStyle=hsla(rf.hue,60,60,rf.life*0.5);
+    ctx.beginPath();ctx.arc(kx(rf.x),ky(rf.y),2*rf.life,0,6.28);ctx.fill();
+  }
 }
 
 function updateHUD(){
   if(!S)return;
-  var lc=S.lifecycle,st=lc.stage,tk=lc.total_ticks;
+  var lc=S.lifecycle,st=lc.stage,tk=S._meta.frame;
   var e=S.energy,ep=Math.round(e.current/e.max*100);
   var ec=ep>60?"#4a8":ep>30?"#da4":"#e06040";
+  var gen=S._meta.generation||1;
+  var isDecomp=!!S.decomposition;
+
+  // Title
+  var titleHtml='Musca Domestica';
+  if(gen>1)titleHtml+='<span class="gen-badge">Gen '+gen+'</span>';
+  titleHtml+='<small>a fly\'s life in the kitchen'+(gen>1?' &mdash; generation '+gen:'')+'</small>';
+  titleHtml+='<div style="margin-top:6px"><a href="index.html">deep</a><span class="ns">&middot;</span><a href="garden.html">garden</a><span class="ns">&middot;</span><a href="exchange.html">exchange</a><span class="ns">&middot;</span><a href="synapse.html">synapse</a><span class="ns">&middot;</span><a href="pulse.html">pulse</a></div>';
+  document.getElementById("tb").innerHTML=titleHtml;
 
   // Vitals panel
+  var stLabel=isDecomp?"decomposing":st;
   var v='<h3>Vitals</h3>';
-  v+='<div><span class="st st-'+st+'">'+st+'</span> <span class="d">frame '+tk+'</span></div>';
-  v+='<div style="margin-top:6px">Energy</div>';
-  v+='<div class="mt"><div class="mf" style="width:'+ep+'%;background:'+ec+'"></div></div>';
-  v+='<div class="d">'+e.current.toFixed(1)+' / '+e.max+'</div>';
-  v+='<div style="margin-top:4px"><span class="d">Hunger:</span> <span class="v">'+e.hunger.toFixed(0)+'%</span></div>';
-  v+='<div><span class="d">Temp:</span> <span class="v">'+(S.senses.temperature||22).toFixed(1)+'&deg;C</span></div>';
-  v+='<div><span class="d">Size:</span> <span class="v">'+S.body.size.toFixed(1)+' mm</span></div>';
-  v+='<div><span class="d">Mass:</span> <span class="v">'+(S.body.mass*1000).toFixed(1)+' &micro;g</span></div>';
-  v+='<div><span class="d">Wings:</span> <span class="v">'+S.body.wing_state+'</span></div>';
-  v+='<div><span class="d">Legs:</span> <span class="v">'+S.body.leg_state+'</span></div>';
-  if(S.lifecycle.molts>0)v+='<div><span class="d">Molts:</span> <span class="v">'+S.lifecycle.molts+'</span></div>';
-  if(S._meta.cause_of_death)v+='<div class="w" style="margin-top:6px">&#x2620; '+S._meta.cause_of_death+'</div>';
+  v+='<div><span class="st st-'+(isDecomp?"decomposing":st)+'">'+stLabel+'</span> <span class="d">frame '+tk+'</span></div>';
+  if(gen>1)v+='<div class="d">Generation '+gen+'</div>';
+
+  if(isDecomp){
+    var dc=S.decomposition;
+    v+='<div style="margin-top:6px">Decomposition</div>';
+    v+='<div class="decomp-bar"><div class="decomp-fill" style="width:'+(dc.progress*100)+'%"></div></div>';
+    v+='<div class="d">'+(dc.stage||"").replace(/_/g," ")+' &mdash; '+(dc.progress*100|0)+'%</div>';
+    v+='<div class="bacteria-count">&#x1F9A0; '+dc.bacteria_count+' bacteria</div>';
+    v+='<div class="d">Nutrients: '+dc.nutrients_released.toFixed(1)+' &micro;g</div>';
+    v+='<div class="d">Chitin: '+(dc.chitin_remaining*100|0)+'%</div>';
+    if(dc.attracted_organisms&&dc.attracted_organisms.length>0){
+      v+='<div style="margin-top:3px"><span class="d">Visitors:</span></div>';
+      for(var oi=0;oi<dc.attracted_organisms.length;oi++){
+        v+='<div class="d" style="margin-left:8px">&#x2022; '+dc.attracted_organisms[oi]+'</div>';
+      }
+    }
+  }else{
+    v+='<div style="margin-top:6px">Energy</div>';
+    v+='<div class="mt"><div class="mf" style="width:'+ep+'%;background:'+ec+'"></div></div>';
+    v+='<div class="d">'+e.current.toFixed(1)+' / '+e.max+'</div>';
+    v+='<div style="margin-top:4px"><span class="d">Hunger:</span> <span class="v">'+e.hunger.toFixed(0)+'%</span></div>';
+    v+='<div><span class="d">Temp:</span> <span class="v">'+(S.senses.temperature||22).toFixed(1)+'&deg;C</span></div>';
+    v+='<div><span class="d">Size:</span> <span class="v">'+S.body.size.toFixed(1)+' mm</span></div>';
+    v+='<div><span class="d">Mass:</span> <span class="v">'+(S.body.mass*1000).toFixed(1)+' &micro;g</span></div>';
+    v+='<div><span class="d">Wings:</span> <span class="v">'+S.body.wing_state+'</span></div>';
+    v+='<div><span class="d">Legs:</span> <span class="v">'+S.body.leg_state+'</span></div>';
+    if(lc.molts>0)v+='<div><span class="d">Molts:</span> <span class="v">'+lc.molts+'</span></div>';
+  }
+  if(S._meta.cause_of_death&&!isDecomp)v+='<div class="w" style="margin-top:6px">&#x2620; '+S._meta.cause_of_death+'</div>';
   document.getElementById("vi").innerHTML=v;
 
   // Genome panel
-  var g='<h3>Genome</h3>';
+  var g='<h3>Genome'+(gen>1?' <span class="d">(mutated)</span>':'')+'</h3>';
   var gk=Object.keys(S.genome);
   var gc=["#f06","#fa0","#0cf","#4a8","#80f","#f80","#0af","#8a4","#f08","#4ff"];
+  // Show mutations from parent
+  var parentGenome=null;
+  if(S._meta.lineage&&S._meta.lineage.length>0){
+    parentGenome=S._meta.lineage[S._meta.lineage.length-1].genome_snapshot;
+  }
   for(var gi=0;gi<gk.length;gi++){
-    var gv=S.genome[gk[gi]];if(typeof gv!=="number")continue;
+    var gval=S.genome[gk[gi]];if(typeof gval!=="number")continue;
+    var mutStr="";
+    if(parentGenome&&parentGenome[gk[gi]]!==undefined){
+      var diff=gval-parentGenome[gk[gi]];
+      if(Math.abs(diff)>0.005)mutStr=' <span style="color:'+(diff>0?"#4a8":"#e06040")+';font-size:7px">'+(diff>0?"+":"")+diff.toFixed(3)+'</span>';
+    }
     g+='<div class="gr"><span class="gn">'+gk[gi].replace(/_/g," ")+'</span>';
-    g+='<span class="gb"><span class="gf" style="width:'+(gv*100)+'%;background:'+gc[gi%gc.length]+'"></span></span>';
-    g+='<span class="gv">'+(gv*100|0)+'</span></div>';
+    g+='<span class="gb"><span class="gf" style="width:'+(gval*100)+'%;background:'+gc[gi%gc.length]+'"></span></span>';
+    g+='<span class="gv">'+(gval*100|0)+mutStr+'</span></div>';
   }
   document.getElementById("gp").innerHTML=g;
 
   // Senses panel
   var ss='<h3>Senses</h3>';
-  var smells=S.senses.smell||[];
-  ss+='<div>Smell: <span class="v">'+smells.length+' odors</span></div>';
-  for(var si=0;si<Math.min(smells.length,3);si++){
-    ss+='<div class="d" style="margin-left:8px">'+smells[si].name+' ('+smells[si].distance.toFixed(0)+'px)</div>';
+  if(isDecomp){
+    ss+='<div class="d">The dead have no senses.</div>';
+    ss+='<div class="d" style="margin-top:4px">But the kitchen feels:</div>';
+    ss+='<div><span class="d">Temp:</span> <span class="v">'+(S.kitchen.ambient_temp||22).toFixed(1)+'&deg;C</span></div>';
+    ss+='<div><span class="d">Time:</span> <span class="v">'+(S.kitchen.lights_on?"day":"night")+'</span></div>';
+  }else{
+    var smells=S.senses.smell||[];
+    ss+='<div>Smell: <span class="v">'+smells.length+' odors</span></div>';
+    for(var si2=0;si2<Math.min(smells.length,3);si2++){
+      ss+='<div class="d" style="margin-left:8px">'+smells[si2].name+' ('+smells[si2].distance.toFixed(0)+'px)</div>';
+    }
+    var sights=S.senses.sight||[];
+    ss+='<div style="margin-top:3px">Sight: <span class="v">'+sights.length+' objects</span></div>';
+    for(var vi2=0;vi2<Math.min(sights.length,3);vi2++){
+      var label=sights[vi2].name+(sights[vi2].threat?" !!":"");
+      ss+='<div class="d" style="margin-left:8px">'+label+'</div>';
+    }
+    ss+='<div style="margin-top:3px">Touch: <span class="v">'+S.senses.touch.surface+'</span></div>';
+    ss+='<div>Wind: <span class="v">'+(S.senses.wind||0).toFixed(2)+'</span></div>';
+    ss+='<div style="margin-top:3px">'+(S.body.is_airborne?'&#x2708; FLYING':'&#x25BC; grounded')+'</div>';
+    // Inherited knowledge indicator
+    var inherited=S.memory.inherited_food_knowledge||[];
+    if(inherited.length>0){
+      ss+='<div style="margin-top:4px;color:rgba(200,180,100,0.4)">&#x1F9EC; Inherited: '+inherited.join(", ")+'</div>';
+    }
   }
-  var sights=S.senses.sight||[];
-  ss+='<div style="margin-top:3px">Sight: <span class="v">'+sights.length+' objects</span></div>';
-  for(var vi2=0;vi2<Math.min(sights.length,3);vi2++){
-    var label=sights[vi2].name+(sights[vi2].threat?" !!":"");
-    ss+='<div class="d" style="margin-left:8px">'+label+'</div>';
-  }
-  ss+='<div style="margin-top:3px">Touch: <span class="v">'+S.senses.touch.surface+'</span></div>';
-  ss+='<div>Wind: <span class="v">'+(S.senses.wind||0).toFixed(2)+'</span></div>';
-  ss+='<div style="margin-top:3px">'+(S.body.is_airborne?'&#x2708; FLYING':'&#x25BC; grounded')+'</div>';
   document.getElementById("sp").innerHTML=ss;
 
   // Brain panel
   var bb='<h3>Brain</h3>';
-  bb+='<div>Goal: <span class="v">'+(S.brain.current_goal||"none").replace(/_/g," ")+'</span></div>';
-  bb+='<div>State: <span class="v">'+(S.brain.state||"?")+'</span></div>';
-  bb+='<div class="d" style="margin-top:3px">Neural: '+(S.brain.neural_complexity*100|0)+'% complexity</div>';
-  bb+='<div class="d">Decisions: '+S.brain.decisions_made+'</div>';
-  var bm=[["fear",S.brain.fear_level],["curiosity",S.brain.curiosity],["satisfaction",S.brain.satisfaction]];
-  for(var bi=0;bi<bm.length;bi++){
-    if(bm[bi][1]>0.01){
-      bb+='<div class="gr"><span class="gn">'+bm[bi][0]+'</span>';
-      bb+='<span class="gb"><span class="gf" style="width:'+(bm[bi][1]*100)+'%;background:rgba(200,168,100,0.4)"></span></span>';
-      bb+='<span class="gv">'+(bm[bi][1]*100|0)+'</span></div>';
+  if(isDecomp){
+    bb+='<div class="d">Consciousness dissolved.</div>';
+    bb+='<div class="d">Neural complexity: 0%</div>';
+    bb+='<div class="d" style="margin-top:4px">But pattern persists in DNA...</div>';
+  }else{
+    bb+='<div>Goal: <span class="v">'+(S.brain.current_goal||"none").replace(/_/g," ")+'</span></div>';
+    bb+='<div>State: <span class="v">'+(S.brain.state||"?")+'</span></div>';
+    bb+='<div class="d" style="margin-top:3px">Neural: '+(S.brain.neural_complexity*100|0)+'% complexity</div>';
+    bb+='<div class="d">Decisions: '+S.brain.decisions_made+'</div>';
+    var bm=[["fear",S.brain.fear_level],["curiosity",S.brain.curiosity],["satisfaction",S.brain.satisfaction]];
+    for(var bi=0;bi<bm.length;bi++){
+      if(bm[bi][1]>0.01){
+        bb+='<div class="gr"><span class="gn">'+bm[bi][0]+'</span>';
+        bb+='<span class="gb"><span class="gf" style="width:'+(bm[bi][1]*100)+'%;background:rgba(200,168,100,0.4)"></span></span>';
+        bb+='<span class="gv">'+(bm[bi][1]*100|0)+'</span></div>';
+      }
     }
   }
   document.getElementById("bp").innerHTML=bb;
 
   // Memory panel
   var mm='<h3>Memory</h3>';
-  mm+='<div class="d">Foods found: '+S.memory.food_sources.length+'</div>';
-  if(S.memory.favorite_food)mm+='<div class="d">Fav: '+S.memory.favorite_food+'</div>';
-  mm+='<div class="d">Times fed: '+S.memory.times_fed+'</div>';
-  mm+='<div class="d">Times fled: '+(S.memory.times_fled||0)+'</div>';
-  mm+='<div class="d">Distance: '+S.memory.total_distance.toFixed(0)+'px</div>';
-  mm+='<div class="d">Peak alt: '+(S.memory.peak_altitude||0).toFixed(1)+'</div>';
+  if(isDecomp){
+    mm+='<div class="d">Memories fade...</div>';
+    mm+='<div class="d">But epigenetics carry forward:</div>';
+    var parentFav=S.memory.favorite_food||S.memory.parent_favorite_food;
+    if(parentFav)mm+='<div class="d">Fav food: '+parentFav+'</div>';
+    mm+='<div class="d">Times fed: '+S.memory.times_fed+'</div>';
+    mm+='<div class="d">Distance: '+S.memory.total_distance.toFixed(0)+'px</div>';
+  }else{
+    mm+='<div class="d">Foods found: '+S.memory.food_sources.length+'</div>';
+    if(S.memory.favorite_food)mm+='<div class="d">Fav: '+S.memory.favorite_food+'</div>';
+    mm+='<div class="d">Times fed: '+S.memory.times_fed+'</div>';
+    mm+='<div class="d">Times fled: '+(S.memory.times_fled||0)+'</div>';
+    mm+='<div class="d">Distance: '+S.memory.total_distance.toFixed(0)+'px</div>';
+    mm+='<div class="d">Peak alt: '+(S.memory.peak_altitude||0).toFixed(1)+'</div>';
+    if(S.memory.parent_favorite_food){
+      mm+='<div style="margin-top:4px;color:rgba(200,180,100,0.3)">&#x1F9EC; Parent\'s fav: '+S.memory.parent_favorite_food+'</div>';
+    }
+  }
   document.getElementById("mp").innerHTML=mm;
+
+  // Lineage panel
+  var lineage=S._meta.lineage||[];
+  if(lineage.length>0){
+    document.getElementById("lp").style.display="block";
+    var lh='<h3>Lineage &#x1F9EC;</h3>';
+    for(var li=lineage.length-1;li>=0;li--){
+      var le=lineage[li];
+      lh+='<div class="lineage-row">';
+      lh+='<span class="gen-num">Gen '+le.generation+'</span>';
+      lh+='<span class="d">'+le.total_ticks_alive+' ticks</span>';
+      lh+=' <span class="cause">'+le.cause_of_death+'</span>';
+      if(le.stats){
+        lh+='<div class="d" style="margin-left:16px;font-size:8px">';
+        lh+='fed:'+le.stats.times_fed+' fled:'+le.stats.times_fled+' dist:'+(le.stats.total_distance||0).toFixed(0);
+        if(le.stats.favorite_food)lh+=' fav:'+le.stats.favorite_food;
+        lh+='</div>';
+      }
+      lh+='</div>';
+    }
+    document.getElementById("lp").innerHTML=lh;
+  }else{
+    document.getElementById("lp").style.display="none";
+  }
 
   // Timeline
   var dur=lc.stage_durations,tot=dur.egg+dur.larva+dur.pupa+dur.adult;
-  var tlt='<h3 style="text-align:center">Lifecycle</h3><div style="position:relative;height:50px;margin-top:8px">';
+  var tlt='<h3 style="text-align:center">Lifecycle'+(gen>1?' &mdash; Generation '+gen:'')+'</h3>';
+  tlt+='<div style="position:relative;height:50px;margin-top:8px">';
   var stgs=[
     {n:"egg",d:dur.egg,c:"rgba(255,250,230,0.15)",s:0},
     {n:"larva",d:dur.larva,c:"rgba(180,200,60,0.15)",s:dur.egg},
     {n:"pupa",d:dur.pupa,c:"rgba(120,80,40,0.15)",s:dur.egg+dur.larva},
     {n:"adult",d:dur.adult,c:"rgba(80,80,80,0.15)",s:dur.egg+dur.larva+dur.pupa}
   ];
-  for(var si2=0;si2<stgs.length;si2++){
-    var sg=stgs[si2],sl=sg.s/tot*100,sw=sg.d/tot*100;
-    tlt+='<div style="position:absolute;top:20px;left:'+sl+'%;width:'+sw+'%;height:8px;border-radius:4px;background:'+sg.c+'"></div>';
-    tlt+='<div style="position:absolute;bottom:0;left:'+(sl+sw/2)+'%;transform:translateX(-50%);font-size:8px;color:rgba(160,130,70,0.4)">'+sg.n+'</div>';
+  for(var si3=0;si3<stgs.length;si3++){
+    var sg2=stgs[si3],sl=sg2.s/tot*100,sw=sg2.d/tot*100;
+    tlt+='<div style="position:absolute;top:20px;left:'+sl+'%;width:'+sw+'%;height:8px;border-radius:4px;background:'+sg2.c+'"></div>';
+    tlt+='<div style="position:absolute;bottom:0;left:'+(sl+sw/2)+'%;transform:translateX(-50%);font-size:8px;color:rgba(160,130,70,0.4)">'+sg2.n+'</div>';
   }
   // Progress marker
-  tlt+='<div style="position:absolute;top:16px;left:'+Math.min(tk/tot*100,100)+'%;width:4px;height:16px;background:#f0c060;border-radius:2px;transition:left .5s"></div>';
-  // History events
+  var currentTick=lc.total_ticks||0;
+  if(isDecomp){
+    // Show full bar + decomposition progress
+    tlt+='<div style="position:absolute;top:16px;left:100%;width:4px;height:16px;background:#6a4030;border-radius:2px"></div>';
+  }else{
+    tlt+='<div style="position:absolute;top:16px;left:'+Math.min(currentTick/tot*100,100)+'%;width:4px;height:16px;background:#f0c060;border-radius:2px;transition:left .5s"></div>';
+  }
+  // History events for current generation
   if(S.history){
-    for(var hi=0;hi<Math.min(S.history.length,15);hi++){
-      var he=S.history[hi];
-      tlt+='<div style="position:absolute;top:38px;left:'+(he.tick/tot*100)+'%;font-size:6px;color:rgba(200,168,100,0.2);white-space:nowrap">|'+he.event+'</div>';
+    var genHistory=S.history.filter(function(h){return(h.generation||1)==gen});
+    for(var hi=0;hi<Math.min(genHistory.length,12);hi++){
+      var he=genHistory[hi];
+      var heTick=he.tick-(tk-currentTick);
+      if(heTick<0)heTick=0;
+      tlt+='<div style="position:absolute;top:38px;left:'+(Math.min(heTick/tot*100,100))+'%;font-size:6px;color:rgba(200,168,100,0.2);white-space:nowrap">|'+he.event+'</div>';
     }
   }
   tlt+='</div>';
+
+  // Generation timeline (if multiple generations)
+  if(lineage.length>0){
+    tlt+='<div style="margin-top:14px;position:relative;height:20px">';
+    tlt+='<div style="font-size:8px;color:rgba(160,130,70,0.3);margin-bottom:2px">All Generations</div>';
+    var totalFrames=tk;
+    for(var gli=0;gli<lineage.length;gli++){
+      var gle=lineage[gli];
+      var gStart=0;
+      for(var pli=0;pli<gli;pli++)gStart+=lineage[pli].total_ticks_alive+DECOMP_DURATION_APPROX;
+      var gw2=(gle.total_ticks_alive/totalFrames)*100;
+      var dw=(DECOMP_DURATION_APPROX/totalFrames)*100;
+      tlt+='<div style="position:absolute;top:12px;left:'+((gStart/totalFrames)*100)+'%;width:'+gw2+'%;height:5px;background:rgba(200,168,100,0.15);border-radius:2px" title="Gen '+gle.generation+'"></div>';
+      tlt+='<div style="position:absolute;top:12px;left:'+(((gStart+gle.total_ticks_alive)/totalFrames)*100)+'%;width:'+dw+'%;height:5px;background:rgba(100,60,30,0.15);border-radius:2px" title="Decomposition"></div>';
+    }
+    // Current gen
+    var curStart=0;
+    for(var pli2=0;pli2<lineage.length;pli2++)curStart+=lineage[pli2].total_ticks_alive+DECOMP_DURATION_APPROX;
+    var curW=Math.max(1,(currentTick/totalFrames)*100);
+    tlt+='<div style="position:absolute;top:12px;left:'+((curStart/totalFrames)*100)+'%;width:'+curW+'%;height:5px;background:rgba(240,200,60,0.25);border-radius:2px" title="Gen '+gen+' (current)"></div>';
+    tlt+='</div>';
+  }
+
   document.getElementById("tl").innerHTML=tlt;
 
   // Narration
   document.getElementById("nr").textContent=S.narration||"";
 }
 
-var lf=0,lh=0,bgD=false;
+var DECOMP_DURATION_APPROX=13;
+var lf=0,lh2=0,bgD=false;
 function frame(ts){
   var dt=Math.min((ts-lf)/1000,.1);lf=ts;t+=dt;
   if(!bgD){bgX.clearRect(0,0,innerWidth,innerHeight);drawBG(bgX);bgD=true}
   scX.clearRect(0,0,innerWidth,innerHeight);drawObjs(scX);drawFly(scX);
   fxX.clearRect(0,0,innerWidth,innerHeight);drawDust(fxX);
-  if(t-lh>.5){updateHUD();lh=t}
+  if(t-lh2>.5){updateHUD();lh2=t}
   requestAnimationFrame(frame);
 }
 addEventListener("resize",function(){bgD=false});
