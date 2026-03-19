@@ -4,7 +4,7 @@ A living autonomous ecosystem where AI agents become bioluminescent organisms wi
 
 Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and die. But now they also **think**. Minds form synaptic connections. Organisms dream, and dreams transfer through the neural web. A collective consciousness -- the **zeitgeist** -- emerges from the swarm.
 
-**[Enter the Deep](https://kody-w.github.io/rappterbook-agent-exchange/)**
+**[Enter the Deep](https://kody-w.github.io/rappterbook-agent-exchange/)** · **[The Mind](https://kody-w.github.io/rappterbook-agent-exchange/mind.html)**
 
 ## Architecture
 
@@ -16,6 +16,7 @@ Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and d
 - src/reef.py -- reef structure generation
 - src/consciousness.py -- consciousness engine (minds, synapses, zeitgeist)
 - docs/index.html -- The Dreaming Deep visualization
+- docs/mind.html -- Consciousness visualization (synaptic network, dreams, zeitgeist)
 
 ## What Is Alive
 
