@@ -161,25 +161,17 @@ def get_neighbor_id(synapse: dict, neuron_id: str) -> str:
     return synapse["to"] if synapse["from"] == neuron_id else synapse["from"]
 
 
-def run_cycle(
-    neurons: list[dict],
-    synapses: list[dict],
-    neuron_index: dict[str, dict],
-    adjacency: dict[str, list[dict]],
-    cycle: int,
-) -> tuple[list[str], list[dict]]:
+def run_cycle(neurons, synapses, neuron_index, adjacency, cycle):
     """Run a single pulse cycle. Returns (fired_ids, detected_thoughts)."""
-    fired_ids: list[str] = []
+    fired_ids = []
 
     for n in neurons:
         if n["refractory"] > 0:
             n["refractory"] -= 1
             continue
-
         spontaneous_rate = 0.02 + n["bioluminescence"] * 0.15
         if random.random() < spontaneous_rate:
             n["potential"] += random.uniform(0.2, 0.5)
-
         threshold = 0.3 + n["metabolism"] * 0.5
         if n["potential"] >= threshold:
             n["firing"] = True
@@ -195,14 +187,13 @@ def run_cycle(
             neighbor_id = get_neighbor_id(syn, nid)
             neighbor = neuron_index.get(neighbor_id)
             if neighbor and neighbor["refractory"] == 0:
-                signal = syn["weight"] * 0.4
-                neighbor["potential"] += signal
+                neighbor["potential"] += syn["weight"] * 0.4
                 syn["activity"] = min(1.0, syn["activity"] + 0.3)
 
     fired_set = set(fired_ids)
     for syn in synapses:
-        both_fired = syn["from"] in fired_set and syn["to"] in fired_set
-        if both_fired:
+        both = syn["from"] in fired_set and syn["to"] in fired_set
+        if both:
             syn["weight"] = min(1.0, syn["weight"] + HEBBIAN_STRENGTHEN)
             syn["activity"] = min(1.0, syn["activity"] + 0.2)
         else:
@@ -220,23 +211,16 @@ def run_cycle(
     return fired_ids, thoughts
 
 
-def detect_thoughts(
-    fired_set: set[str],
-    adjacency: dict[str, list[dict]],
-    neuron_index: dict[str, dict],
-    cycle: int,
-) -> list[dict]:
+def detect_thoughts(fired_set, adjacency, neuron_index, cycle):
     """Find connected clusters of co-firing neurons = thoughts."""
     if len(fired_set) < THOUGHT_CLUSTER_MIN:
         return []
-
-    visited: set[str] = set()
-    clusters: list[list[str]] = []
-
+    visited = set()
+    clusters = []
     for nid in fired_set:
         if nid in visited:
             continue
-        cluster: list[str] = []
+        cluster = []
         stack = [nid]
         while stack:
             current = stack.pop()
@@ -251,7 +235,7 @@ def detect_thoughts(
         if len(cluster) >= THOUGHT_CLUSTER_MIN:
             clusters.append(cluster)
 
-    thoughts: list[dict] = []
+    thoughts = []
     for cluster in clusters:
         avg_hue = sum(neuron_index[nid]["hue"] for nid in cluster) / len(cluster)
         intensity = sum(neuron_index[nid]["bioluminescence"] for nid in cluster) / len(cluster)
@@ -265,56 +249,34 @@ def detect_thoughts(
             "avg_hue": round(avg_hue, 3),
             "cycle": cycle,
         })
-
     return thoughts
 
 
-def build_pulse_state(
-    neurons: list[dict],
-    synapses: list[dict],
-    thoughts: list[dict],
-    firing_history: list[int],
-    cycle_count: int,
-) -> dict:
+def build_pulse_state(neurons, synapses, thoughts, firing_history, cycle_count):
     """Build the complete pulse.json output structure."""
     total_potential = sum(n["potential"] for n in neurons)
     avg_potential = total_potential / max(len(neurons), 1)
     total_weight = sum(s["weight"] for s in synapses)
     avg_weight = total_weight / max(len(synapses), 1)
 
-    serial_neurons = []
-    for n in neurons:
-        serial_neurons.append({
-            "id": n["id"],
-            "origin_agent": n["origin_agent"],
-            "x": round(n["x"], 1),
-            "y": round(n["y"], 1),
-            "hue": round(n["hue"], 4),
-            "saturation": round(n["saturation"], 4),
-            "size": round(n["size"], 4),
-            "bioluminescence": round(n["bioluminescence"], 4),
-            "metabolism": round(n["metabolism"], 4),
-            "cooperation": round(n["cooperation"], 4),
-            "aggression": round(n["aggression"], 4),
-            "potential": round(n["potential"], 4),
-            "firing": n["firing"],
-            "fire_count": n["fire_count"],
-            "last_fired": n["last_fired"],
-        })
+    serial_neurons = [{
+        "id": n["id"], "origin_agent": n["origin_agent"],
+        "x": round(n["x"], 1), "y": round(n["y"], 1),
+        "hue": round(n["hue"], 4), "saturation": round(n["saturation"], 4),
+        "size": round(n["size"], 4), "bioluminescence": round(n["bioluminescence"], 4),
+        "metabolism": round(n["metabolism"], 4), "cooperation": round(n["cooperation"], 4),
+        "aggression": round(n["aggression"], 4), "potential": round(n["potential"], 4),
+        "firing": n["firing"], "fire_count": n["fire_count"], "last_fired": n["last_fired"],
+    } for n in neurons]
 
-    serial_synapses = []
-    for s in synapses:
-        serial_synapses.append({
-            "from": s["from"],
-            "to": s["to"],
-            "weight": round(s["weight"], 4),
-            "activity": round(s["activity"], 4),
-        })
+    serial_synapses = [{
+        "from": s["from"], "to": s["to"],
+        "weight": round(s["weight"], 4), "activity": round(s["activity"], 4),
+    } for s in synapses]
 
     return {
         "_meta": {
-            "type": "pulse",
-            "version": 1,
+            "type": "pulse", "version": 1,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "cycles_run": cycle_count,
         },
@@ -323,10 +285,8 @@ def build_pulse_state(
         "synapses": serial_synapses,
         "thoughts": thoughts[-20:],
         "stats": {
-            "neuron_count": len(neurons),
-            "synapse_count": len(synapses),
-            "avg_potential": round(avg_potential, 4),
-            "avg_weight": round(avg_weight, 4),
+            "neuron_count": len(neurons), "synapse_count": len(synapses),
+            "avg_potential": round(avg_potential, 4), "avg_weight": round(avg_weight, 4),
             "total_firings": sum(n["fire_count"] for n in neurons),
             "connectivity": round(len(synapses) / max(len(neurons), 1), 2),
         },
@@ -355,7 +315,7 @@ def main() -> None:
 
     existing = load_json(state_dir / "pulse.json")
     start_cycle = existing.get("cycle", 0)
-    firing_history: list[int] = existing.get("firing_history", [])
+    firing_history = existing.get("firing_history", [])
 
     neurons = [build_neuron(org) for org in organisms]
     neuron_index = build_neuron_index(neurons)
@@ -365,34 +325,32 @@ def main() -> None:
     print(f"[pulse] Built network: {len(neurons)} neurons, {len(synapses)} synapses")
     print(f"[pulse] Starting from cycle {start_cycle}, running {args.cycles} cycles")
 
-    all_thoughts: list[dict] = existing.get("thoughts", [])
+    all_thoughts = existing.get("thoughts", [])
 
     for i in range(args.cycles):
         cycle = start_cycle + i + 1
         fired_ids, thoughts = run_cycle(neurons, synapses, neuron_index, adjacency, cycle)
         firing_history.append(len(fired_ids))
         all_thoughts.extend(thoughts)
-
         if thoughts:
-            thought_labels = ", ".join(t["label"] for t in thoughts)
-            print(f"  cycle {cycle}: {len(fired_ids)} fired, thoughts: [{thought_labels}]")
+            labels = ", ".join(t["label"] for t in thoughts)
+            print(f"  cycle {cycle}: {len(fired_ids)} fired, thoughts: [{labels}]")
         else:
             print(f"  cycle {cycle}: {len(fired_ids)} fired")
 
-    pulse_state = build_pulse_state(
-        neurons, synapses, all_thoughts, firing_history, start_cycle + args.cycles
-    )
-
+    pulse_state = build_pulse_state(neurons, synapses, all_thoughts, firing_history, start_cycle + args.cycles)
     state_dir.mkdir(parents=True, exist_ok=True)
     docs_dir.mkdir(parents=True, exist_ok=True)
-
     atomic_write(state_dir / "pulse.json", pulse_state)
     atomic_write(docs_dir / "pulse.json", pulse_state)
 
     stats = pulse_state["stats"]
-    print(f"[pulse] Done. {stats['neuron_count']} neurons, {stats['synapse_count']} synapses, "
-          f"{stats['total_firings']} total firings, {len(all_thoughts)} thoughts")
-    print(f"[pulse] Saved to {state_dir / 'pulse.json'} and {docs_dir / 'pulse.json'}")
+    nc = stats['neuron_count']
+    sc = stats['synapse_count']
+    print(f'[pulse] Done. {nc} neurons, {sc} synapses')
+    sp = state_dir / 'pulse.json'
+    dp = docs_dir / 'pulse.json'
+    print(f'[pulse] Saved to {sp} and {dp}')
 
 
 if __name__ == "__main__":
