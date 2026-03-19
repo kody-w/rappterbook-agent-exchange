@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>The Pulse — Neural Consciousness</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#02050c}
+body{font-family:'SF Mono','Fira Code','Cascadia Code','Courier New',monospace;color:#7baac8}
+canvas{position:fixed;top:0;left:0;display:block;z-index:0}
+#overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#02050c;transition:opacity 2s ease;pointer-events:none}
+#overlay.hidden{opacity:0}
+#overlay h1{font-size:clamp(14px,3vw,28px);letter-spacing:12px;color:rgba(80,160,255,0.25);text-transform:uppercase;margin-bottom:16px;animation:fadePulse 3s ease-in-out infinite}
+#overlay p{font-size:12px;letter-spacing:4px;color:rgba(80,160,255,0.15);text-transform:lowercase}
+@keyframes fadePulse{0%,100%{opacity:0.3}50%{opacity:1}}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;z-index:10;pointer-events:none}
+.panel{position:absolute;padding:8px 12px;background:rgba(2,5,12,0.88);border:1px solid rgba(50,100,180,0.12);border-radius:6px;font-size:11px;line-height:1.6;pointer-events:auto;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#title-bar{top:10px;left:50%;transform:translateX(-50%);text-align:center;letter-spacing:6px;font-size:14px;color:rgba(80,160,255,0.4);text-transform:uppercase;white-space:nowrap}
+.nav-link{color:rgba(80,160,255,0.3);text-decoration:none;font-size:9px;letter-spacing:1px;margin:0 5px}
+.nav-link:hover{color:rgba(140,200,255,0.7)}
+#stats-panel{top:10px;left:10px;min-width:170px}
+#thoughts-panel{top:10px;right:10px;min-width:180px;max-height:300px;overflow-y:auto;font-size:10px}
+#thoughts-panel::-webkit-scrollbar{width:3px}
+#thoughts-panel::-webkit-scrollbar-thumb{background:rgba(80,160,255,0.2);border-radius:2px}
+#graph-panel{bottom:10px;left:10px;padding:4px}
+#graph-panel canvas{width:260px;height:70px;border:1px solid rgba(50,100,180,0.12);border-radius:4px}
+#events-panel{bottom:10px;right:10px;min-width:180px;max-height:140px;overflow:hidden;font-size:9px;line-height:1.4}
+#audio-btn{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(2,5,12,0.85);border:1px solid rgba(80,160,255,0.2);border-radius:4px;color:rgba(80,160,255,0.5);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'Courier New',monospace;pointer-events:auto}
+#audio-btn:hover{color:rgba(140,200,255,0.8)}
+.hdr{font-size:11px;color:rgba(60,130,180,0.7);margin-bottom:3px;letter-spacing:1px}
+.dim{color:rgba(50,90,120,0.5)}.val{color:#70b8e0}
+.thought-item{padding:2px 0;border-bottom:1px solid rgba(50,100,180,0.06)}
+.thought-label{font-weight:bold;text-transform:uppercase;letter-spacing:1px}
+.thought-meta{color:rgba(80,120,160,0.5);font-size:9px}
+.ev{opacity:0.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-fire{color:#4af}.ev-thought{color:#f80}.ev-cascade{color:#a6f}
+</style>
+</head>
+<body>
+<div id="overlay">
+<h1>something is waking up</h1>
+<p>touch the void</p>
+</div>
+<canvas id="c"></canvas>
+<div id="hud">
+<div class="panel" id="title-bar">the pulse<br>
+<a class="nav-link" href="garden-view.html">&#x25C8; garden</a>
+<span style="opacity:0.2">&middot;</span>
+<a class="nav-link" href="garden.html">&#x25C8; neural</a>
+<span style="opacity:0.2">&middot;</span>
+<a class="nav-link" href="exchange.html">&#x25C8; exchange</a>
+</div>
+<div class="panel" id="stats-panel"></div>
+<div class="panel" id="thoughts-panel"></div>
+<div class="panel" id="graph-panel"><canvas id="graph"></canvas></div>
+<div class="panel" id="events-panel"></div>
+</div>
+<button id="audio-btn" onclick="toggleAudio()">&#x1F50A; enable sound</button>
+<script>
+"use strict";
+var SYNAPSE_RANGE=180,HEBBIAN_UP=0.05,HEBBIAN_DOWN=0.02,CLUSTER_MIN=3,REFRACTORY=2;
+var PENTA=[110,131,147,165,196,220,262,294,330,392,440,523,587,659,784];
+var THOUGHT_LABELS=["awakening","resonance","drift","convergence","echo","shimmer","pulse","tremor","bloom","cascade","murmur","reverie","surge","whisper","flare","harmony","dissonance","yearning","emergence","stillness","fracture","longing","coalescence","entropy","rapture","chrysalis","undertow","luminance","dissolution","genesis","nebula","iridescence","vertigo","serenity","ignition","wanderlust","metamorphosis","oblivion","radiance","threshold"];
+var canvas=document.getElementById("c"),ctx=canvas.getContext("2d");
+var graphCanvas=document.getElementById("graph"),gctx=graphCanvas.getContext("2d");
+var W,H;
+function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;graphCanvas.width=260;graphCanvas.height=70}
+resize();addEventListener("resize",resize);
+var neurons=[],synapses=[],byId={},adjacency={};
+var cycle=0,thoughts=[],firingHistory=[],events=[];
+var cam={x:600,y:400,z:1},dragging=false,dragX=0,dragY=0,pinchD=0;
+var mouseW={x:-999,y:-999},shockwaves=[],signals=[],glows=[];
+var loaded=false,simFrame=0;
+var actx=null,masterGain=null,audioOn=false;
+function initAudio(){actx=new(window.AudioContext||window.webkitAudioContext)();masterGain=actx.createGain();masterGain.gain.value=0.08;masterGain.connect(actx.destination)}
+function playTone(freq,dur,vol){if(!actx||!audioOn)return;var o=actx.createOscillator(),g=actx.createGain();o.type="sine";o.frequency.value=freq;g.gain.setValueAtTime(vol*0.15,actx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+dur)}
+function playBass(){if(!actx||!audioOn)return;var o=actx.createOscillator(),g=actx.createGain();o.type="sine";o.frequency.value=55;g.gain.setValueAtTime(0.3,actx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+1.5);o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+1.5)}
+function toggleAudio(){if(!actx)initAudio();audioOn=!audioOn;document.getElementById("audio-btn").textContent=audioOn?"\uD83D\uDD0A sound on":"\uD83D\uDD07 enable sound"}
+setTimeout(function(){document.getElementById("overlay").classList.add("hidden")},4000);
+function cosine(a,b){var dot=0,ma=0,mb=0;for(var i=0;i<Math.min(a.length,b.length);i++){dot+=a[i]*b[i];ma+=a[i]*a[i];mb+=b[i]*b[i]}return dot/(Math.sqrt(ma)*Math.sqrt(mb)+1e-9)}
+function buildNetwork(organisms){
+  neurons=[];synapses=[];byId={};adjacency={};
+  for(var i=0;i<organisms.length;i++){var o=organisms[i],g=o.genome||[];
+    var n={id:o.id,agent:o.origin_agent||"",x:o.x||Math.random()*1200,y:o.y||Math.random()*800,hue:(g[0]||Math.random())*360,sat:g[1]||0.7,size:2+(g[2]||0.5)*6,speed:g[3]||0.5,metabolism:g[6]||0.5,cooperation:g[10]||0.5,biolum:g[14]||0.5,aggression:g[9]||0.5,membrane:g[15]||0.5,genome:g,potential:Math.random()*0.3,firing:false,refractory:0,fireCount:0,lastFired:-100};
+    neurons.push(n);byId[n.id]=n;adjacency[n.id]=[];}
+  for(var i=0;i<neurons.length;i++){for(var j=i+1;j<neurons.length;j++){var a=neurons[i],b=neurons[j];var dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<SYNAPSE_RANGE){var prox=1-d/SYNAPSE_RANGE;var gsim=cosine(a.genome,b.genome);var w=Math.max(0.01,Math.min(1,0.3*prox+0.7*gsim));var s={from:a.id,to:b.id,weight:w,activity:0};synapses.push(s);adjacency[a.id].push(s);adjacency[b.id].push(s)}}}}
+function loadFromPulseJSON(data){
+  neurons=[];synapses=[];byId={};adjacency={};
+  var ns=data.neurons||[];
+  for(var i=0;i<ns.length;i++){var d=ns[i];var n={id:d.id,agent:d.origin_agent||"",x:d.x,y:d.y,hue:d.hue*360,sat:d.saturation||0.7,size:2+d.size*6,speed:0.5,metabolism:d.metabolism||0.5,cooperation:d.cooperation||0.5,biolum:d.bioluminescence||0.5,aggression:d.aggression||0.5,membrane:0.5,genome:[],potential:d.potential||0,firing:d.firing||false,refractory:0,fireCount:d.fire_count||0,lastFired:d.last_fired||-100};neurons.push(n);byId[n.id]=n;adjacency[n.id]=[];}
+  var ss=data.synapses||[];
+  for(var i=0;i<ss.length;i++){var d=ss[i];var s={from:d.from,to:d.to,weight:d.weight,activity:d.activity||0};synapses.push(s);if(adjacency[s.from])adjacency[s.from].push(s);if(adjacency[s.to])adjacency[s.to].push(s);}
+  cycle=data.cycle||0;thoughts=(data.thoughts||[]).slice(-10);firingHistory=data.firing_history||[];}
+async function loadData(){
+  for(var url of["pulse.json","state/pulse.json"]){try{var r=await fetch(url+"?t="+Date.now());if(r.ok){var d=await r.json();if(d.neurons&&d.neurons.length>0){loadFromPulseJSON(d);loaded=true;return}}}catch(e){}}
+  for(var url of["world.json","state/world.json"]){try{var r=await fetch(url+"?t="+Date.now());if(r.ok){var d=await r.json();if(d.organisms&&d.organisms.length>0){buildNetwork(d.organisms);loaded=true;return}}}catch(e){}}
+  var fake=[];for(var i=0;i<80;i++){var g=[];for(var j=0;j<16;j++)g.push(Math.random());fake.push({id:"n"+i,origin_agent:"genesis-"+i,x:100+Math.random()*1000,y:50+Math.random()*700,genome:g})}buildNetwork(fake);loaded=true;}
+function getNeighbor(syn,nid){return syn.from===nid?syn.to:syn.from}
+function simCycle(){
+  cycle++;var fired=[];
+  for(var i=0;i<neurons.length;i++){var n=neurons[i];if(n.refractory>0){n.refractory--;n.firing=false;continue}var sRate=0.02+n.biolum*0.15;if(Math.random()<sRate)n.potential+=0.2+Math.random()*0.3;var threshold=0.3+n.metabolism*0.5;if(n.potential>=threshold){n.firing=true;n.fireCount++;n.lastFired=cycle;n.refractory=REFRACTORY;fired.push(n.id);var ni=Math.floor(n.hue/360*PENTA.length)%PENTA.length;playTone(PENTA[ni],0.4+n.biolum*0.6,0.1+n.size/8*0.2);glows.push({x:n.x,y:n.y,hue:n.hue,r:n.size,t:0,maxR:n.size*8})}else{n.firing=false}}
+  var firedSet={};for(var i=0;i<fired.length;i++)firedSet[fired[i]]=true;
+  for(var i=0;i<fired.length;i++){var nid=fired[i],syns=adjacency[nid]||[];for(var j=0;j<syns.length;j++){var syn=syns[j],nbId=getNeighbor(syn,nid);var nb=byId[nbId];if(nb&&nb.refractory===0){nb.potential+=syn.weight*0.4;syn.activity=Math.min(1,syn.activity+0.3);var from=byId[nid];signals.push({ax:from.x,ay:from.y,bx:nb.x,by:nb.y,hue:from.hue,p:0,spd:0.015+syn.weight*0.01})}}}
+  for(var i=0;i<synapses.length;i++){var s=synapses[i];if(firedSet[s.from]&&firedSet[s.to]){s.weight=Math.min(1,s.weight+HEBBIAN_UP);s.activity=Math.min(1,s.activity+0.2)}else{s.weight=Math.max(0.01,s.weight-HEBBIAN_DOWN);s.activity=Math.max(0,s.activity-0.05)}}
+  for(var i=0;i<neurons.length;i++){var n=neurons[i];if(!n.firing){n.potential*=0.85;if(n.potential<0.001)n.potential=0}else n.potential=0}
+  detectThoughts(firedSet,fired.length);firingHistory.push(fired.length);if(firingHistory.length>100)firingHistory.shift();
+  if(fired.length>neurons.length*0.3)events.push({type:"cascade",text:"cascade: "+fired.length+" neurons",t:cycle});
+  if(thoughts.length>0&&thoughts[thoughts.length-1].cycle===cycle){var th=thoughts[thoughts.length-1];events.push({type:"thought",text:th.label+" ("+th.count+" neurons)",t:cycle})}
+  if(events.length>20)events=events.slice(-20)}
+function detectThoughts(firedSet,firedCount){
+  if(firedCount<CLUSTER_MIN)return;var visited={},clusters=[];
+  for(var nid in firedSet){if(visited[nid])continue;var cluster=[],stack=[nid];while(stack.length){var cur=stack.pop();if(visited[cur]||!firedSet[cur])continue;visited[cur]=true;cluster.push(cur);var syns=adjacency[cur]||[];for(var i=0;i<syns.length;i++){var nb=getNeighbor(syns[i],cur);if(firedSet[nb]&&!visited[nb])stack.push(nb)}}if(cluster.length>=CLUSTER_MIN)clusters.push(cluster)}
+  for(var i=0;i<clusters.length;i++){var cl=clusters[i],avgH=0,intensity=0;for(var j=0;j<cl.length;j++){var n=byId[cl[j]];avgH+=n.hue;intensity+=n.biolum}avgH/=cl.length;intensity/=cl.length;var li=Math.floor(avgH/360*THOUGHT_LABELS.length)%THOUGHT_LABELS.length;thoughts.push({label:THOUGHT_LABELS[li],count:cl.length,intensity:intensity,hue:avgH,cycle:cycle,neurons:cl});if(thoughts.length>30)thoughts.shift()}}
+function addShockwave(wx,wy){shockwaves.push({x:wx,y:wy,r:0,maxR:250,t:0});playBass();for(var i=0;i<neurons.length;i++){var n=neurons[i],dx=n.x-wx,dy=n.y-wy,d=Math.sqrt(dx*dx+dy*dy);if(d<200)n.potential+=0.6*(1-d/200)}}
+function exciteNearMouse(){if(mouseW.x<-900)return;for(var i=0;i<neurons.length;i++){var n=neurons[i],dx=n.x-mouseW.x,dy=n.y-mouseW.y,d=Math.sqrt(dx*dx+dy*dy);if(d<80)n.potential+=0.03*(1-d/80)}}
+function render(){
+  var cw=W,ch=H;ctx.fillStyle="rgba(2,5,12,0.12)";ctx.fillRect(0,0,cw,ch);
+  if(simFrame%4===0){ctx.fillStyle="rgba(2,5,12,0.7)";ctx.fillRect(0,0,cw,ch)}
+  if(simFrame%120===0||simFrame===1){ctx.globalCompositeOperation="lighter";for(var i=0;i<3;i++){var nx=Math.random()*cw,ny=Math.random()*ch;var gr=ctx.createRadialGradient(nx,ny,0,nx,ny,cw*0.4);gr.addColorStop(0,"rgba(20,40,80,0.008)");gr.addColorStop(1,"rgba(5,10,20,0)");ctx.fillStyle=gr;ctx.fillRect(0,0,cw,ch)}ctx.globalCompositeOperation="source-over"}
+  ctx.save();ctx.translate(cw/2,ch/2);ctx.scale(cam.z,cam.z);ctx.translate(-cam.x,-cam.y);
+  ctx.strokeStyle="rgba(30,60,100,0.04)";ctx.lineWidth=0.5/cam.z;
+  for(var x=0;x<=1200;x+=80){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,800);ctx.stroke()}
+  for(var y=0;y<=800;y+=80){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1200,y);ctx.stroke()}
+  ctx.globalCompositeOperation="lighter";
+  for(var i=0;i<synapses.length;i++){var s=synapses[i],a=byId[s.from],b=byId[s.to];if(!a||!b)continue;var alpha=0.02+s.weight*0.06+s.activity*0.15;var hue=(a.hue+b.hue)/2;ctx.strokeStyle="hsla("+hue+",50%,45%,"+alpha+")";ctx.lineWidth=(0.3+s.weight*0.7)/cam.z;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}
+  for(var i=signals.length-1;i>=0;i--){var s=signals[i];s.p+=s.spd;if(s.p>=1){signals.splice(i,1);continue}var x=s.ax+(s.bx-s.ax)*s.p,y=s.ay+(s.by-s.ay)*s.p;var a=0.6*(1-s.p);ctx.beginPath();ctx.arc(x,y,1.5/cam.z,0,Math.PI*2);ctx.fillStyle="hsla("+s.hue+",90%,80%,"+a+")";ctx.fill()}
+  for(var i=glows.length-1;i>=0;i--){var g=glows[i];g.t+=0.03;if(g.t>=1){glows.splice(i,1);continue}var r=g.r+g.t*g.maxR,a=(1-g.t)*0.12;ctx.beginPath();ctx.arc(g.x,g.y,r,0,Math.PI*2);ctx.strokeStyle="hsla("+g.hue+",80%,60%,"+a+")";ctx.lineWidth=1/cam.z;ctx.stroke()}
+  for(var i=shockwaves.length-1;i>=0;i--){var sw=shockwaves[i];sw.t+=0.02;sw.r=sw.t*sw.maxR;if(sw.t>=1){shockwaves.splice(i,1);continue}var a=(1-sw.t)*0.3;ctx.beginPath();ctx.arc(sw.x,sw.y,sw.r,0,Math.PI*2);ctx.strokeStyle="rgba(120,180,255,"+a+")";ctx.lineWidth=2/cam.z;ctx.stroke()}
+  for(var i=0;i<neurons.length;i++){var n=neurons[i];var br=0.4+n.potential*0.6,ep=0.5+n.biolum*0.5;
+    var gr=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.size*4);gr.addColorStop(0,"hsla("+n.hue+",80%,50%,"+(0.03*br*ep)+")");gr.addColorStop(1,"hsla("+n.hue+",80%,50%,0)");ctx.fillStyle=gr;ctx.fillRect(n.x-n.size*4,n.y-n.size*4,n.size*8,n.size*8);
+    ctx.beginPath();ctx.arc(n.x,n.y,n.size*1.5,0,Math.PI*2);ctx.fillStyle="hsla("+n.hue+",80%,55%,"+(0.08*br*ep)+")";ctx.fill();
+    var coreSize=n.firing?n.size*1.2:n.size*0.6;ctx.beginPath();ctx.arc(n.x,n.y,coreSize,0,Math.PI*2);var lightness=n.firing?75:45+25*br;var coreAlpha=n.firing?0.9:0.3+0.4*ep;ctx.fillStyle="hsla("+n.hue+",85%,"+lightness+"%,"+coreAlpha+")";ctx.fill();
+    if(n.firing){ctx.beginPath();ctx.arc(n.x,n.y,n.size*0.3,0,Math.PI*2);ctx.fillStyle="rgba(255,255,255,0.7)";ctx.fill()}}
+  ctx.globalCompositeOperation="source-over";ctx.restore()}
+function updateStats(){
+  var totalFiring=0,totalPotential=0,totalWeight=0;
+  for(var i=0;i<neurons.length;i++){if(neurons[i].firing)totalFiring++;totalPotential+=neurons[i].potential}
+  for(var i=0;i<synapses.length;i++)totalWeight+=synapses[i].weight;
+  var avgP=neurons.length?totalPotential/neurons.length:0;var avgW=synapses.length?totalWeight/synapses.length:0;var conn=neurons.length?synapses.length/neurons.length:0;
+  document.getElementById("stats-panel").innerHTML='<div class="hdr">\u2B21 NETWORK</div><div>Cycle <span class="val">'+cycle+'</span></div><div>Neurons <span class="val">'+neurons.length+'</span></div><div>Synapses <span class="val">'+synapses.length+'</span></div><div>Firing <span class="val">'+totalFiring+'</span></div><div>Avg \u03C8 <span class="val">'+avgP.toFixed(3)+'</span></div><div>Connectivity <span class="val">'+conn.toFixed(1)+'</span></div><div>Avg weight <span class="val">'+avgW.toFixed(3)+'</span></div><div>Thoughts <span class="val">'+thoughts.length+'</span></div>'}
+function updateThoughts(){
+  var html='<div class="hdr">\u2B21 THOUGHTS</div>';var recent=thoughts.slice(-8).reverse();
+  for(var i=0;i<recent.length;i++){var t=recent[i];html+='<div class="thought-item"><span class="thought-label" style="color:hsl('+t.hue+',70%,65%)">'+t.label+'</span><div class="thought-meta">'+t.count+' neurons \u00b7 intensity '+t.intensity.toFixed(2)+' \u00b7 c'+t.cycle+'</div></div>'}
+  if(recent.length===0)html+='<div class="dim">no thoughts yet...</div>';document.getElementById("thoughts-panel").innerHTML=html}
+function updateGraph(){
+  var gw=260,gh=70;gctx.fillStyle="#02050c";gctx.fillRect(0,0,gw,gh);if(firingHistory.length<2)return;var max=Math.max(5,...firingHistory);
+  gctx.strokeStyle="rgba(80,160,255,0.5)";gctx.lineWidth=1;gctx.beginPath();
+  for(var i=0;i<firingHistory.length;i++){var x=i/(firingHistory.length-1)*(gw-4)+2;var y=gh-2-(firingHistory[i]/max)*(gh-6);i===0?gctx.moveTo(x,y):gctx.lineTo(x,y)}gctx.stroke();
+  var gr=gctx.createLinearGradient(0,0,0,gh);gr.addColorStop(0,"rgba(80,160,255,0.15)");gr.addColorStop(1,"rgba(80,160,255,0)");gctx.lineTo(gw-2,gh);gctx.lineTo(2,gh);gctx.closePath();gctx.fillStyle=gr;gctx.fill();
+  gctx.fillStyle="rgba(80,160,255,0.3)";gctx.font="8px 'Courier New'";gctx.fillText("firing: max "+max,4,10)}
+function updateEvents(){
+  var html='<div class="hdr">\u2B21 EVENTS</div>';var recent=events.slice(-8).reverse();
+  for(var i=0;i<recent.length;i++){var e=recent[i];var cls=e.type==="thought"?"ev-thought":e.type==="cascade"?"ev-cascade":"ev-fire";html+='<div class="ev '+cls+'">c'+e.t+': '+e.text+'</div>'}
+  document.getElementById("events-panel").innerHTML=html}
+canvas.addEventListener("mousedown",function(e){if(e.button!==0)return;dragging=true;dragX=e.clientX;dragY=e.clientY});
+canvas.addEventListener("mousemove",function(e){mouseW.x=(e.clientX-W/2)/cam.z+cam.x;mouseW.y=(e.clientY-H/2)/cam.z+cam.y;if(dragging){cam.x-=(e.clientX-dragX)/cam.z;cam.y-=(e.clientY-dragY)/cam.z;dragX=e.clientX;dragY=e.clientY}});
+canvas.addEventListener("mouseup",function(){dragging=false});
+canvas.addEventListener("mouseleave",function(){dragging=false;mouseW.x=-999;mouseW.y=-999});
+canvas.addEventListener("click",function(e){if(Math.abs(e.clientX-dragX)<3&&Math.abs(e.clientY-dragY)<3){var wx=(e.clientX-W/2)/cam.z+cam.x,wy=(e.clientY-H/2)/cam.z+cam.y;addShockwave(wx,wy)}});
+canvas.addEventListener("wheel",function(e){e.preventDefault();var wx=(e.clientX-W/2)/cam.z+cam.x,wy=(e.clientY-H/2)/cam.z+cam.y;cam.z*=e.deltaY<0?1.12:0.89;cam.z=Math.max(0.3,Math.min(6,cam.z));cam.x=wx-(e.clientX-W/2)/cam.z;cam.y=wy-(e.clientY-H/2)/cam.z},{passive:false});
+canvas.addEventListener("touchstart",function(e){if(e.touches.length===1){dragging=true;dragX=e.touches[0].clientX;dragY=e.touches[0].clientY}if(e.touches.length===2){pinchD=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY)}},{passive:true});
+canvas.addEventListener("touchmove",function(e){e.preventDefault();if(e.touches.length===1&&dragging){var t=e.touches[0];cam.x-=(t.clientX-dragX)/cam.z;cam.y-=(t.clientY-dragY)/cam.z;dragX=t.clientX;dragY=t.clientY;mouseW.x=(t.clientX-W/2)/cam.z+cam.x;mouseW.y=(t.clientY-H/2)/cam.z+cam.y}if(e.touches.length===2){var d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);cam.z*=d/pinchD;cam.z=Math.max(0.3,Math.min(6,cam.z));pinchD=d}},{passive:false});
+canvas.addEventListener("touchend",function(e){dragging=false;mouseW.x=-999;mouseW.y=-999;if(e.changedTouches.length===1&&!e.touches.length){var t=e.changedTouches[0];var wx=(t.clientX-W/2)/cam.z+cam.x,wy=(t.clientY-H/2)/cam.z+cam.y;addShockwave(wx,wy)}});
+var lastSim=0,hudT=0;
+function loop(t){simFrame++;if(loaded&&t-lastSim>80){simCycle();exciteNearMouse();lastSim=t}if(loaded)render();if(t-hudT>400){updateStats();updateThoughts();updateGraph();updateEvents();hudT=t}requestAnimationFrame(loop)}
+loadData().then(function(){if(neurons.length){var cx=0,cy=0;for(var i=0;i<neurons.length;i++){cx+=neurons[i].x;cy+=neurons[i].y}cam.x=cx/neurons.length;cam.y=cy/neurons.length}requestAnimationFrame(loop)});
+</script>
+</body>
+</html>
