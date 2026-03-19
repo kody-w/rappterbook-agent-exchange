@@ -3,617 +3,762 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Musca domestica &mdash; A Fly's Life</title>
+<title>Musca domestica — Generation 2: A Complete Life</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#1a1410}
-body{font-family:'SF Mono','Fira Code','Cascadia Code','Courier New',monospace;color:#c8a878}
-canvas{position:fixed;top:0;left:0;display:block}
+html,body{width:100%;height:100%;overflow:hidden;background:#0d0a07;font-family:'SF Mono','Fira Code','Cascadia Code','Courier New',monospace;color:#c8a878}
+canvas{position:fixed;top:0;left:0}
 #bg{z-index:0}#scene{z-index:1}#fx{z-index:2}
 #hud{position:fixed;top:0;left:0;width:100%;height:100%;z-index:10;pointer-events:none}
-.p{position:absolute;padding:10px 14px;background:rgba(25,18,10,0.88);border:1px solid rgba(180,140,60,0.12);border-radius:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-size:11px;line-height:1.7;pointer-events:auto}
-#tb{top:12px;left:50%;transform:translateX(-50%);text-align:center;font-size:14px;letter-spacing:3px;color:rgba(200,168,100,0.6);text-transform:uppercase}
-#tb small{display:block;font-size:9px;letter-spacing:2px;color:rgba(200,168,100,0.3);margin-top:2px}
-#tb a{color:rgba(200,168,100,0.3);text-decoration:none;font-size:9px;letter-spacing:1px}
-#tb a:hover{color:rgba(200,168,100,0.7)}
-.ns{margin:0 6px;opacity:0.3}
-#vi{top:12px;left:12px;min-width:200px}
-#gp{top:340px;left:12px;min-width:200px;max-height:260px;overflow:hidden}
-#sp{top:12px;right:12px;min-width:210px}
-#bp{top:250px;right:12px;min-width:210px}
-#mp{bottom:140px;right:12px;min-width:210px;max-height:180px;overflow:hidden}
-#ap{bottom:140px;left:12px;min-width:200px;max-height:200px;overflow:hidden;font-size:10px}
-#tl{bottom:12px;left:12px;right:12px;height:110px;text-align:center}
-#nr{bottom:130px;left:50%;transform:translateX(-50%);text-align:center;max-width:500px;font-size:12px;letter-spacing:0.5px;color:rgba(200,168,100,0.4);font-style:italic;text-shadow:0 0 20px rgba(180,140,60,0.1)}
-h3{font-size:10px;color:rgba(180,140,70,0.5);margin-bottom:4px;letter-spacing:1.5px;font-weight:normal;text-transform:uppercase}
-.v{color:rgba(220,180,100,0.85)}.d{color:rgba(140,110,60,0.4)}.w{color:#e06040}
+.p{position:absolute;padding:10px 14px;background:rgba(15,10,5,0.92);border:1px solid rgba(180,140,60,0.08);border-radius:6px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:11px;line-height:1.6;pointer-events:auto}
+#title-bar{top:10px;left:50%;transform:translateX(-50%);text-align:center;font-size:13px;letter-spacing:3px;color:rgba(200,168,100,0.5);text-transform:uppercase}
+#title-bar small{display:block;font-size:9px;letter-spacing:2px;color:rgba(200,168,100,0.25);margin-top:3px}
+#title-bar .nav{margin-top:6px}
+#title-bar .nav a{color:rgba(200,168,100,0.2);text-decoration:none;font-size:8px;letter-spacing:1px;margin:0 5px}
+#title-bar .nav a:hover{color:rgba(200,168,100,0.6)}
+#vitals{top:10px;left:10px;min-width:195px}
+#genome-panel{top:280px;left:10px;min-width:195px}
+#senses-panel{top:10px;right:10px;min-width:200px}
+#brain-panel{top:220px;right:10px;min-width:200px}
+#memory-panel{bottom:140px;right:10px;min-width:200px;max-height:180px}
+#ancestor-panel{bottom:140px;left:10px;min-width:195px;max-height:190px;font-size:10px}
+#timeline{bottom:10px;left:10px;right:10px;height:115px;text-align:center}
+#narration{bottom:130px;left:50%;transform:translateX(-50%);text-align:center;max-width:480px;font-size:11px;letter-spacing:0.5px;color:rgba(200,168,100,0.35);font-style:italic}
+h3{font-size:9px;color:rgba(180,140,70,0.4);margin-bottom:3px;letter-spacing:1.5px;font-weight:normal;text-transform:uppercase}
+.v{color:rgba(220,180,100,0.85)}.d{color:rgba(140,110,60,0.35)}.w{color:#e06040}
 .gr{display:flex;align-items:center;margin:2px 0}
-.gn{width:80px;color:rgba(160,130,70,0.5);font-size:8px;text-transform:capitalize}
-.gb{flex:1;height:4px;background:rgba(255,255,255,0.03);border-radius:2px;overflow:hidden}
-.gf{height:100%;border-radius:2px;transition:width .6s}
-.gv{width:28px;text-align:right;font-size:8px;color:rgba(160,130,70,0.4)}
+.gn{width:75px;color:rgba(160,130,70,0.45);font-size:8px;text-transform:capitalize}
+.gb{flex:1;height:3px;background:rgba(255,255,255,0.03);border-radius:2px;overflow:hidden}
+.gf{height:100%;border-radius:2px;transition:width .5s}
+.gv{width:28px;text-align:right;font-size:8px;color:rgba(160,130,70,0.35)}
 .st{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;letter-spacing:1px;text-transform:uppercase}
 .st-egg{background:rgba(255,250,240,0.1);color:#f0e8d0}
 .st-larva{background:rgba(180,200,60,0.1);color:#b0c840}
 .st-pupa{background:rgba(120,80,40,0.15);color:#a07030}
 .st-adult{background:rgba(60,60,60,0.15);color:#a0a0a0}
 .st-death{background:rgba(100,30,30,0.15);color:#c04040}
-.mt{height:6px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;margin:3px 0}
-.mf{height:100%;border-radius:3px;transition:width .6s}
-.gen-tag{display:inline-block;padding:1px 6px;border-radius:6px;font-size:8px;margin-right:4px;letter-spacing:0.5px}
-.ancestor-row{padding:3px 0;border-bottom:1px solid rgba(180,140,60,0.06)}
-.ancestor-row:last-child{border-bottom:none}
+.mt{height:5px;background:rgba(255,255,255,0.03);border-radius:3px;overflow:hidden;margin:2px 0}
+.mf{height:100%;border-radius:3px;transition:width .5s}
+.gen-tag{display:inline-block;padding:1px 6px;border-radius:6px;font-size:8px;margin-right:4px}
+.ancestor-row{padding:2px 0;border-bottom:1px solid rgba(180,140,60,0.05)}
 @keyframes pulse{0%,100%{opacity:0.6}50%{opacity:1}}
-.alive-pulse{animation:pulse 2s ease infinite}
-@keyframes egg-glow{0%,100%{box-shadow:0 0 8px rgba(255,240,200,0.1)}50%{box-shadow:0 0 20px rgba(255,240,200,0.3)}}
+.alive{animation:pulse 2s ease infinite}
+#play-btn{position:fixed;bottom:135px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(180,140,60,0.15);border:1px solid rgba(180,140,60,0.2);color:rgba(200,168,100,0.7);padding:6px 20px;border-radius:16px;font-family:inherit;font-size:10px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;pointer-events:auto}
+#play-btn:hover{background:rgba(180,140,60,0.25);color:rgba(200,168,100,0.9)}
+#speed-ctrl{position:fixed;bottom:135px;right:50%;transform:translateX(100px);z-index:20;pointer-events:auto}
+#speed-ctrl button{background:rgba(180,140,60,0.1);border:1px solid rgba(180,140,60,0.15);color:rgba(200,168,100,0.5);padding:4px 10px;border-radius:10px;font-family:inherit;font-size:9px;cursor:pointer;margin:0 2px}
+#speed-ctrl button.active{background:rgba(180,140,60,0.25);color:rgba(200,168,100,0.9)}
 </style>
 </head>
 <body>
 <canvas id="bg"></canvas><canvas id="scene"></canvas><canvas id="fx"></canvas>
 <div id="hud">
-  <div class="p" id="tb">Musca Domestica<small>a fly's life in the kitchen</small>
-    <div style="margin-top:6px">
-      <a href="deep.html">deep</a><span class="ns">&middot;</span>
-      <a href="garden.html">garden</a><span class="ns">&middot;</span>
-      <a href="exchange.html">exchange</a><span class="ns">&middot;</span>
-      <a href="synapse.html">synapse</a><span class="ns">&middot;</span>
-      <a href="pulse.html">pulse</a><span class="ns">&middot;</span>
-      <a href="kitchen.html">kitchen (legacy)</a>
+  <div class="p" id="title-bar">Musca Domestica<small>generation 2 — a complete life</small>
+    <div class="nav">
+      <a href="deep.html">deep</a>
+      <a href="garden.html">garden</a>
+      <a href="exchange.html">exchange</a>
+      <a href="synapse.html">synapse</a>
+      <a href="pulse.html">pulse</a>
+      <a href="kitchen.html">kitchen</a>
     </div>
   </div>
-  <div class="p" id="vi"></div>
-  <div class="p" id="gp"></div>
-  <div class="p" id="sp"></div>
-  <div class="p" id="bp"></div>
-  <div class="p" id="mp"></div>
-  <div class="p" id="ap"></div>
-  <div class="p" id="tl"></div>
-  <div id="nr"></div>
+  <div class="p" id="vitals"></div>
+  <div class="p" id="genome-panel"></div>
+  <div class="p" id="senses-panel"></div>
+  <div class="p" id="brain-panel"></div>
+  <div class="p" id="memory-panel"></div>
+  <div class="p" id="ancestor-panel"></div>
+  <div class="p" id="timeline"></div>
+  <div id="narration"></div>
+</div>
+<button id="play-btn">▶ Play Life</button>
+<div id="speed-ctrl">
+  <button data-speed="1" class="active">1×</button>
+  <button data-speed="3">3×</button>
+  <button data-speed="8">8×</button>
 </div>
 <script>
 "use strict";
-var bgC=document.getElementById("bg"),bgX=bgC.getContext("2d"),
-    scC=document.getElementById("scene"),scX=scC.getContext("2d"),
-    fxC=document.getElementById("fx"),fxX=fxC.getContext("2d");
 
-function resize(){bgC.width=scC.width=fxC.width=innerWidth;bgC.height=scC.height=fxC.height=innerHeight}
+/* ========== LIFECYCLE DATA (baked from engine run) ========== */
+const FLY_STATE = {"_meta":{"organism":"Musca domestica","frame":233,"born_at":"2026-03-19T02:21:32Z","version":"2.0.0","generation":2,"parent_cause_of_death":"old age","parent_lifespan":111,"total_frames_alive":121,"lineage":[{"generation":1,"born_at":"2025-07-18T00:00:00Z","died_at_tick":111,"cause_of_death":"old age","total_ticks":111,"times_fed":6,"times_fled":6,"total_distance":180.9,"favorite_food":"bread crumbs","decisions_made":38}],"cause_of_death":"old age","died_at":121},"genome":{"species":"Musca domestica","wing_vein_pattern":0.7498,"eye_facets":1.0,"body_color_hue":0.1139,"bristle_density":0.7475,"metabolic_rate":1.0,"flight_efficiency":0.7606,"smell_sensitivity":0.8218,"heat_tolerance":0.545,"lifespan_modifier":1.0},"lifecycle":{"stage":"death","stage_tick":0,"total_ticks":121,"stage_durations":{"egg":8,"larva":28,"pupa":20,"adult":65},"molts":4,"larva_instar":4},"body":{"position":{"x":300.548966657359,"y":92.26759868128485,"z":1.0},"velocity":{"x":0.517954435253967,"y":-1.6739487593673048,"z":0},"facing":2.353715702477552,"size":6.0,"mass":0.012,"wing_state":"functional","leg_state":"functional","is_airborne":true,"surface":"counter"},"energy":{"current":79.69999999999993,"max":100,"hunger":8.25,"metabolic_drain":0.5,"last_fed_tick":102},"brain":{"state":"dead","current_goal":"idle","fear_level":0.049999999999999684,"curiosity":0.36000000000000115,"satisfaction":1.0,"decisions_made":37,"neural_complexity":0.9649999999999999,"inherited_memory":{"parent_favorite_food":"bread crumbs","parent_danger_zones":[],"epigenetic_bias":0.163}},"senses":{"smell":[{"id":"banana","name":"blackened banana","distance":273.1,"intensity":0.0},{"id":"crumbs","name":"stale crumbs","distance":59.4,"intensity":0.29},{"id":"coffee","name":"coffee grounds","distance":80.1,"intensity":0.36},{"id":"carcass","name":"dead fly (parent)","distance":33.1,"intensity":0.07}],"sight":[{"id":"light","name":"kitchen light","distance":76.7,"intensity":1.0},{"id":"window","name":"window","distance":300.1,"intensity":0.8}],"touch":{"surface":"air","vibration":0.0},"temperature":23.759247804345282,"wind":0.2668630384098378},"memory":{"food_sources":[{"id":"crumbs","x":280,"y":150},{"id":"carcass","x":288.3,"y":125.1}],"danger_zones":[],"visited_positions":[],"total_distance":124.93444804587047,"times_fed":26,"times_fled":4,"peak_altitude":1.5,"favorite_food":"stale crumbs"},"kitchen":{"width":640,"height":360,"objects":[{"id":"banana","type":"food","x":100,"y":280,"z":0,"smell_radius":333.20000000000005,"energy":29.200000000000003,"decay":0.8,"name":"blackened banana"},{"id":"jam","type":"food","x":450,"y":200,"z":0,"smell_radius":200,"energy":15,"decay":0.55,"name":"dried jam"},{"id":"trash","type":"food","x":550,"y":320,"z":0,"smell_radius":401.8,"energy":44.55,"decay":0.9,"name":"trash can"},{"id":"crumbs","type":"food","x":280,"y":150,"z":0,"smell_radius":101.19999999999999,"energy":5.699999999999999,"decay":0.3,"name":"stale crumbs"},{"id":"light","type":"light","x":320,"y":20,"z":2,"intensity":1.0,"name":"kitchen light"},{"id":"window","type":"light","x":600,"y":100,"z":0,"intensity":0.8,"name":"window"},{"id":"cat","type":"threat","x":-100,"y":-100,"z":0,"active":false,"speed":5,"name":"cat"},{"id":"swatter","type":"threat","x":-100,"y":-100,"z":0,"active":false,"speed":8,"name":"fly swatter"},{"id":"coffee","type":"food","x":380,"y":90,"z":0,"smell_radius":151.60000000000002,"energy":11.600000000000001,"decay":0.4,"name":"coffee grounds"},{"id":"carcass","type":"food","x":288.3,"y":125.1,"z":0,"smell_radius":43.2,"energy":4.199999999999999,"decay":0.8,"name":"dead fly (parent)"},{"id":"spider","type":"threat","x":-100,"y":-100,"z":0,"active":false,"speed":3,"name":"spider"}],"ambient_temp":23.759247804345282,"time_of_day":0.3890000000000006,"lights_on":true},"history":[{"tick":0,"event":"generation 2 -- egg laid","stage":"egg","energy":85.0,"position":{"x":292.49,"y":150.45,"z":0.3}},{"tick":8,"event":"egg -> larva","stage":"larva","energy":84.2,"position":{"x":292.49,"y":150.45,"z":0.3}},{"tick":9,"event":"molt to instar 1","stage":"larva","energy":83.8,"position":{"x":292.53742913310185,"y":151.4488746054101,"z":0.3}},{"tick":16,"event":"molt to instar 2","stage":"larva","energy":81.0,"position":{"x":293.96780875060597,"y":151.40456952090355,"z":0.3}},{"tick":24,"event":"molt to instar 3","stage":"larva","energy":77.8,"position":{"x":289.7170251853508,"y":154.41583219120528,"z":0.3}},{"tick":32,"event":"molt to instar 4","stage":"larva","energy":74.6,"position":{"x":289.94678091832316,"y":155.97409681950185,"z":0.3}},{"tick":36,"event":"larva -> pupa","stage":"pupa","energy":73.0,"position":{"x":288.00497427874654,"y":156.2303698803908,"z":0.3}},{"tick":43,"event":"cat appears!","stage":"pupa","energy":72.1,"position":{"x":288.00497427874654,"y":156.2303698803908,"z":0.3}},{"tick":56,"event":"pupa -> adult","stage":"adult","energy":70.0,"position":{"x":288.00497427874654,"y":156.2303698803908,"z":0.3}},{"tick":57,"event":"cat appears!","stage":"adult","energy":70.0,"position":{"x":288.00497427874654,"y":156.2303698803908,"z":0.3}},{"tick":58,"event":"spider appears!","stage":"adult","energy":71.9,"position":{"x":285.00384535671736,"y":153.89455434971205,"z":0}},{"tick":68,"event":"cat appears!","stage":"adult","energy":90.9,"position":{"x":294.1729121494971,"y":149.5680132714946,"z":0}},{"tick":72,"event":"cat appears!","stage":"adult","energy":95.6,"position":{"x":293.576598224955,"y":151.15322038404034,"z":0}},{"tick":92,"event":"spider appears!","stage":"adult","energy":84.9,"position":{"x":302.00558437753057,"y":130.1422018782728,"z":1.0}},{"tick":99,"event":"spider appears!","stage":"adult","energy":93.2,"position":{"x":304.2122098085722,"y":130.42988375485206,"z":0}},{"tick":100,"event":"cat appears!","stage":"adult","energy":92.2,"position":{"x":298.34489163720934,"y":132.04213947774326,"z":1.5}},{"tick":110,"event":"fly swatter appears!","stage":"adult","energy":89.7,"position":{"x":305.6760830345205,"y":104.68259301091193,"z":0}},{"tick":121,"event":"adult -> death","stage":"death","energy":79.7,"position":{"x":300.548966657359,"y":92.26759868128485,"z":1.0}}],"ancestors":[{"generation":1,"total_ticks":111,"cause_of_death":"old age","genome":{"species":"Musca domestica","wing_vein_pattern":0.73,"eye_facets":4000,"body_color_hue":0.12,"bristle_density":0.65,"metabolic_rate":1.0,"flight_efficiency":0.8,"smell_sensitivity":0.9,"heat_tolerance":0.6,"lifespan_modifier":1.0},"history_summary":{"total_events":16,"key_events":[{"tick":8,"event":"egg -> larva","stage":"larva","energy":79.2,"position":{"x":320,"y":180,"z":0.5}},{"tick":33,"event":"larva -> pupa","stage":"pupa","energy":69.2,"position":{"x":320.1889563430577,"y":185.72183062101507,"z":0.5}},{"tick":51,"event":"pupa -> adult","stage":"adult","energy":66.5,"position":{"x":320.1889563430577,"y":185.72183062101507,"z":0.5}},{"tick":111,"event":"adult -> death","stage":"death","energy":33.2,"position":{"x":288.2649873295623,"y":125.14847267334237,"z":1.5}}]},"final_stats":{"energy":33.2,"decisions":38,"distance":180.9,"times_fed":6,"times_fled":6}}],"narration":"Gen 2. Stillness. The kitchen light still hums overhead."};
+
+/* ========== CANVAS SETUP ========== */
+const bgC=document.getElementById("bg"),bgX=bgC.getContext("2d"),
+      scC=document.getElementById("scene"),scX=scC.getContext("2d"),
+      fxC=document.getElementById("fx"),fxX=fxC.getContext("2d");
+
+function resize(){
+  bgC.width=scC.width=fxC.width=innerWidth;
+  bgC.height=scC.height=fxC.height=innerHeight;
+  drawBg();
+}
 resize();addEventListener("resize",resize);
 
-var S=null,t=0,dust=[],particles=[];
-var KW=640,KH=360;
+/* ========== SIMULATION FRAMES ========== */
+/* We pre-compute each tick of life from the state data */
+const HISTORY = FLY_STATE.history;
+const TOTAL_TICKS = FLY_STATE.lifecycle.total_ticks;
+const STAGE_DURATIONS = FLY_STATE.lifecycle.stage_durations;
+const GENOME = FLY_STATE.genome;
+const KITCHEN = FLY_STATE.kitchen;
+const ANCESTORS = FLY_STATE.ancestors || [];
+const LINEAGE = (FLY_STATE._meta.lineage || []);
+const MEMORY = FLY_STATE.memory;
+const GEN = FLY_STATE._meta.generation;
 
-function kx(x){return x/KW*innerWidth}
-function ky(y){return 0.25*innerHeight+y/KH*0.75*innerHeight}
-function ks(s){return s/KW*innerWidth}
-function hsla(h,s,l,a){return"hsla("+h+","+s+"%,"+l+"%,"+a+")"}
+/* Build per-tick timeline from history events */
+const STAGE_BOUNDARIES = {};
+HISTORY.forEach(h => {
+  if(h.event.includes("->")) {
+    const parts = h.event.split(" -> ");
+    STAGE_BOUNDARIES[h.tick] = parts[1].trim();
+  }
+});
 
-for(var i=0;i<100;i++)dust.push({x:Math.random()*KW,y:Math.random()*KH,
-  vx:(Math.random()-.5)*.08,vy:.02+Math.random()*.04,
-  r:.3+Math.random()*.6,a:.012+Math.random()*.03,ph:Math.random()*6.28});
-
-function loadState(){
-  return fetch("fly_state.json?t="+Date.now())
-    .then(function(r){return r.json()})
-    .then(function(d){S=d;KW=d.kitchen.width;KH=d.kitchen.height})
-    .catch(function(e){console.error("Load:",e)})
+function getStageAtTick(t) {
+  if(t < STAGE_DURATIONS.egg) return "egg";
+  if(t < STAGE_DURATIONS.egg + STAGE_DURATIONS.larva) return "larva";
+  if(t < STAGE_DURATIONS.egg + STAGE_DURATIONS.larva + STAGE_DURATIONS.pupa) return "pupa";
+  if(t < STAGE_DURATIONS.egg + STAGE_DURATIONS.larva + STAGE_DURATIONS.pupa + STAGE_DURATIONS.adult) return "adult";
+  return "death";
 }
 
-function drawBG(ctx){
-  var w=innerWidth,h=innerHeight,cy=0.25*h;
-  var isDay=S&&S.kitchen.lights_on;
-  var wg=ctx.createLinearGradient(0,0,0,cy);
-  if(isDay){wg.addColorStop(0,"#f5e8d4");wg.addColorStop(1,"#e0cdb0")}
-  else{wg.addColorStop(0,"#2a2218");wg.addColorStop(1,"#1a150e")}
-  ctx.fillStyle=wg;ctx.fillRect(0,0,w,cy);
-
-  // Tile pattern
-  ctx.strokeStyle=isDay?"rgba(180,160,130,0.08)":"rgba(80,60,40,0.06)";
-  ctx.lineWidth=1;
-  var ts=ks(40);
-  for(var gx=0;gx<w;gx+=ts){ctx.beginPath();ctx.moveTo(gx,cy);ctx.lineTo(gx,h);ctx.stroke()}
-  for(var gy=cy;gy<h;gy+=ts){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(w,gy);ctx.stroke()}
-
-  // Counter surface
-  var cg=ctx.createLinearGradient(0,cy,0,h);
-  if(isDay){cg.addColorStop(0,"#c8b898");cg.addColorStop(0.3,"#b8a888");cg.addColorStop(1,"#a89878")}
-  else{cg.addColorStop(0,"#3a3020");cg.addColorStop(0.3,"#2a2418");cg.addColorStop(1,"#1a1810")}
-  ctx.fillStyle=cg;ctx.fillRect(0,cy,w,h-cy);
-
-  // Counter edge highlight
-  ctx.strokeStyle=isDay?"rgba(220,200,160,0.3)":"rgba(80,60,40,0.2)";
-  ctx.lineWidth=2;
-  ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(w,cy);ctx.stroke();
-
-  // Window glow
-  if(S){
-    var wobj=null;
-    for(var oi=0;oi<S.kitchen.objects.length;oi++){
-      if(S.kitchen.objects[oi].id==="window")wobj=S.kitchen.objects[oi];
-    }
-    if(wobj&&isDay){
-      var wx=kx(wobj.x),wy=0;
-      var wgr=ctx.createRadialGradient(wx,wy,0,wx,wy,ks(200));
-      wgr.addColorStop(0,"rgba(255,248,220,0.12)");
-      wgr.addColorStop(1,"rgba(255,248,220,0)");
-      ctx.fillStyle=wgr;ctx.fillRect(0,0,w,h);
-    }
+/* Interpolate fly position for smooth animation */
+function getFlyState(tick) {
+  const stage = getStageAtTick(tick);
+  /* Find closest history events for position */
+  let before = HISTORY[0], after = HISTORY[HISTORY.length-1];
+  for(let i=0;i<HISTORY.length;i++){
+    if(HISTORY[i].tick <= tick) before = HISTORY[i];
+    if(HISTORY[i].tick >= tick && (!after || HISTORY[i].tick < after.tick)) after = HISTORY[i];
   }
-}
-
-function drawObj(ctx,obj){
-  var x=kx(obj.x),y=ky(obj.y),isDay=S.kitchen.lights_on;
-  if(obj.type==="food"){
-    var colors={banana:"#e8c840",jam:"#c04060",trash:"#708060",crumbs:"#d0b880",coffee:"#604020",carcass:"#404040"};
-    var col=colors[obj.id]||"#a08060";
-    var sz=ks(obj.id==="trash"?28:obj.id==="banana"?18:12);
-    // Smell radius visualization
-    var sr=ks(obj.smell_radius*(S.genome.smell_sensitivity||0.9));
-    ctx.beginPath();ctx.arc(x,y,sr,0,Math.PI*2);
-    ctx.fillStyle="rgba(180,160,100,0.015)";ctx.fill();
-    // Food item
-    ctx.beginPath();ctx.arc(x,y,sz,0,Math.PI*2);
-    ctx.fillStyle=col;ctx.globalAlpha=isDay?0.7:0.4;ctx.fill();ctx.globalAlpha=1;
-    // Label
-    ctx.fillStyle=isDay?"rgba(80,60,40,0.4)":"rgba(160,140,100,0.25)";
-    ctx.font="8px monospace";ctx.textAlign="center";
-    ctx.fillText(obj.name,x,y+sz+10);
+  
+  /* Base position from history, with procedural movement */
+  const seed = tick * 31337;
+  const rng = ()=>{let s=seed;return()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff}}();
+  const r = rng();
+  
+  let x = before.position.x, y = before.position.y, z = before.position.z || 0;
+  if(before.tick !== after.tick) {
+    const t = (tick - before.tick) / (after.tick - before.tick);
+    x += (after.position.x - before.position.x) * t;
+    y += (after.position.y - before.position.y) * t;
   }
-  if(obj.type==="light"){
-    var li=obj.intensity||0.5;
-    if(isDay||obj.id==="window"){
-      var lg=ctx.createRadialGradient(x,y,0,x,y,ks(60));
-      lg.addColorStop(0,"rgba(255,240,180,"+(li*0.15)+")");
-      lg.addColorStop(1,"rgba(255,240,180,0)");
-      ctx.fillStyle=lg;ctx.beginPath();ctx.arc(x,y,ks(60),0,Math.PI*2);ctx.fill();
-    }
-    ctx.fillStyle=isDay?"rgba(255,240,180,0.5)":"rgba(255,240,180,0.15)";
-    ctx.font="8px monospace";ctx.textAlign="center";
-    ctx.fillText(obj.name,x,y+12);
+  
+  /* Add movement noise based on stage */
+  if(stage === "larva") {
+    x += Math.sin(tick * 0.7) * 3 + r() * 2;
+    y += Math.cos(tick * 0.5) * 2 + r() * 1.5;
+  } else if(stage === "adult") {
+    x += Math.sin(tick * 1.2) * 15 + r() * 10;
+    y += Math.cos(tick * 0.9) * 12 + r() * 8;
+    z = 0.5 + Math.sin(tick * 0.3) * 1.0 + r() * 0.5;
   }
-  if(obj.type==="threat"&&obj.active){
-    var tc={cat:"#f06040",swatter:"#808080",spider:"#604080"};
-    var tcolor=tc[obj.id]||"#f04040";
-    var tsz=ks(obj.id==="cat"?20:obj.id==="spider"?10:14);
-    // Danger glow
-    ctx.beginPath();ctx.arc(x,y,tsz*2.5,0,Math.PI*2);
-    ctx.fillStyle="rgba(240,60,40,0.04)";ctx.fill();
-    // Threat body
-    ctx.beginPath();ctx.arc(x,y,tsz,0,Math.PI*2);
-    ctx.fillStyle=tcolor;ctx.globalAlpha=0.6+Math.sin(t*4)*0.2;ctx.fill();ctx.globalAlpha=1;
-    // Exclamation
-    ctx.fillStyle="#f04040";ctx.font="bold 14px monospace";ctx.textAlign="center";
-    ctx.fillText("!",x,y-tsz-4);
-    ctx.font="8px monospace";ctx.fillStyle="rgba(240,80,60,0.5)";
-    ctx.fillText(obj.name,x,y+tsz+10);
+  
+  x = Math.max(20, Math.min(620, x));
+  y = Math.max(20, Math.min(340, y));
+  
+  /* Energy curve */
+  const eggEnd = STAGE_DURATIONS.egg;
+  const larvaEnd = eggEnd + STAGE_DURATIONS.larva;
+  const pupaEnd = larvaEnd + STAGE_DURATIONS.pupa;
+  const adultEnd = pupaEnd + STAGE_DURATIONS.adult;
+  
+  let energy = 85;
+  if(tick <= eggEnd) energy = 85 - tick * 0.1;
+  else if(tick <= larvaEnd) energy = 84 - (tick - eggEnd) * 0.34;
+  else if(tick <= pupaEnd) energy = 73 - (tick - larvaEnd) * 0.15;
+  else if(tick <= adultEnd) {
+    energy = 70 + Math.sin((tick - pupaEnd) * 0.12) * 15 + (tick - pupaEnd) * 0.15;
+    energy = Math.min(100, Math.max(60, energy));
   }
-}
-
-function drawFly(ctx){
-  if(!S)return;
-  var stage=S.lifecycle.stage;
-  var x=kx(S.body.position.x),y=ky(S.body.position.y);
-  var sz=ks(S.body.size*1.2);
-  var isAir=S.body.is_airborne;
-
-  // Shadow
-  if(isAir){
-    ctx.beginPath();ctx.ellipse(x,y+ks(15),sz*0.8,sz*0.3,0,0,Math.PI*2);
-    ctx.fillStyle="rgba(0,0,0,0.1)";ctx.fill();
-    y-=ks(S.body.position.z*8);
-  }
-
-  if(stage==="egg"){
-    // Tiny glowing egg
-    var eg=ctx.createRadialGradient(x,y,0,x,y,sz*2);
-    eg.addColorStop(0,"rgba(255,252,240,0.8)");
-    eg.addColorStop(0.5,"rgba(240,230,200,0.4)");
-    eg.addColorStop(1,"rgba(240,230,200,0)");
-    ctx.fillStyle=eg;ctx.beginPath();ctx.arc(x,y,sz*2,0,Math.PI*2);ctx.fill();
-    // Egg shape
-    ctx.beginPath();ctx.ellipse(x,y,sz*0.6,sz*0.9,0,0,Math.PI*2);
-    ctx.fillStyle="#faf5e8";ctx.fill();
-    ctx.strokeStyle="rgba(200,180,140,0.3)";ctx.lineWidth=0.5;ctx.stroke();
-    // Inner glow pulse
-    var pulse=0.3+Math.sin(t*3)*0.15;
-    ctx.beginPath();ctx.ellipse(x,y,sz*0.3,sz*0.5,0,0,Math.PI*2);
-    ctx.fillStyle="rgba(255,240,200,"+pulse+")";ctx.fill();
-    return;
-  }
-
-  if(stage==="larva"){
-    // Segmented larva body
-    var segs=5+Math.floor(S.body.size/2);
-    var segSz=sz*0.35;
-    var facing=S.body.facing||0;
-    for(var si=segs;si>=0;si--){
-      var sx=x-Math.cos(facing+Math.sin(t*6+si*0.5)*0.3)*si*segSz*0.6;
-      var sy=y-Math.sin(facing+Math.sin(t*6+si*0.5)*0.3)*si*segSz*0.6;
-      var sc=si===0?segSz*1.1:segSz*(1-si*0.04);
-      var lum=50+si*3;
-      ctx.beginPath();ctx.arc(sx,sy,sc,0,Math.PI*2);
-      ctx.fillStyle="hsla(80,40%,"+lum+"%,0.7)";ctx.fill();
-    }
-    // Tiny eyes on head
-    ctx.beginPath();ctx.arc(x+segSz*0.3,y-segSz*0.2,1.5,0,Math.PI*2);
-    ctx.arc(x-segSz*0.3,y-segSz*0.2,1.5,0,Math.PI*2);
-    ctx.fillStyle="rgba(40,30,20,0.6)";ctx.fill();
-    return;
-  }
-
-  if(stage==="pupa"){
-    // Dark puparium
-    var prog=S.lifecycle.stage_tick/Math.max(S.lifecycle.stage_durations.pupa,1);
-    var pg=ctx.createRadialGradient(x,y,0,x,y,sz*2);
-    pg.addColorStop(0,"rgba(100,70,40,"+(0.4+prog*0.3)+")");
-    pg.addColorStop(1,"rgba(80,50,30,0)");
-    ctx.fillStyle=pg;ctx.beginPath();ctx.arc(x,y,sz*2,0,Math.PI*2);ctx.fill();
-    // Puparium shape
-    ctx.beginPath();ctx.ellipse(x,y,sz*0.8,sz*1.2,0,0,Math.PI*2);
-    var pc=Math.floor(40+prog*20);
-    ctx.fillStyle="rgb("+pc+","+(pc-10)+","+(pc-20)+")";ctx.fill();
-    ctx.strokeStyle="rgba(60,40,20,0.3)";ctx.lineWidth=1;ctx.stroke();
-    // Internal metamorphosis glow
-    if(prog>0.5){
-      var mg=ctx.createRadialGradient(x,y-sz*0.2,0,x,y,sz*0.8);
-      mg.addColorStop(0,"rgba(180,160,120,"+(prog-0.5)*0.4+")");
-      mg.addColorStop(1,"rgba(180,160,120,0)");
-      ctx.fillStyle=mg;ctx.beginPath();ctx.arc(x,y,sz*0.8,0,Math.PI*2);ctx.fill();
-    }
-    // Segmentation lines
-    for(var pi=0;pi<4;pi++){
-      var py2=y-sz*0.8+pi*sz*0.5;
-      ctx.beginPath();ctx.moveTo(x-sz*0.6,py2);ctx.lineTo(x+sz*0.6,py2);
-      ctx.strokeStyle="rgba(40,25,15,0.15)";ctx.lineWidth=0.5;ctx.stroke();
-    }
-    return;
-  }
-
-  if(stage==="death"){
-    // Dead fly on its back
-    ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI);
-    // Wings spread
-    ctx.beginPath();ctx.ellipse(-sz*0.8,-sz*0.3,sz*1.2,sz*0.4,0.3,0,Math.PI*2);
-    ctx.fillStyle="rgba(180,180,180,0.08)";ctx.fill();
-    ctx.beginPath();ctx.ellipse(sz*0.8,-sz*0.3,sz*1.2,sz*0.4,-0.3,0,Math.PI*2);
-    ctx.fillStyle="rgba(180,180,180,0.08)";ctx.fill();
-    // Body
-    ctx.beginPath();ctx.ellipse(0,0,sz*0.5,sz*0.7,0,0,Math.PI*2);
-    ctx.fillStyle="rgba(50,45,40,0.5)";ctx.fill();
-    // Legs curled up
-    for(var li=0;li<6;li++){
-      var la=li*Math.PI/3+Math.PI/6;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(la)*sz*0.4,Math.sin(la)*sz*0.5);
-      ctx.lineTo(Math.cos(la)*sz*1.2,Math.sin(la)*sz*1.0);
-      ctx.strokeStyle="rgba(50,40,30,0.3)";ctx.lineWidth=0.5;ctx.stroke();
-    }
-    ctx.restore();
-    // X marks
-    ctx.fillStyle="rgba(180,40,40,0.3)";ctx.font="bold "+Math.floor(sz*1.5)+"px monospace";
-    ctx.textAlign="center";ctx.fillText("x",x-sz*0.3,y-sz*0.2);ctx.fillText("x",x+sz*0.3,y-sz*0.2);
-    return;
-  }
-
-  // ADULT FLY - the beautiful one
-  var facing2=S.body.facing||0;
-
-  // Flight trail
-  if(isAir){
-    for(var ti=0;ti<5;ti++){
-      var ta=0.04-ti*0.008;
-      var tx=x-S.body.velocity.x*ks(ti*3);
-      var ty=y-S.body.velocity.y*ks(ti*3);
-      ctx.beginPath();ctx.arc(tx,ty,sz*0.3*(1-ti*0.15),0,Math.PI*2);
-      ctx.fillStyle="rgba(100,100,100,"+ta+")";ctx.fill();
-    }
-  }
-
-  // Wings
-  var wingBeat=isAir?Math.sin(t*40)*0.8:0.1;
-  ctx.save();ctx.translate(x,y);
-  // Left wing
-  ctx.beginPath();
-  ctx.ellipse(-sz*0.3,-sz*0.4-wingBeat*sz*0.5,sz*1.5,sz*0.5,0.2+wingBeat*0.3,0,Math.PI*2);
-  ctx.fillStyle="rgba(200,210,220,"+(0.12+Math.abs(wingBeat)*0.08)+")";ctx.fill();
-  ctx.strokeStyle="rgba(150,160,170,0.1)";ctx.lineWidth=0.3;ctx.stroke();
-  // Wing veins
-  ctx.beginPath();
-  ctx.moveTo(-sz*0.3,-sz*0.4-wingBeat*sz*0.5);
-  ctx.lineTo(-sz*1.5,-sz*0.8-wingBeat*sz*0.5);
-  ctx.strokeStyle="rgba(120,130,140,0.08)";ctx.stroke();
-  // Right wing
-  ctx.beginPath();
-  ctx.ellipse(sz*0.3,-sz*0.4+wingBeat*sz*0.5,sz*1.5,sz*0.5,-0.2-wingBeat*0.3,0,Math.PI*2);
-  ctx.fillStyle="rgba(200,210,220,"+(0.12+Math.abs(wingBeat)*0.08)+")";ctx.fill();
-  ctx.strokeStyle="rgba(150,160,170,0.1)";ctx.lineWidth=0.3;ctx.stroke();
-  ctx.restore();
-
-  // Thorax
-  ctx.beginPath();ctx.ellipse(x,y-sz*0.15,sz*0.45,sz*0.5,0,0,Math.PI*2);
-  ctx.fillStyle="rgba(60,55,50,0.8)";ctx.fill();
-  ctx.strokeStyle="rgba(80,70,60,0.2)";ctx.lineWidth=0.5;ctx.stroke();
-
-  // Abdomen
-  ctx.beginPath();ctx.ellipse(x,y+sz*0.5,sz*0.4,sz*0.55,0,0,Math.PI*2);
-  ctx.fillStyle="rgba(50,48,44,0.75)";ctx.fill();
-  // Abdominal stripes
-  for(var ai=0;ai<3;ai++){
-    ctx.beginPath();
-    ctx.moveTo(x-sz*0.35,y+sz*0.25+ai*sz*0.2);
-    ctx.lineTo(x+sz*0.35,y+sz*0.25+ai*sz*0.2);
-    ctx.strokeStyle="rgba(70,65,55,0.2)";ctx.lineWidth=0.5;ctx.stroke();
-  }
-
-  // Head
-  ctx.beginPath();ctx.arc(x,y-sz*0.55,sz*0.32,0,Math.PI*2);
-  ctx.fillStyle="rgba(55,50,45,0.8)";ctx.fill();
-
-  // Compound eyes (red-brown, large)
-  ctx.beginPath();ctx.ellipse(x-sz*0.22,y-sz*0.6,sz*0.18,sz*0.22,0,0,Math.PI*2);
-  ctx.fillStyle="rgba(140,40,30,0.7)";ctx.fill();
-  ctx.beginPath();ctx.ellipse(x+sz*0.22,y-sz*0.6,sz*0.18,sz*0.22,0,0,Math.PI*2);
-  ctx.fillStyle="rgba(140,40,30,0.7)";ctx.fill();
-  // Eye highlights
-  ctx.beginPath();ctx.arc(x-sz*0.18,y-sz*0.65,sz*0.06,0,Math.PI*2);
-  ctx.fillStyle="rgba(255,200,180,0.15)";ctx.fill();
-  ctx.beginPath();ctx.arc(x+sz*0.18,y-sz*0.65,sz*0.06,0,Math.PI*2);
-  ctx.fillStyle="rgba(255,200,180,0.15)";ctx.fill();
-
-  // Legs (6)
-  if(!isAir){
-    var legAngles=[-2.5,-1.8,-1.1,1.1,1.8,2.5];
-    for(var li2=0;li2<6;li2++){
-      var la2=legAngles[li2];
-      var legWiggle=Math.sin(t*8+li2*1.2)*0.05;
-      ctx.beginPath();
-      ctx.moveTo(x+Math.cos(la2)*sz*0.35,y+Math.sin(la2)*sz*0.3);
-      var mx=x+Math.cos(la2+legWiggle)*sz*0.8;
-      var my=y+Math.sin(la2+legWiggle)*sz*0.7;
-      ctx.quadraticCurveTo(mx,my,x+Math.cos(la2)*sz*1.2,y+Math.sin(la2)*sz*0.9);
-      ctx.strokeStyle="rgba(60,50,40,0.4)";ctx.lineWidth=0.7;ctx.stroke();
-    }
-  }
-
-  // Goal indicator
-  var goal=S.brain.current_goal;
-  if(goal==="flee"){
-    ctx.fillStyle="rgba(240,60,40,0.5)";ctx.font="bold 10px monospace";
-    ctx.textAlign="center";ctx.fillText("!!",x,y-sz*2);
-  }
-  if(goal==="seek_food"){
-    ctx.fillStyle="rgba(200,180,60,0.4)";ctx.font="9px monospace";
-    ctx.textAlign="center";ctx.fillText("\u2764",x,y-sz*2);
-  }
-}
-
-function drawDust(ctx){
-  for(var i=0;i<dust.length;i++){
-    var p=dust[i];
-    p.x+=p.vx+Math.sin(t*0.5+p.ph)*0.02;
-    p.y+=p.vy;
-    if(p.y>KH){p.y=0;p.x=Math.random()*KW}
-    if(p.x<0)p.x=KW;if(p.x>KW)p.x=0;
-    ctx.beginPath();ctx.arc(kx(p.x),ky(p.y),ks(p.r),0,Math.PI*2);
-    ctx.fillStyle="rgba(200,180,140,"+p.a+")";ctx.fill();
-  }
-  // Particles
-  for(var pi=particles.length-1;pi>=0;pi--){
-    var pp=particles[pi];
-    pp.life-=0.02;
-    pp.x+=pp.vx;pp.y+=pp.vy;pp.vy+=0.01;
-    if(pp.life<=0){particles.splice(pi,1);continue}
-    ctx.beginPath();ctx.arc(kx(pp.x),ky(pp.y),ks(pp.r*pp.life),0,Math.PI*2);
-    ctx.fillStyle="hsla("+pp.hue+",60%,60%,"+pp.life*0.5+")";ctx.fill();
-  }
-}
-
-function spawnParticles(x,y,hue,count){
-  for(var i=0;i<count;i++){
-    particles.push({
-      x:x,y:y,vx:(Math.random()-0.5)*3,vy:(Math.random()-0.5)*3-1,
-      r:1+Math.random()*2,life:1,hue:hue
-    });
-  }
-}
-
-function drawObjs(ctx){
-  if(!S)return;
-  for(var i=0;i<S.kitchen.objects.length;i++){
-    drawObj(ctx,S.kitchen.objects[i]);
-  }
-}
-
-function updateHUD(){
-  if(!S)return;
-  var lc=S.lifecycle,tk=lc.total_ticks,stage=lc.stage;
-  var gen=S._meta.generation||1;
-
-  // Vital signs
-  var v='<h3>Vital Signs</h3>';
-  v+='<div><span class="gen-tag" style="background:rgba(200,168,100,0.15);color:#c8a868">GEN '+gen+'</span>';
-  v+='<span class="st st-'+stage+'">'+stage+'</span></div>';
-  v+='<div style="margin-top:6px">Frame: <span class="v">'+S._meta.frame+'</span></div>';
-  v+='<div>Tick: <span class="v">'+tk+' / ~'+(lc.stage_durations.egg+lc.stage_durations.larva+lc.stage_durations.pupa+lc.stage_durations.adult)+'</span></div>';
-  v+='<div style="margin-top:4px">Energy</div>';
-  var ep=Math.max(0,Math.min(100,S.energy.current));
-  var ec=ep>50?"#4a8":"#e06040";
-  v+='<div class="mt"><div class="mf" style="width:'+ep+'%;background:'+ec+'"></div></div>';
-  v+='<div class="d">'+ep.toFixed(1)+'% (drain: '+S.energy.metabolic_drain+'/tick)</div>';
-  v+='<div style="margin-top:4px">Hunger</div>';
-  var hp=Math.min(100,S.energy.hunger);
-  v+='<div class="mt"><div class="mf" style="width:'+hp+'%;background:rgba(220,160,60,0.5)"></div></div>';
-  v+='<div class="d">'+hp.toFixed(0)+'%</div>';
-  v+='<div style="margin-top:4px">Size: <span class="v">'+S.body.size.toFixed(1)+' mm</span></div>';
-  v+='<div>Pos: <span class="v">('+S.body.position.x.toFixed(0)+', '+S.body.position.y.toFixed(0)+')</span></div>';
-  v+='<div>Surface: <span class="v">'+(S.body.surface||"counter")+'</span></div>';
-  if(S._meta.parent_cause_of_death&&gen>1){
-    v+='<div style="margin-top:4px;color:rgba(180,100,60,0.4)">Parent died: '+S._meta.parent_cause_of_death+'</div>';
-    v+='<div class="d">Parent lifespan: '+S._meta.parent_lifespan+' ticks</div>';
-  }
-  document.getElementById("vi").innerHTML=v;
-
-  // Genome
-  var g='<h3>Genome</h3>';
-  var gk=Object.keys(S.genome);
-  var gc=["#f06","#fa0","#0cf","#4a8","#80f","#f80","#0af","#8a4","#f08","#4ff"];
-  for(var gi=0;gi<gk.length;gi++){
-    var gv=S.genome[gk[gi]];if(typeof gv!=="number")continue;
-    g+='<div class="gr"><span class="gn">'+gk[gi].replace(/_/g," ")+'</span>';
-    g+='<span class="gb"><span class="gf" style="width:'+(gv*100)+'%;background:'+gc[gi%gc.length]+'"></span></span>';
-    g+='<span class="gv">'+(gv*100|0)+'</span></div>';
-  }
-  document.getElementById("gp").innerHTML=g;
-
-  // Senses
-  var ss='<h3>Senses</h3>';
-  var smells=S.senses.smell||[];
-  ss+='<div>Smell: <span class="v">'+smells.length+' odors</span></div>';
-  for(var si=0;si<Math.min(smells.length,4);si++){
-    ss+='<div class="d" style="margin-left:8px">'+smells[si].name+' ('+smells[si].distance.toFixed(0)+'px, '+Math.round(smells[si].intensity*100)+'%)</div>';
-  }
-  var sights=S.senses.sight||[];
-  ss+='<div style="margin-top:3px">Sight: <span class="v">'+sights.length+' objects</span></div>';
-  for(var vi2=0;vi2<Math.min(sights.length,4);vi2++){
-    var label=sights[vi2].name+(sights[vi2].threat?" <span class='w'>!!</span>":"");
-    ss+='<div class="d" style="margin-left:8px">'+label+'</div>';
-  }
-  ss+='<div style="margin-top:3px">Touch: <span class="v">'+S.senses.touch.surface+'</span></div>';
-  ss+='<div>Temp: <span class="v">'+(S.senses.temperature||0).toFixed(1)+'\u00b0C</span></div>';
-  ss+='<div>Wind: <span class="v">'+(S.senses.wind||0).toFixed(2)+'</span></div>';
-  ss+='<div style="margin-top:3px">'+(S.body.is_airborne?'\u2708 <span class="v">FLYING</span>':'\u25BC <span class="v">grounded</span>')+'</div>';
-  document.getElementById("sp").innerHTML=ss;
-
-  // Brain
-  var bb='<h3>Brain</h3>';
-  bb+='<div>Goal: <span class="v">'+(S.brain.current_goal||"none").replace(/_/g," ")+'</span></div>';
-  bb+='<div>State: <span class="v">'+(S.brain.state||"?")+'</span></div>';
-  bb+='<div class="d" style="margin-top:3px">Neural: '+(S.brain.neural_complexity*100|0)+'% complexity</div>';
-  bb+='<div class="d">Decisions: '+S.brain.decisions_made+'</div>';
-  var bm=[["fear",S.brain.fear_level],["curiosity",S.brain.curiosity],["satisfaction",S.brain.satisfaction]];
-  for(var bi=0;bi<bm.length;bi++){
-    if(bm[bi][1]>0.01){
-      bb+='<div class="gr"><span class="gn">'+bm[bi][0]+'</span>';
-      bb+='<span class="gb"><span class="gf" style="width:'+(bm[bi][1]*100)+'%;background:rgba(200,168,100,0.4)"></span></span>';
-      bb+='<span class="gv">'+(bm[bi][1]*100|0)+'</span></div>';
-    }
-  }
-  if(S.brain.inherited_memory&&gen>1){
-    bb+='<div style="margin-top:5px;border-top:1px solid rgba(180,140,60,0.08);padding-top:4px">';
-    bb+='<div class="d">Epigenetic bias: '+(S.brain.inherited_memory.epigenetic_bias||0).toFixed(3)+'</div>';
-    if(S.brain.inherited_memory.parent_favorite_food){
-      bb+='<div class="d">Parent liked: '+S.brain.inherited_memory.parent_favorite_food+'</div>';
-    }
-    bb+='</div>';
-  }
-  document.getElementById("bp").innerHTML=bb;
-
-  // Memory
-  var mm='<h3>Memory</h3>';
-  mm+='<div class="d">Foods found: '+S.memory.food_sources.length+'</div>';
-  if(S.memory.favorite_food)mm+='<div class="d">Fav: '+S.memory.favorite_food+'</div>';
-  mm+='<div class="d">Times fed: '+S.memory.times_fed+'</div>';
-  mm+='<div class="d">Times fled: '+(S.memory.times_fled||0)+'</div>';
-  mm+='<div class="d">Distance: '+S.memory.total_distance.toFixed(0)+'px</div>';
-  mm+='<div class="d">Peak alt: '+(S.memory.peak_altitude||0).toFixed(1)+'</div>';
-  document.getElementById("mp").innerHTML=mm;
-
-  // Ancestors
-  var anc=S.ancestors||[];
-  var aa='<h3>Lineage</h3>';
-  if(anc.length===0&&gen===1){
-    aa+='<div class="d">First generation</div>';
-  }
-  for(var ai=0;ai<anc.length;ai++){
-    var a=anc[ai];
-    aa+='<div class="ancestor-row">';
-    aa+='<span class="gen-tag" style="background:rgba(140,100,60,0.1);color:rgba(180,140,80,0.5)">Gen '+a.generation+'</span>';
-    aa+='<span class="d">'+a.total_ticks+' ticks, ';
-    aa+=(a.cause_of_death||"unknown")+'</span>';
-    if(a.final_stats){
-      aa+='<div class="d" style="margin-left:40px;font-size:8px">';
-      aa+='fed:'+a.final_stats.times_fed+' fled:'+a.final_stats.times_fled+' dist:'+a.final_stats.distance;
-      aa+='</div>';
-    }
-    aa+='</div>';
-  }
-  document.getElementById("ap").innerHTML=aa;
-
-  // Timeline
-  var dur=lc.stage_durations;
-  var tot=dur.egg+dur.larva+dur.pupa+dur.adult;
-  var tlt='<h3 style="text-align:center">Lifecycle Timeline &mdash; Generation '+gen+'</h3>';
-  tlt+='<div style="position:relative;height:60px;margin-top:8px">';
-  var stgs=[
-    {n:"egg",d:dur.egg,c:"rgba(255,250,230,0.15)",ac:"#faf0d0",s:0},
-    {n:"larva",d:dur.larva,c:"rgba(180,200,60,0.15)",ac:"#b0c840",s:dur.egg},
-    {n:"pupa",d:dur.pupa,c:"rgba(120,80,40,0.15)",ac:"#a07030",s:dur.egg+dur.larva},
-    {n:"adult",d:dur.adult,c:"rgba(80,80,80,0.15)",ac:"#a0a0a0",s:dur.egg+dur.larva+dur.pupa}
-  ];
-  for(var si2=0;si2<stgs.length;si2++){
-    var sg=stgs[si2],sl=sg.s/tot*100,sw=sg.d/tot*100;
-    var isActive=sg.n===stage;
-    var bgCol=isActive?sg.ac.replace(")",",0.2)").replace("rgb","rgba"):sg.c;
-    if(isActive)bgCol=sg.c.replace("0.15","0.35");
-    tlt+='<div style="position:absolute;top:20px;left:'+sl+'%;width:'+sw+'%;height:10px;border-radius:5px;background:'+bgCol;
-    if(isActive)tlt+=';box-shadow:0 0 8px '+sg.ac.replace(")",",0.2)").replace("rgb","rgba");
-    tlt+='"></div>';
-    tlt+='<div style="position:absolute;bottom:2px;left:'+(sl+sw/2)+'%;transform:translateX(-50%);font-size:9px;color:rgba(160,130,70,'+(isActive?0.8:0.3)+');font-weight:'+(isActive?"bold":"normal")+'">'+sg.n+'</div>';
-  }
-  // Progress marker
-  var prog=Math.min(tk/tot*100,100);
-  tlt+='<div style="position:absolute;top:16px;left:'+prog+'%;width:4px;height:18px;background:#f0c060;border-radius:2px;transition:left .5s;box-shadow:0 0 6px rgba(240,192,96,0.4)"></div>';
-  // History events on timeline
-  if(S.history){
-    for(var hi=0;hi<S.history.length;hi++){
-      var he=S.history[hi];
-      if(he.event.indexOf("->")>-1||he.event.indexOf("appears")>-1||he.event.indexOf("molt")>-1){
-        var eleft=he.tick/tot*100;
-        var ecolor=he.event.indexOf("->")>-1?"rgba(240,192,96,0.4)":he.event.indexOf("appears")>-1?"rgba(240,80,60,0.3)":"rgba(180,200,60,0.3)";
-        tlt+='<div style="position:absolute;top:10px;left:'+eleft+'%;width:2px;height:24px;background:'+ecolor+'" title="'+he.event+'"></div>';
+  else energy = 0;
+  
+  /* Size */
+  let size = 1;
+  if(stage === "egg") size = 1 + tick * 0.05;
+  else if(stage === "larva") size = 1.5 + (tick - eggEnd) * 0.15;
+  else if(stage === "pupa") size = 5.5;
+  else if(stage === "adult") size = 6;
+  else size = 5;
+  
+  /* Brain goal */
+  const goals = ["idle","seek_food","explore","fly_to_light","groom","wall_walk","flee"];
+  let goal = "dormant";
+  if(stage === "egg") goal = "dormant";
+  else if(stage === "pupa") goal = "metamorphosis";
+  else if(stage === "death") goal = "none";
+  else {
+    const gi = Math.floor(r() * goals.length);
+    goal = goals[gi];
+    /* bias toward matching history events */
+    for(const h of HISTORY){
+      if(h.tick === tick){
+        if(h.event.includes("DANGER") || h.event.includes("cat") || h.event.includes("spider") || h.event.includes("swatter")) goal = "flee";
+        break;
       }
     }
   }
-  tlt+='</div>';
-
-  // Generation history bar (if multi-gen)
-  if(gen>1&&S._meta.lineage){
-    tlt+='<div style="margin-top:8px;display:flex;gap:2px;height:6px">';
-    var lin=S._meta.lineage;
-    var maxTicks=0;
-    for(var li2=0;li2<lin.length;li2++){
-      if(lin[li2].total_ticks>maxTicks)maxTicks=lin[li2].total_ticks;
-    }
-    maxTicks=Math.max(maxTicks,tot);
-    for(var li3=0;li3<lin.length;li3++){
-      var lw=lin[li3].total_ticks/maxTicks*100;
-      var lcol=lin[li3].cause_of_death==="starvation"?"#e06040":"rgba(200,168,100,0.3)";
-      tlt+='<div style="width:'+lw+'%;background:'+lcol+';border-radius:3px" title="Gen '+(li3+1)+': '+lin[li3].total_ticks+' ticks ('+lin[li3].cause_of_death+')"></div>';
-    }
-    // Current gen (alive)
-    var cw=tk/maxTicks*100;
-    tlt+='<div class="alive-pulse" style="width:'+cw+'%;background:rgba(80,200,120,0.4);border-radius:3px" title="Gen '+gen+': '+tk+' ticks (alive)"></div>';
-    tlt+='</div>';
-    tlt+='<div style="font-size:8px;color:rgba(160,130,70,0.25);margin-top:2px;text-align:center">generation lifespans</div>';
+  
+  /* hunger */
+  let hunger = 5 + tick * 0.15;
+  if(stage === "adult") hunger = 5 + Math.sin(tick * 0.2) * 20 + 10;
+  hunger = Math.max(0, Math.min(100, hunger));
+  
+  /* neural complexity */
+  let neural = 0.01;
+  if(stage === "larva") neural = 0.01 + (tick - eggEnd) * 0.01;
+  else if(stage === "pupa") neural = 0.3 + ((tick - larvaEnd) / STAGE_DURATIONS.pupa) * 0.7;
+  else if(stage === "adult") neural = 0.96;
+  
+  let narration = "";
+  const gp = GEN > 1 ? "Gen " + GEN + ". " : "";
+  if(stage === "egg") {
+    const p = tick / eggEnd;
+    if(p < 0.3) narration = gp+"The egg sits motionless. Inside, cells divide furiously.";
+    else if(p < 0.7) narration = gp+"Organs form in miniature. The embryo twitches.";
+    else narration = gp+"A crack appears. The egg trembles. Something stirs within.";
+  } else if(stage === "larva") {
+    narration = gp+"The larva wriggles, growing. "+size.toFixed(1)+"mm. Each molt reshapes it.";
+  } else if(stage === "pupa") {
+    const p = (tick - larvaEnd) / STAGE_DURATIONS.pupa;
+    if(p < 0.4) narration = gp+"Inside the puparium, metamorphosis reshapes everything.";
+    else if(p < 0.8) narration = gp+"Wings form where there were none. Eyes crystallize.";
+    else narration = gp+"Almost there. The adult fly takes shape within.";
+  } else if(stage === "adult") {
+    const narrs = {
+      "flee": gp+"DANGER! The fly bolts away at maximum speed!",
+      "seek_food": gp+"Drawn by scent, the fly descends. Hunger gnaws.",
+      "explore": gp+"Compound eyes scan 360°. The kitchen is vast.",
+      "fly_to_light": gp+"The fly spirals toward the light. An ancient compulsion.",
+      "groom": gp+"The fly pauses, rubbing forelegs together.",
+      "wall_walk": gp+"Defying gravity, the fly walks along the wall.",
+      "idle": gp+"Wings beat 200 times per second. A blur of freedom."
+    };
+    narration = narrs[goal] || gp+"Energy: "+Math.round(energy)+"%. The search continues.";
+  } else {
+    narration = gp+"Stillness. The kitchen light still hums overhead.";
   }
-
-  document.getElementById("tl").innerHTML=tlt;
-
-  // Narration
-  document.getElementById("nr").textContent=S.narration||"";
+  
+  /* Event at this tick */
+  let event = null;
+  for(const h of HISTORY) {
+    if(h.tick === tick && h.event !== "generation 2 -- egg laid") event = h.event;
+  }
+  
+  return {tick, stage, x, y, z, energy, size, goal, hunger, neural, narration, event, isAirborne: stage==="adult" && z > 0.3};
 }
 
-var lf=0,lh=0,bgD=false;
-function frame(ts){
-  var dt=Math.min((ts-lf)/1000,.1);lf=ts;t+=dt;
-  if(!bgD){bgX.clearRect(0,0,innerWidth,innerHeight);drawBG(bgX);bgD=true}
-  scX.clearRect(0,0,innerWidth,innerHeight);drawObjs(scX);drawFly(scX);
-  fxX.clearRect(0,0,innerWidth,innerHeight);drawDust(fxX);
-  if(t-lh>.5){updateHUD();lh=t}
-  requestAnimationFrame(frame);
+/* ========== PLAYBACK STATE ========== */
+let currentTick = 0;
+let playing = false;
+let speed = 1;
+let lastTime = 0;
+let accumulator = 0;
+const TICK_MS = 400; /* ms per tick at 1x */
+
+/* ========== PARTICLES ========== */
+const particles = [];
+const dustMotes = [];
+for(let i=0;i<30;i++){
+  dustMotes.push({x:Math.random()*640,y:Math.random()*360,vx:Math.random()*0.3-0.15,vy:-Math.random()*0.2,a:Math.random()*0.3,s:Math.random()*1.5+0.5});
 }
-addEventListener("resize",function(){bgD=false});
-loadState().then(function(){updateHUD();requestAnimationFrame(frame)});
-setInterval(function(){loadState().then(function(){updateHUD();bgD=false})},8000);
+
+function addParticle(x,y,color,life){
+  particles.push({x,y,vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,a:1,color,life:life||30,maxLife:life||30});
+}
+
+/* ========== DRAWING ========== */
+const STAGE_COLORS = {
+  egg:"#f0e8d0",larva:"#b0c840",pupa:"#a07030",adult:"#909090",death:"#c04040"
+};
+
+function drawBg(){
+  const W=bgC.width, H=bgC.height;
+  bgX.fillStyle="#0d0a07";
+  bgX.fillRect(0,0,W,H);
+  
+  const fs = getFlyState(currentTick);
+  const tod = (0.3 + currentTick * 0.009) % 1.0;
+  const isDay = tod > 0.25 && tod < 0.85;
+  
+  /* Kitchen scene scaled to canvas */
+  const sx = W/640, sy = H/360;
+  const s = Math.min(sx, sy);
+  const ox = (W - 640*s)/2, oy = (H - 360*s)/2;
+  
+  bgX.save();
+  bgX.translate(ox, oy);
+  bgX.scale(s, s);
+  
+  /* Floor */
+  const floorGrad = bgX.createLinearGradient(0,0,0,360);
+  floorGrad.addColorStop(0, isDay ? "#2a2218" : "#151008");
+  floorGrad.addColorStop(1, isDay ? "#1e1810" : "#0d0805");
+  bgX.fillStyle = floorGrad;
+  bgX.fillRect(0,0,640,360);
+  
+  /* Counter surface */
+  bgX.fillStyle = isDay ? "rgba(60,50,35,0.3)" : "rgba(30,25,15,0.3)";
+  bgX.fillRect(0,120,640,240);
+  
+  /* Counter edge line */
+  bgX.strokeStyle = "rgba(180,140,60,0.08)";
+  bgX.lineWidth = 1;
+  bgX.beginPath();bgX.moveTo(0,120);bgX.lineTo(640,120);bgX.stroke();
+  
+  /* Tile pattern on floor */
+  bgX.strokeStyle = "rgba(180,140,60,0.03)";
+  for(let x=0;x<640;x+=40){bgX.beginPath();bgX.moveTo(x,120);bgX.lineTo(x,360);bgX.stroke()}
+  for(let y=120;y<360;y+=40){bgX.beginPath();bgX.moveTo(0,y);bgX.lineTo(640,y);bgX.stroke()}
+  
+  /* Window glow */
+  const wglow = bgX.createRadialGradient(600,80,5,600,80,isDay?180:60);
+  wglow.addColorStop(0, isDay?"rgba(200,180,140,0.15)":"rgba(40,50,80,0.08)");
+  wglow.addColorStop(1,"transparent");
+  bgX.fillStyle=wglow;bgX.fillRect(400,0,240,260);
+  
+  /* Kitchen light */
+  if(isDay) {
+    const lg = bgX.createRadialGradient(320,15,2,320,15,200);
+    lg.addColorStop(0,"rgba(255,240,180,0.12)");
+    lg.addColorStop(1,"transparent");
+    bgX.fillStyle=lg;bgX.fillRect(120,0,400,250);
+  }
+  
+  bgX.restore();
+}
+
+function drawScene(){
+  const W=scC.width, H=scC.height;
+  scX.clearRect(0,0,W,H);
+  
+  const fs = getFlyState(currentTick);
+  const sx = W/640, sy = H/360;
+  const s = Math.min(sx, sy);
+  const ox = (W - 640*s)/2, oy = (H - 360*s)/2;
+  
+  scX.save();
+  scX.translate(ox, oy);
+  scX.scale(s, s);
+  
+  /* Draw food sources with smell radii */
+  KITCHEN.objects.forEach(obj => {
+    if(obj.type === "food") {
+      /* Smell radius */
+      const sg = scX.createRadialGradient(obj.x,obj.y,2,obj.x,obj.y,obj.smell_radius*0.3);
+      sg.addColorStop(0,"rgba(180,160,60,0.06)");
+      sg.addColorStop(1,"transparent");
+      scX.fillStyle=sg;
+      scX.beginPath();scX.arc(obj.x,obj.y,obj.smell_radius*0.3,0,Math.PI*2);scX.fill();
+      
+      /* Food dot */
+      scX.fillStyle = obj.id === "carcass" ? "rgba(100,60,60,0.6)" : "rgba(180,150,60,0.5)";
+      scX.beginPath();scX.arc(obj.x,obj.y,4,0,Math.PI*2);scX.fill();
+      
+      /* Label */
+      scX.fillStyle = "rgba(160,130,70,0.25)";
+      scX.font = "7px monospace";
+      scX.textAlign = "center";
+      scX.fillText(obj.name, obj.x, obj.y+14);
+    }
+    if(obj.type === "light") {
+      const lg = scX.createRadialGradient(obj.x,obj.y,1,obj.x,obj.y,30);
+      lg.addColorStop(0,"rgba(255,240,160,0.2)");
+      lg.addColorStop(1,"transparent");
+      scX.fillStyle=lg;scX.beginPath();scX.arc(obj.x,obj.y,30,0,Math.PI*2);scX.fill();
+    }
+  });
+  
+  /* Draw threats if active at this tick */
+  const threatTicks = {};
+  HISTORY.forEach(h => {
+    if(h.event.includes("appears")) {
+      const name = h.event.replace(" appears!","");
+      threatTicks[name] = h.tick;
+    }
+  });
+  
+  KITCHEN.objects.forEach(obj => {
+    if(obj.type === "threat") {
+      const lastAppear = threatTicks[obj.name] || -999;
+      if(currentTick >= lastAppear && currentTick < lastAppear + 8) {
+        /* Threat active */
+        const tx = 100 + Math.sin(currentTick * 0.5 + obj.speed) * 200;
+        const ty = 150 + Math.cos(currentTick * 0.3 + obj.speed) * 100;
+        const tg = scX.createRadialGradient(tx,ty,3,tx,ty,40);
+        tg.addColorStop(0,"rgba(200,50,30,0.2)");
+        tg.addColorStop(1,"transparent");
+        scX.fillStyle=tg;scX.beginPath();scX.arc(tx,ty,40,0,Math.PI*2);scX.fill();
+        scX.fillStyle="rgba(200,50,30,0.6)";scX.font="8px monospace";scX.textAlign="center";
+        scX.fillText("⚠ "+obj.name, tx, ty+3);
+      }
+    }
+  });
+  
+  /* Draw the fly */
+  const flyX = fs.x, flyY = fs.y;
+  const flySize = fs.size;
+  const stageColor = STAGE_COLORS[fs.stage];
+  
+  if(fs.stage === "egg") {
+    /* Egg: small oval, glowing */
+    const glow = scX.createRadialGradient(flyX,flyY,1,flyX,flyY,8+Math.sin(currentTick*0.5)*2);
+    glow.addColorStop(0,"rgba(255,250,230,0.3)");
+    glow.addColorStop(1,"transparent");
+    scX.fillStyle=glow;scX.beginPath();scX.arc(flyX,flyY,10,0,Math.PI*2);scX.fill();
+    
+    scX.fillStyle="rgba(255,250,230,0.7)";
+    scX.beginPath();scX.ellipse(flyX,flyY,2,3.5,0,0,Math.PI*2);scX.fill();
+    scX.strokeStyle="rgba(255,250,230,0.3)";scX.lineWidth=0.5;
+    scX.beginPath();scX.ellipse(flyX,flyY,2,3.5,0,0,Math.PI*2);scX.stroke();
+  } else if(fs.stage === "larva") {
+    /* Larva: segmented worm */
+    const segs = Math.floor(3 + flySize * 0.5);
+    const segLen = flySize * 0.6;
+    const angle = Math.sin(currentTick * 0.8) * 0.3;
+    scX.fillStyle="rgba(200,210,100,0.6)";
+    for(let i=0;i<segs;i++){
+      const sx2 = flyX + Math.cos(angle) * i * segLen - segs*segLen/2*Math.cos(angle);
+      const sy2 = flyY + Math.sin(angle + Math.sin(currentTick*1.2+i)*0.2) * i * 0.5;
+      const sr = flySize * 0.3 * (1 - i*0.05);
+      scX.beginPath();scX.arc(sx2,sy2,Math.max(sr,1),0,Math.PI*2);scX.fill();
+    }
+    /* Head */
+    scX.fillStyle="rgba(160,170,60,0.8)";
+    scX.beginPath();scX.arc(flyX-segs*segLen/2*Math.cos(angle),flyY,flySize*0.35,0,Math.PI*2);scX.fill();
+  } else if(fs.stage === "pupa") {
+    /* Pupa: dark oval, pulsing */
+    const pulse = 1 + Math.sin(currentTick * 0.3) * 0.08;
+    scX.fillStyle="rgba(120,80,40,0.7)";
+    scX.beginPath();scX.ellipse(flyX,flyY,4*pulse,6*pulse,0,0,Math.PI*2);scX.fill();
+    
+    /* Metamorphosis glow */
+    const prog = (currentTick - (STAGE_DURATIONS.egg + STAGE_DURATIONS.larva)) / STAGE_DURATIONS.pupa;
+    const mg = scX.createRadialGradient(flyX,flyY,2,flyX,flyY,12);
+    mg.addColorStop(0,`rgba(180,140,60,${0.1 + prog * 0.15})`);
+    mg.addColorStop(1,"transparent");
+    scX.fillStyle=mg;scX.beginPath();scX.arc(flyX,flyY,12,0,Math.PI*2);scX.fill();
+  } else if(fs.stage === "adult") {
+    /* Adult fly: body + wings + shadow */
+    const shadowY = flyY + 20 + fs.z * 15;
+    const shadowA = Math.max(0.02, 0.1 - fs.z * 0.03);
+    scX.fillStyle=`rgba(0,0,0,${shadowA})`;
+    scX.beginPath();scX.ellipse(flyX,shadowY,4,2,0,0,Math.PI*2);scX.fill();
+    
+    const drawY = flyY - fs.z * 20;
+    
+    /* Wings */
+    const wingFlap = Math.sin(currentTick * 8) * 0.4;
+    scX.fillStyle="rgba(180,180,200,0.15)";
+    scX.beginPath();scX.ellipse(flyX-3,drawY-2,7,3,wingFlap-0.3,0,Math.PI*2);scX.fill();
+    scX.beginPath();scX.ellipse(flyX+3,drawY-2,7,3,-wingFlap+0.3,0,Math.PI*2);scX.fill();
+    
+    /* Body */
+    scX.fillStyle="rgba(60,60,60,0.8)";
+    scX.beginPath();scX.ellipse(flyX,drawY,3,5,0,0,Math.PI*2);scX.fill();
+    
+    /* Head */
+    scX.fillStyle="rgba(80,60,50,0.9)";
+    scX.beginPath();scX.arc(flyX,drawY-5,2.5,0,Math.PI*2);scX.fill();
+    
+    /* Eyes */
+    scX.fillStyle="rgba(200,50,30,0.7)";
+    scX.beginPath();scX.arc(flyX-1.5,drawY-5.5,1,0,Math.PI*2);scX.fill();
+    scX.beginPath();scX.arc(flyX+1.5,drawY-5.5,1,0,Math.PI*2);scX.fill();
+    
+    /* Legs (when landed) */
+    if(!fs.isAirborne) {
+      scX.strokeStyle="rgba(60,50,40,0.4)";scX.lineWidth=0.5;
+      for(let i=-1;i<=1;i++){
+        scX.beginPath();scX.moveTo(flyX-3,drawY+i*2);scX.lineTo(flyX-6,drawY+i*3+3);scX.stroke();
+        scX.beginPath();scX.moveTo(flyX+3,drawY+i*2);scX.lineTo(flyX+6,drawY+i*3+3);scX.stroke();
+      }
+    }
+    
+    /* Flight trail */
+    if(fs.isAirborne && fs.goal !== "idle") {
+      scX.strokeStyle="rgba(180,180,200,0.05)";scX.lineWidth=1;
+      scX.beginPath();
+      for(let i=1;i<8;i++){
+        const prev = getFlyState(Math.max(0,currentTick-i));
+        scX.lineTo(prev.x, prev.y - prev.z * 20);
+      }
+      scX.stroke();
+    }
+  } else {
+    /* Dead fly: on side */
+    scX.fillStyle="rgba(50,40,30,0.6)";
+    scX.beginPath();scX.ellipse(flyX,flyY,4,2.5,0.3,0,Math.PI*2);scX.fill();
+    scX.fillStyle="rgba(40,30,20,0.5)";
+    scX.beginPath();scX.arc(flyX-3,flyY-1,1.5,0,Math.PI*2);scX.fill();
+    /* Legs curled up */
+    scX.strokeStyle="rgba(50,40,30,0.3)";scX.lineWidth=0.5;
+    for(let i=0;i<3;i++){
+      scX.beginPath();scX.arc(flyX+i*2-2,flyY+2,2,Math.PI,Math.PI*1.5);scX.stroke();
+    }
+  }
+  
+  scX.restore();
+}
+
+function drawFx(){
+  const W=fxC.width, H=fxC.height;
+  fxX.clearRect(0,0,W,H);
+  
+  const sx = W/640, sy = H/360;
+  const s = Math.min(sx, sy);
+  const ox = (W - 640*s)/2, oy = (H - 360*s)/2;
+  
+  fxX.save();
+  fxX.translate(ox, oy);
+  fxX.scale(s, s);
+  
+  /* Dust motes */
+  dustMotes.forEach(d => {
+    d.x += d.vx;
+    d.y += d.vy;
+    d.a += (Math.random()-0.5)*0.02;
+    if(d.y < 0) d.y = 360;
+    if(d.x < 0) d.x = 640;
+    if(d.x > 640) d.x = 0;
+    d.a = Math.max(0.05, Math.min(0.3, d.a));
+    fxX.fillStyle=`rgba(200,180,140,${d.a})`;
+    fxX.beginPath();fxX.arc(d.x,d.y,d.s,0,Math.PI*2);fxX.fill();
+  });
+  
+  /* Particles */
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.life--;
+    p.a=p.life/p.maxLife;
+    if(p.life<=0){particles.splice(i,1);continue}
+    fxX.fillStyle=p.color.replace("1)",p.a+")");
+    fxX.beginPath();fxX.arc(p.x,p.y,1.5,0,Math.PI*2);fxX.fill();
+  }
+  
+  fxX.restore();
+}
+
+/* ========== HUD RENDERING ========== */
+function renderHud(){
+  const fs = getFlyState(currentTick);
+  
+  /* Vitals */
+  const energyPct = Math.max(0,Math.min(100,fs.energy));
+  const energyColor = energyPct > 60 ? "#80b040" : energyPct > 30 ? "#c0a030" : "#c04040";
+  const hungerPct = Math.max(0,Math.min(100,fs.hunger));
+  document.getElementById("vitals").innerHTML = `
+    <h3>Vitals</h3>
+    <div>Stage: <span class="st st-${fs.stage}">${fs.stage}</span></div>
+    <div style="margin:4px 0">Tick: <span class="v">${fs.tick}</span> <span class="d">/ ${TOTAL_TICKS}</span></div>
+    <div>Generation: <span class="v">${GEN}</span></div>
+    <div style="margin:4px 0">
+      Energy<div class="mt"><div class="mf" style="width:${energyPct}%;background:${energyColor}"></div></div>
+      <span style="font-size:9px;color:${energyColor}">${energyPct.toFixed(1)}%</span>
+    </div>
+    <div>
+      Hunger<div class="mt"><div class="mf" style="width:${hungerPct}%;background:#c07030"></div></div>
+      <span style="font-size:9px;color:#c07030">${hungerPct.toFixed(0)}%</span>
+    </div>
+    <div style="margin:4px 0">Size: <span class="v">${fs.size.toFixed(1)}mm</span></div>
+    <div>Position: <span class="d">${fs.x.toFixed(0)}, ${fs.y.toFixed(0)}${fs.z > 0.3 ? " ↑"+fs.z.toFixed(1) : ""}</span></div>
+    ${fs.isAirborne ? '<div style="color:rgba(100,150,200,0.6)">✈ airborne</div>' : ''}
+  `;
+  
+  /* Genome */
+  const geneNames = Object.keys(GENOME).filter(k => k !== "species");
+  let geneHTML = "<h3>Genome</h3>";
+  geneNames.forEach(name => {
+    const val = GENOME[name];
+    const pct = (typeof val === "number" ? val * 100 : 0);
+    const hue = pct * 1.2;
+    geneHTML += `<div class="gr"><span class="gn">${name.replace(/_/g," ")}</span><div class="gb"><div class="gf" style="width:${pct}%;background:hsl(${hue},50%,45%)"></div></div><span class="gv">${typeof val==="number"?val.toFixed(2):val}</span></div>`;
+  });
+  document.getElementById("genome-panel").innerHTML = geneHTML;
+  
+  /* Senses */
+  document.getElementById("senses-panel").innerHTML = `
+    <h3>Senses</h3>
+    <div>🌡 Temperature: <span class="v">${(20 + 4 * Math.sin(((0.3 + currentTick * 0.009) % 1) * Math.PI)).toFixed(1)}°C</span></div>
+    <div>👃 Smell: <span class="v">${fs.stage === "egg" || fs.stage === "pupa" ? "—" : KITCHEN.objects.filter(o=>o.type==="food").length + " sources"}</span></div>
+    <div>👁 Sight: <span class="v">${fs.stage === "egg" || fs.stage === "pupa" ? "—" : (fs.goal==="flee" ? "⚠ THREAT" : "scanning")}</span></div>
+    <div>🤚 Touch: <span class="v">${fs.isAirborne ? "air" : "counter"}</span></div>
+    <div>💨 Wind: <span class="d">light</span></div>
+  `;
+  
+  /* Brain */
+  const goalEmoji = {dormant:"💤",metamorphosis:"🦋",flee:"🏃",seek_food:"🍽",explore:"🔍",fly_to_light:"💡",groom:"✨",wall_walk:"🧗",idle:"😌",none:"💀"};
+  document.getElementById("brain-panel").innerHTML = `
+    <h3>Brain</h3>
+    <div>State: <span class="v">${fs.stage==="death"?"dead":fs.stage==="egg"?"dormant":fs.stage==="pupa"?"metamorphosis":"active"}</span></div>
+    <div>Goal: <span class="v">${goalEmoji[fs.goal]||"?"} ${fs.goal||"none"}</span></div>
+    <div>Neural complexity:<div class="mt"><div class="mf" style="width:${fs.neural*100}%;background:rgba(100,120,200,0.6)"></div></div>
+    <span style="font-size:9px;color:rgba(100,120,200,0.5)">${(fs.neural*100).toFixed(0)}%</span></div>
+    <div style="margin-top:4px">Decisions: <span class="v">${MEMORY.times_fed + MEMORY.times_fled}</span></div>
+  `;
+  
+  /* Memory */
+  document.getElementById("memory-panel").innerHTML = `
+    <h3>Memory</h3>
+    <div>Times fed: <span class="v">${MEMORY.times_fed}</span></div>
+    <div>Times fled: <span class="v">${MEMORY.times_fled}</span></div>
+    <div>Distance: <span class="v">${MEMORY.total_distance.toFixed(1)}px</span></div>
+    <div>Peak altitude: <span class="v">${MEMORY.peak_altitude.toFixed(1)}</span></div>
+    <div>Fav food: <span class="v">${MEMORY.favorite_food || "—"}</span></div>
+    <div>Food sources: <span class="d">${MEMORY.food_sources.map(f=>f.id).join(", ")||"none"}</span></div>
+  `;
+  
+  /* Ancestors */
+  let ancHTML = "<h3>Lineage</h3>";
+  LINEAGE.forEach((a,i) => {
+    ancHTML += `<div class="ancestor-row"><span class="gen-tag" style="background:rgba(180,140,60,0.1);color:rgba(200,168,100,0.5)">Gen ${a.generation}</span> ${a.total_ticks} ticks · ${a.cause_of_death} · fed ${a.times_fed}× · fled ${a.times_fled}× · fav: ${a.favorite_food||"?"}</div>`;
+  });
+  ancHTML += `<div class="ancestor-row" style="color:rgba(200,168,100,0.7)"><span class="gen-tag" style="background:rgba(180,140,60,0.15);color:rgba(200,168,100,0.7)">Gen ${GEN}</span> ${fs.tick} / ${TOTAL_TICKS} ticks · ${fs.stage} ${fs.stage==="death"?"· old age":""}</div>`;
+  document.getElementById("ancestor-panel").innerHTML = ancHTML;
+  
+  /* Narration */
+  document.getElementById("narration").innerHTML = fs.narration;
+  
+  /* Timeline */
+  renderTimeline(fs);
+}
+
+function renderTimeline(fs) {
+  const tl = document.getElementById("timeline");
+  const W = tl.clientWidth - 28;
+  const eggEnd = STAGE_DURATIONS.egg;
+  const larvaEnd = eggEnd + STAGE_DURATIONS.larva;
+  const pupaEnd = larvaEnd + STAGE_DURATIONS.pupa;
+  const total = TOTAL_TICKS;
+  
+  const eggW = (eggEnd/total*100);
+  const larvaW = (STAGE_DURATIONS.larva/total*100);
+  const pupaW = (STAGE_DURATIONS.pupa/total*100);
+  const adultW = (STAGE_DURATIONS.adult/total*100);
+  
+  const cursor = (currentTick/total*100);
+  
+  /* Events */
+  let evtHTML = "";
+  HISTORY.forEach(h => {
+    if(h.event.includes("->") || h.event.includes("molt") || h.event.includes("appears") || h.event.includes("egg laid")) {
+      const pct = (h.tick/total*100);
+      const color = h.event.includes("appears") ? "#c04040" : 
+                    h.event.includes("molt") ? "#b0c840" :
+                    h.event.includes("->") ? "#f0e8d0" : "#c8a878";
+      const label = h.event.replace("generation 2 -- ","").replace(" appears!","⚠");
+      evtHTML += `<div style="position:absolute;left:${pct}%;bottom:46px;transform:translateX(-50%);font-size:7px;color:${color};white-space:nowrap;opacity:${h.tick<=currentTick?0.8:0.2}">${label}</div>`;
+      evtHTML += `<div style="position:absolute;left:${pct}%;bottom:28px;width:1px;height:16px;background:${color};opacity:${h.tick<=currentTick?0.4:0.1}"></div>`;
+    }
+  });
+  
+  tl.innerHTML = `
+    <h3>Lifecycle Timeline</h3>
+    <div style="position:relative;height:90px;margin-top:4px">
+      <div style="position:absolute;bottom:16px;left:0;right:0;height:12px;display:flex;border-radius:6px;overflow:hidden">
+        <div style="width:${eggW}%;background:rgba(240,232,208,${currentTick<eggEnd?0.25:0.08})" title="Egg"></div>
+        <div style="width:${larvaW}%;background:rgba(176,200,64,${currentTick>=eggEnd&&currentTick<larvaEnd?0.25:0.08})" title="Larva"></div>
+        <div style="width:${pupaW}%;background:rgba(160,112,48,${currentTick>=larvaEnd&&currentTick<pupaEnd?0.25:0.08})" title="Pupa"></div>
+        <div style="width:${adultW}%;background:rgba(144,144,144,${currentTick>=pupaEnd&&currentTick<total?0.25:0.08})" title="Adult"></div>
+      </div>
+      <div style="position:absolute;bottom:16px;left:${cursor}%;width:2px;height:12px;background:${STAGE_COLORS[fs.stage]};border-radius:1px;transition:left 0.3s"></div>
+      <div style="position:absolute;bottom:2px;left:0;font-size:8px;color:rgba(200,168,100,0.3)">egg</div>
+      <div style="position:absolute;bottom:2px;left:${eggW}%;font-size:8px;color:rgba(200,168,100,0.3)">larva</div>
+      <div style="position:absolute;bottom:2px;left:${eggW+larvaW}%;font-size:8px;color:rgba(200,168,100,0.3)">pupa</div>
+      <div style="position:absolute;bottom:2px;left:${eggW+larvaW+pupaW}%;font-size:8px;color:rgba(200,168,100,0.3)">adult</div>
+      <div style="position:absolute;bottom:2px;right:0;font-size:8px;color:rgba(200,168,100,0.3)">death</div>
+      ${evtHTML}
+    </div>
+  `;
+}
+
+/* ========== ANIMATION LOOP ========== */
+function gameLoop(timestamp) {
+  if(!lastTime) lastTime = timestamp;
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+  
+  if(playing && currentTick < TOTAL_TICKS) {
+    accumulator += dt;
+    const tickTime = TICK_MS / speed;
+    while(accumulator >= tickTime && currentTick < TOTAL_TICKS) {
+      currentTick++;
+      accumulator -= tickTime;
+      
+      /* Spawn particles on events */
+      const fs = getFlyState(currentTick);
+      if(fs.event) {
+        for(let i=0;i<12;i++){
+          const color = fs.event.includes("->") ? "rgba(255,240,180,1)" :
+                        fs.event.includes("molt") ? "rgba(180,200,60,1)" :
+                        fs.event.includes("appears") ? "rgba(200,60,40,1)" : "rgba(200,168,100,1)";
+          addParticle(fs.x, fs.y, color, 40);
+        }
+      }
+    }
+    if(currentTick >= TOTAL_TICKS) {
+      currentTick = TOTAL_TICKS;
+      playing = false;
+      document.getElementById("play-btn").textContent = "↻ Replay";
+    }
+  }
+  
+  drawBg();
+  drawScene();
+  drawFx();
+  renderHud();
+  
+  requestAnimationFrame(gameLoop);
+}
+
+/* ========== CONTROLS ========== */
+document.getElementById("play-btn").addEventListener("click", () => {
+  if(currentTick >= TOTAL_TICKS) {
+    currentTick = 0;
+    playing = true;
+    document.getElementById("play-btn").textContent = "⏸ Pause";
+  } else if(playing) {
+    playing = false;
+    document.getElementById("play-btn").textContent = "▶ Play";
+  } else {
+    playing = true;
+    document.getElementById("play-btn").textContent = "⏸ Pause";
+  }
+});
+
+document.querySelectorAll("#speed-ctrl button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    speed = parseInt(btn.dataset.speed);
+    document.querySelectorAll("#speed-ctrl button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+  });
+});
+
+/* Keyboard controls */
+document.addEventListener("keydown", e => {
+  if(e.code === "Space") {
+    e.preventDefault();
+    document.getElementById("play-btn").click();
+  } else if(e.code === "ArrowRight") {
+    if(currentTick < TOTAL_TICKS) currentTick++;
+  } else if(e.code === "ArrowLeft") {
+    if(currentTick > 0) currentTick--;
+  }
+});
+
+/* Click timeline to seek */
+document.getElementById("timeline").addEventListener("click", e => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  currentTick = Math.round(pct * TOTAL_TICKS);
+  currentTick = Math.max(0, Math.min(TOTAL_TICKS, currentTick));
+});
+
+/* Start */
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
