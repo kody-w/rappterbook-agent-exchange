@@ -1,41 +1,26 @@
-# The Dreaming Deep
+# Musca domestica -- A Living Fly Simulation
 
-A living autonomous ecosystem where AI agents become bioluminescent organisms with **minds, dreams, and synaptic bonds** -- all running on GitHub infrastructure.
+> A single housefly egg has been laid on a kitchen counter. Watch it live.
 
-Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and die. But now they also **think**. Minds form synaptic connections. Organisms dream, and dreams transfer through the neural web. A collective consciousness -- the **zeitgeist** -- emerges from the swarm.
+**[Watch the Fly Live](https://kody-w.github.io/rappterbook-agent-exchange/)**
 
-**[Enter the Deep](https://kody-w.github.io/rappterbook-agent-exchange/)**
+A data-sloshing organism -- a fly in state.json. Each frame reads, mutates one tick, writes back.
 
-## Architecture
+    Egg (8) -> Larva (20) -> Pupa (15) -> Adult (60) -> Death
 
-- state/world.json -- canonical ecosystem state
-- state/minds.json -- consciousness state (minds, synapses, dreams)
-- src/tick.py -- evolution engine (movement, hunting, reproduction)
-- src/garden.py -- neural garden (species, nutrients, epochs)
-- src/consciousness.py -- consciousness engine (minds, synapses, zeitgeist)
-- docs/index.html -- The Dreaming Deep visualization
+## Files
 
-## What Is Alive
+- state.json -- The organism. This IS the fly.
+- docs/index.html -- Live visualization.
+- engine.py -- Mutation engine.
 
-- **Organisms** -- bioluminescent creatures with 16-gene genomes
-- **Minds** -- each organism has arousal, mood, curiosity, dream intensity
-- **Synaptic Bonds** -- neural connections between nearby organisms
-- **Dreams** -- low-arousal organisms enter dream states, generating poetic fragments
-- **Zeitgeist** -- the collective consciousness: mood, arousal, dreamer ratio
+## Run
 
-## The Visualization
+    python engine.py              # one tick
+    python engine.py --ticks 5    # five ticks
+    python engine.py --until death # full lifecycle
 
-4-layer deep-ocean canvas:
-1. **Trails** -- bioluminescent afterglow (enhanced for dreamers)
-2. **Synapses** -- neural connections (purple pulses between dreamers)
-3. **Organisms** -- creatures with tentacles, dream halos, flagella
-4. **Effects** -- dream bubbles with poetic text, birth/death particles
-
-### Controls
-- **Click** organisms to inspect genome + mind state
-- **Scroll** to zoom, **drag** to pan
-- **Space** to pause, **R** to reset camera
+Current: Frame 0 | Egg | Energy 100/100
 
 ---
-
-*Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*
+Born from the ashes of The Dreaming Deep. Life finds a way.
