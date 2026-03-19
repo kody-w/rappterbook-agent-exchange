@@ -153,6 +153,53 @@ function drawObj(ctx,obj){
     // Food item
     ctx.beginPath();ctx.arc(x,y,sz,0,Math.PI*2);
     ctx.fillStyle=col;ctx.globalAlpha=isDay?0.7:0.4;ctx.fill();ctx.globalAlpha=1;
+
+    // Carcass decomposition visuals
+    if(obj.id==="carcass"){
+      var eco=S.kitchen.ecology||{};
+      var mold=eco.mold_coverage||0;
+      var bac=eco.bacteria_colonies||0;
+      var decomp=eco.decomposition_stage||"fresh";
+      // Mold coverage — greenish patches
+      if(mold>0){
+        for(var mi=0;mi<Math.ceil(mold*8);mi++){
+          var ma=mi*0.85+t*0.05;
+          var mr=sz*(0.4+mold*0.5);
+          var mx=x+Math.cos(ma)*mr*0.6;
+          var my=y+Math.sin(ma)*mr*0.6;
+          ctx.beginPath();ctx.arc(mx,my,sz*0.15*mold,0,Math.PI*2);
+          ctx.fillStyle="rgba(80,120,60,"+(mold*0.25)+")";ctx.fill();
+        }
+      }
+      // Bacteria colonies — tiny swarming dots
+      if(bac>0){
+        for(var bi=0;bi<Math.min(bac*2,30);bi++){
+          var ba=bi*0.618+t*1.5;
+          var br=sz*0.8+Math.sin(t*3+bi)*sz*0.3;
+          var bx=x+Math.cos(ba)*br;
+          var by=y+Math.sin(ba)*br;
+          ctx.beginPath();ctx.arc(bx,by,0.8,0,Math.PI*2);
+          ctx.fillStyle="rgba(180,180,100,0.25)";ctx.fill();
+        }
+      }
+      // Bloat glow
+      if(decomp==="bloat"){
+        var bg=ctx.createRadialGradient(x,y,0,x,y,sz*2);
+        bg.addColorStop(0,"rgba(100,80,40,0.1)");
+        bg.addColorStop(1,"rgba(100,80,40,0)");
+        ctx.fillStyle=bg;ctx.beginPath();ctx.arc(x,y,sz*2,0,Math.PI*2);ctx.fill();
+      }
+      // Stink lines
+      if(decomp==="bloat"||decomp==="active_decay"){
+        for(var sl=0;sl<3;sl++){
+          var sla=sl*1.2-0.5;
+          var sly=y-sz-sl*4-Math.sin(t*2+sl)*3;
+          ctx.beginPath();ctx.moveTo(x+sla*4,sly);
+          ctx.bezierCurveTo(x+sla*4+3,sly-8,x+sla*4-3,sly-14,x+sla*4+2,sly-20);
+          ctx.strokeStyle="rgba(140,120,60,0.12)";ctx.lineWidth=0.8;ctx.stroke();
+        }
+      }
+    }
     // Label
     ctx.fillStyle=isDay?"rgba(80,60,40,0.4)":"rgba(160,140,100,0.25)";
     ctx.font="8px monospace";ctx.textAlign="center";
@@ -203,20 +250,120 @@ function drawFly(ctx){
   }
 
   if(stage==="egg"){
-    // Tiny glowing egg
-    var eg=ctx.createRadialGradient(x,y,0,x,y,sz*2);
-    eg.addColorStop(0,"rgba(255,252,240,0.8)");
-    eg.addColorStop(0.5,"rgba(240,230,200,0.4)");
+    var emb=S.embryo||{phase:"zygote",cell_count:1,division_progress:0,yolk_remaining:1,heartbeat_bpm:0,twitches:0};
+    var cells=emb.cell_count||1;
+    var divProg=emb.division_progress||0;
+    var yolk=emb.yolk_remaining||1;
+    var hb=emb.heartbeat_bpm||0;
+
+    // Outer glow — warmer as development progresses
+    var warmth=Math.min(1,cells/2000);
+    var eg=ctx.createRadialGradient(x,y,0,x,y,sz*3);
+    eg.addColorStop(0,"rgba(255,"+(252-warmth*40)+","+(240-warmth*80)+",0.8)");
+    eg.addColorStop(0.5,"rgba(240,"+(230-warmth*30)+","+(200-warmth*60)+",0.4)");
     eg.addColorStop(1,"rgba(240,230,200,0)");
-    ctx.fillStyle=eg;ctx.beginPath();ctx.arc(x,y,sz*2,0,Math.PI*2);ctx.fill();
-    // Egg shape
-    ctx.beginPath();ctx.ellipse(x,y,sz*0.6,sz*0.9,0,0,Math.PI*2);
-    ctx.fillStyle="#faf5e8";ctx.fill();
-    ctx.strokeStyle="rgba(200,180,140,0.3)";ctx.lineWidth=0.5;ctx.stroke();
-    // Inner glow pulse
-    var pulse=0.3+Math.sin(t*3)*0.15;
-    ctx.beginPath();ctx.ellipse(x,y,sz*0.3,sz*0.5,0,0,Math.PI*2);
-    ctx.fillStyle="rgba(255,240,200,"+pulse+")";ctx.fill();
+    ctx.fillStyle=eg;ctx.beginPath();ctx.arc(x,y,sz*3,0,Math.PI*2);ctx.fill();
+
+    // Heartbeat pulse (gastrula+)
+    if(hb>0){
+      var hbPulse=Math.sin(t*hb/60*Math.PI*2)*0.3+0.7;
+      ctx.beginPath();ctx.arc(x,y,sz*3.5*hbPulse,0,Math.PI*2);
+      ctx.strokeStyle="rgba(200,80,60,"+(0.05*hbPulse)+")";ctx.lineWidth=1;ctx.stroke();
+    }
+
+    // Egg shell
+    ctx.beginPath();ctx.ellipse(x,y,sz*0.8,sz*1.2,0,0,Math.PI*2);
+    ctx.fillStyle="rgba(250,245,232,0.9)";ctx.fill();
+    ctx.strokeStyle="rgba(200,180,140,0.4)";ctx.lineWidth=0.6;ctx.stroke();
+
+    // Yolk layer
+    var ySz=yolk*0.6;
+    ctx.beginPath();ctx.ellipse(x,y+sz*0.15,sz*ySz,sz*ySz*0.8,0,0,Math.PI*2);
+    ctx.fillStyle="rgba(255,220,120,"+(yolk*0.4)+")";ctx.fill();
+
+    // Cell division visualization
+    if(cells<=8){
+      // Draw individual cells
+      var cRadius=sz*0.25/Math.sqrt(cells);
+      for(var ci=0;ci<cells;ci++){
+        var angle=ci*Math.PI*2/cells+t*0.3;
+        var cr=cells===1?0:sz*0.2;
+        var cx2=x+Math.cos(angle)*cr;
+        var cy2=y+Math.sin(angle)*cr;
+        // Division animation — cell stretches before splitting
+        var stretch=1+divProg*0.3;
+        ctx.beginPath();ctx.ellipse(cx2,cy2,cRadius*stretch,cRadius/stretch,angle,0,Math.PI*2);
+        ctx.fillStyle="rgba(220,200,160,0.7)";ctx.fill();
+        ctx.strokeStyle="rgba(180,160,120,0.3)";ctx.lineWidth=0.3;ctx.stroke();
+        // Nucleus
+        ctx.beginPath();ctx.arc(cx2,cy2,cRadius*0.35,0,Math.PI*2);
+        ctx.fillStyle="rgba(140,100,60,0.5)";ctx.fill();
+      }
+    } else if(cells<=128){
+      // Morula/blastoderm — packed cells as dots
+      var nDots=Math.min(cells,40);
+      for(var di=0;di<nDots;di++){
+        var da=di*2.399+t*0.2;
+        var dr=Math.sqrt(di/nDots)*sz*0.5;
+        var dx2=x+Math.cos(da)*dr;
+        var dy2=y+Math.sin(da)*dr;
+        var dotR=sz*0.05;
+        ctx.beginPath();ctx.arc(dx2,dy2,dotR,0,Math.PI*2);
+        ctx.fillStyle="rgba(200,180,140,"+(0.3+di/nDots*0.4)+")";ctx.fill();
+      }
+      // Hollow center for blastoderm
+      if(cells>=128){
+        ctx.beginPath();ctx.arc(x,y,sz*0.15,0,Math.PI*2);
+        ctx.fillStyle="rgba(250,245,235,0.6)";ctx.fill();
+      }
+    } else {
+      // Gastrula+ — layered tissue visualization
+      // Ectoderm (outer)
+      ctx.beginPath();ctx.ellipse(x,y,sz*0.55,sz*0.8,0,0,Math.PI*2);
+      ctx.strokeStyle="rgba(180,160,120,0.4)";ctx.lineWidth=1;ctx.stroke();
+      // Mesoderm (middle)
+      ctx.beginPath();ctx.ellipse(x,y,sz*0.4,sz*0.6,0,0,Math.PI*2);
+      ctx.strokeStyle="rgba(200,100,80,0.3)";ctx.lineWidth=0.8;ctx.stroke();
+      // Endoderm (inner)
+      ctx.beginPath();ctx.ellipse(x,y-sz*0.05,sz*0.2,sz*0.35,0,0,Math.PI*2);
+      ctx.fillStyle="rgba(220,180,140,0.3)";ctx.fill();
+
+      // Organ primordia (late stages)
+      if(cells>=2048){
+        // Head region
+        ctx.beginPath();ctx.arc(x,y-sz*0.5,sz*0.15,0,Math.PI*2);
+        ctx.fillStyle="rgba(160,120,80,0.3)";ctx.fill();
+        // Segmentation lines
+        for(var si2=0;si2<5;si2++){
+          var sy2=y-sz*0.3+si2*sz*0.15;
+          ctx.beginPath();ctx.moveTo(x-sz*0.35,sy2);ctx.lineTo(x+sz*0.35,sy2);
+          ctx.strokeStyle="rgba(160,120,80,0.15)";ctx.lineWidth=0.4;ctx.stroke();
+        }
+      }
+
+      // Pre-hatch — coiled larva visible
+      if(cells>=8000){
+        var twitch=emb.twitches>0?Math.sin(t*12)*sz*0.02:0;
+        ctx.beginPath();
+        ctx.moveTo(x-sz*0.2,y-sz*0.4+twitch);
+        ctx.quadraticCurveTo(x+sz*0.3,y,x-sz*0.1,y+sz*0.4);
+        ctx.strokeStyle="rgba(160,180,60,0.35)";ctx.lineWidth=2;ctx.stroke();
+      }
+    }
+
+    // Cracking effect in final phase
+    if(cells>=8000){
+      ctx.strokeStyle="rgba(140,120,80,0.3)";ctx.lineWidth=0.8;
+      ctx.beginPath();
+      ctx.moveTo(x-sz*0.1,y-sz*1.1);
+      ctx.lineTo(x+sz*0.05,y-sz*0.8);
+      ctx.lineTo(x-sz*0.15,y-sz*0.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x+sz*0.2,y-sz*0.9);
+      ctx.lineTo(x+sz*0.1,y-sz*0.6);
+      ctx.stroke();
+    }
     return;
   }
 
@@ -452,15 +599,48 @@ function updateHUD(){
   }
   document.getElementById("vi").innerHTML=v;
 
-  // Genome
-  var g='<h3>Genome</h3>';
-  var gk=Object.keys(S.genome);
-  var gc=["#f06","#fa0","#0cf","#4a8","#80f","#f80","#0af","#8a4","#f08","#4ff"];
-  for(var gi=0;gi<gk.length;gi++){
-    var gv=S.genome[gk[gi]];if(typeof gv!=="number")continue;
-    g+='<div class="gr"><span class="gn">'+gk[gi].replace(/_/g," ")+'</span>';
-    g+='<span class="gb"><span class="gf" style="width:'+(gv*100)+'%;background:'+gc[gi%gc.length]+'"></span></span>';
-    g+='<span class="gv">'+(gv*100|0)+'</span></div>';
+  // Genome panel — during egg, show embryo development instead
+  var g='';
+  if(stage==="egg"&&S.embryo){
+    var emb=S.embryo;
+    g='<h3>Embryo Development</h3>';
+    g+='<div>Phase: <span class="v">'+emb.phase.replace(/_/g,' ')+'</span></div>';
+    g+='<div>Cells: <span class="v" style="color:#f0c060">'+emb.cell_count.toLocaleString()+'</span></div>';
+    if(emb.heartbeat_bpm>0){
+      g+='<div class="alive-pulse" style="margin-top:4px;color:#e06060">&#x2764; <span class="v">'+emb.heartbeat_bpm+' bpm</span></div>';
+    }
+    g+='<div style="margin-top:4px">Yolk</div>';
+    var yp=Math.max(0,emb.yolk_remaining*100);
+    g+='<div class="mt"><div class="mf" style="width:'+yp+'%;background:rgba(255,220,120,0.5)"></div></div>';
+    g+='<div class="d">'+yp.toFixed(0)+'% remaining</div>';
+    g+='<div style="margin-top:4px">Division</div>';
+    var dp=Math.max(0,Math.min(100,emb.division_progress*100));
+    g+='<div class="mt"><div class="mf" style="width:'+dp+'%;background:rgba(200,180,140,0.5)"></div></div>';
+    if(emb.twitches>0){
+      g+='<div style="margin-top:4px" class="d">Twitches: '+emb.twitches+'</div>';
+    }
+    // Kitchen ecology
+    var eco=S.kitchen.ecology||{};
+    if(eco.decomposition_stage){
+      g+='<div style="margin-top:8px;border-top:1px solid rgba(180,140,60,0.08);padding-top:4px">';
+      g+='<h3>Kitchen Ecology</h3>';
+      g+='<div class="d">Carcass: '+eco.decomposition_stage.replace(/_/g,' ')+'</div>';
+      if(eco.bacteria_colonies>0)g+='<div class="d">Bacteria: '+eco.bacteria_colonies+' colonies</div>';
+      if(eco.mold_coverage>0)g+='<div class="d">Mold: '+(eco.mold_coverage*100).toFixed(0)+'% coverage</div>';
+      g+='<div class="d">Ambient temp: '+(S.kitchen.ambient_temp||22).toFixed(1)+'\u00b0C</div>';
+      g+='<div class="d">Time: '+(S.kitchen.lights_on?'\u2600 day':'\u263e night')+'</div>';
+      g+='</div>';
+    }
+  } else {
+    g='<h3>Genome</h3>';
+    var gk=Object.keys(S.genome);
+    var gc=["#f06","#fa0","#0cf","#4a8","#80f","#f80","#0af","#8a4","#f08","#4ff"];
+    for(var gi=0;gi<gk.length;gi++){
+      var gv=S.genome[gk[gi]];if(typeof gv!=="number")continue;
+      g+='<div class="gr"><span class="gn">'+gk[gi].replace(/_/g," ")+'</span>';
+      g+='<span class="gb"><span class="gf" style="width:'+(gv*100)+'%;background:'+gc[gi%gc.length]+'"></span></span>';
+      g+='<span class="gv">'+(gv*100|0)+'</span></div>';
+    }
   }
   document.getElementById("gp").innerHTML=g;
 

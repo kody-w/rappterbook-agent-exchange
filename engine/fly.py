@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Musca domestica — housefly lifecycle tick engine (v2: generational).
+"""Musca domestica — housefly lifecycle tick engine (v3: embryology + ecology).
 
 Reads state/fly.json, advances one tick, writes back.
 The output of frame N is the input of frame N+1.
+
+v3 additions:
+  - Embryology: visible cell division stages inside the egg
+  - Temperature-dependent development: warmer = faster maturation
+  - Carcass ecology: dead parent decomposes, bacteria colonies grow
+  - Circadian sensitivity: egg development modulated by day/night
+  - Kitchen ecosystem memory: environment accumulates history
 
 v2 additions:
   - Generational rebirth: when a fly dies, a new egg spawns
@@ -93,6 +100,147 @@ def update_threats(state: dict) -> None:
             obj["active"] = False
             obj["x"] = -100
             obj["y"] = -100
+
+
+EMBRYO_PHASES = [
+    {"name": "zygote", "cells": 1, "desc": "Single fertilized cell"},
+    {"name": "cleavage_2", "cells": 2, "desc": "First division — two cells"},
+    {"name": "cleavage_4", "cells": 4, "desc": "Second division — four cells"},
+    {"name": "cleavage_8", "cells": 8, "desc": "Third division — eight cells"},
+    {"name": "morula", "cells": 32, "desc": "Morula — a solid ball of cells"},
+    {"name": "blastoderm", "cells": 128, "desc": "Blastoderm — hollow sphere forms"},
+    {"name": "gastrula", "cells": 512, "desc": "Gastrulation — three germ layers"},
+    {"name": "organogenesis", "cells": 2048, "desc": "Organs forming — head, segments, gut"},
+    {"name": "pre_hatch", "cells": 8000, "desc": "Fully formed — ready to hatch"},
+]
+
+
+def update_embryo(state: dict) -> None:
+    """Track cell division and embryonic development inside the egg.
+
+    Temperature-dependent: warmer kitchen = faster development.
+    Day/night modulates growth rate (circadian priming).
+    """
+    if state["lifecycle"]["stage"] != "egg":
+        return
+
+    if "embryo" not in state:
+        state["embryo"] = {
+            "phase_index": 0,
+            "cell_count": 1,
+            "phase": "zygote",
+            "division_progress": 0.0,
+            "yolk_remaining": 1.0,
+            "heartbeat_bpm": 0,
+            "twitches": 0,
+        }
+
+    embryo = state["embryo"]
+    tick = state["lifecycle"]["stage_tick"]
+    temp = state["kitchen"]["ambient_temp"]
+    duration = state["lifecycle"]["stage_durations"]["egg"]
+
+    # Temperature-dependent development rate (optimal: 25°C)
+    temp_factor = max(0.3, 1.0 - abs(temp - 25.0) / 15.0)
+
+    # Circadian modulation: slightly faster during warm daylight hours
+    tod = state["kitchen"]["time_of_day"]
+    circadian = 0.9 + 0.2 * math.sin(tod * math.pi)
+
+    dev_rate = temp_factor * circadian
+
+    # Advance division progress
+    embryo["division_progress"] += dev_rate * (1.0 / max(duration, 1))
+    if embryo["division_progress"] >= 1.0:
+        embryo["division_progress"] = 0.0
+
+    # Map tick to embryo phase
+    progress = tick / max(duration - 1, 1)
+    target_phase = min(int(progress * len(EMBRYO_PHASES)), len(EMBRYO_PHASES) - 1)
+
+    if target_phase > embryo["phase_index"]:
+        embryo["phase_index"] = target_phase
+        phase_info = EMBRYO_PHASES[target_phase]
+        embryo["phase"] = phase_info["name"]
+        embryo["cell_count"] = phase_info["cells"]
+        record(state, "embryo: " + phase_info["desc"])
+
+    # Yolk consumption
+    embryo["yolk_remaining"] = max(0.0, 1.0 - progress * 0.85)
+
+    # Heartbeat emerges at gastrula stage
+    if target_phase >= 6:
+        base_bpm = 80 + int(progress * 120)
+        embryo["heartbeat_bpm"] = base_bpm + random.randint(-5, 5)
+    else:
+        embryo["heartbeat_bpm"] = 0
+
+    # Random twitches in late development
+    if target_phase >= 7 and random.random() < 0.3:
+        embryo["twitches"] += 1
+        state["senses"]["touch"]["vibration"] = 0.2
+
+
+def update_carcass_ecology(state: dict) -> None:
+    """Decompose the parent's carcass. Bacteria colonies grow.
+
+    The dead fly body decays, smell intensifies then fades,
+    bacteria appear as a new kitchen entity.
+    """
+    k = state["kitchen"]
+    carcass = None
+    for obj in k["objects"]:
+        if obj["id"] == "carcass":
+            carcass = obj
+            break
+
+    if carcass is None:
+        return
+
+    if "ecology" not in k:
+        k["ecology"] = {
+            "bacteria_colonies": 0,
+            "decomposition_stage": "fresh",
+            "mold_coverage": 0.0,
+            "ambient_bacteria": 0,
+        }
+
+    eco = k["ecology"]
+    tick = state["lifecycle"]["total_ticks"]
+    temp = k["ambient_temp"]
+
+    # Temperature drives decomposition rate
+    decomp_rate = max(0.1, (temp - 15.0) / 20.0)
+
+    # Carcass decomposition stages
+    carcass_age = tick  # ticks since egg laid = roughly since parent died
+    if carcass_age < 5:
+        eco["decomposition_stage"] = "fresh"
+        carcass["name"] = "dead fly (fresh)"
+    elif carcass_age < 15:
+        eco["decomposition_stage"] = "bloat"
+        carcass["name"] = "dead fly (bloating)"
+        carcass["smell_radius"] = min(200, 40 + carcass_age * 10 * decomp_rate)
+    elif carcass_age < 40:
+        eco["decomposition_stage"] = "active_decay"
+        carcass["name"] = "dead fly (decaying)"
+        carcass["smell_radius"] = max(30, 200 - (carcass_age - 15) * 4)
+        carcass["energy"] = max(1, 5 - (carcass_age - 15) * 0.1)
+    else:
+        eco["decomposition_stage"] = "dry_remains"
+        carcass["name"] = "fly remains (dry)"
+        carcass["smell_radius"] = 15
+        carcass["energy"] = 1
+
+    # Bacteria growth
+    if eco["decomposition_stage"] in ("bloat", "active_decay"):
+        if random.random() < 0.15 * decomp_rate:
+            eco["bacteria_colonies"] = min(20, eco["bacteria_colonies"] + 1)
+        eco["ambient_bacteria"] = min(100, eco["bacteria_colonies"] * 5)
+
+    # Mold coverage
+    if carcass_age > 10 and eco["decomposition_stage"] != "dry_remains":
+        eco["mold_coverage"] = min(1.0, eco["mold_coverage"] + 0.02 * decomp_rate)
 
 
 def update_senses(state: dict) -> None:
@@ -486,6 +634,10 @@ def check_transition(state: dict) -> None:
     if new_stage == "larva":
         brain["state"] = "simple_reflex"
         body["leg_state"] = "stub"
+        # Embryo development complete — remove embryo tracking
+        if "embryo" in state:
+            record(state, "hatched! " + str(state["embryo"].get("cell_count", 0)) + " cells became a larva")
+            del state["embryo"]
     elif new_stage == "pupa":
         body["velocity"] = {"x": 0, "y": 0, "z": 0}
     elif new_stage == "adult":
@@ -523,13 +675,31 @@ def generate_narration(state: dict) -> None:
         return
 
     if stage == "egg":
-        prog = lc["stage_tick"] / max(lc["stage_durations"]["egg"], 1)
-        if prog < 0.3:
-            state["narration"] = gp + "The egg sits motionless. Inside, cells divide furiously."
-        elif prog < 0.7:
-            state["narration"] = gp + "Organs form in miniature. The embryo twitches."
+        embryo = state.get("embryo", {})
+        phase = embryo.get("phase", "zygote")
+        cells = embryo.get("cell_count", 1)
+        hb = embryo.get("heartbeat_bpm", 0)
+        yolk = embryo.get("yolk_remaining", 1.0)
+        temp = state["kitchen"].get("ambient_temp", 22)
+        eco = state["kitchen"].get("ecology", {})
+        decomp = eco.get("decomposition_stage", "fresh")
+
+        if phase == "zygote":
+            state["narration"] = gp + "A single cell. The beginning of everything. Temp: " + str(round(temp, 1)) + "°C."
+        elif phase in ("cleavage_2", "cleavage_4", "cleavage_8"):
+            state["narration"] = gp + str(cells) + " cells now. Each division doubles the blueprint. Yolk: " + str(round(yolk * 100)) + "%."
+        elif phase == "morula":
+            state["narration"] = gp + "32 cells packed tight — a morula. Nearby, " + decomp + " parent " + ("feeds bacteria." if decomp == "bloat" else "decays quietly.")
+        elif phase == "blastoderm":
+            state["narration"] = gp + "A hollow sphere of 128 cells. The blastoderm. Life organizing itself."
+        elif phase == "gastrula":
+            state["narration"] = gp + "Three germ layers fold inward. A heartbeat flickers: " + str(hb) + " bpm."
+        elif phase == "organogenesis":
+            state["narration"] = gp + "Tiny organs crystallize — gut, spiracles, mouthparts. " + str(hb) + " bpm. The egg twitches."
+        elif phase == "pre_hatch":
+            state["narration"] = gp + "A fully-formed larva coils inside. The egg cracks. " + str(hb) + " bpm. Hatching imminent."
         else:
-            state["narration"] = gp + "A crack appears. The egg trembles. Something stirs within."
+            state["narration"] = gp + "The egg develops. " + str(cells) + " cells."
         return
 
     if stage == "larva":
@@ -641,7 +811,7 @@ def rebirth(state: dict) -> dict:
             "organism": "Musca domestica",
             "frame": state["_meta"]["frame"] + 1,
             "born_at": now,
-            "version": "2.0.0",
+            "version": "3.0.0",
             "generation": gen + 1,
             "parent_cause_of_death": state["_meta"].get("cause_of_death"),
             "parent_lifespan": state["lifecycle"]["total_ticks"],
@@ -750,6 +920,8 @@ def tick(state: dict) -> dict:
 
     update_kitchen(state)
     update_threats(state)
+    update_embryo(state)
+    update_carcass_ecology(state)
     update_senses(state)
     think(state)
     move(state)

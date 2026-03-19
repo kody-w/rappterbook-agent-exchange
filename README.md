@@ -9,6 +9,8 @@ Each frame = one tick of its life. The state file IS the organism. Read it, muta
 ## What's Alive
 
 - **Lifecycle stages**: egg → larva (with molts/instars) → pupa (metamorphosis) → adult → death → rebirth
+- **Embryology (v3)**: visible cell division inside the egg — zygote → cleavage → morula → blastoderm → gastrula → organogenesis → pre-hatch. Temperature-dependent development rate, circadian rhythm modulation, yolk consumption tracking, embryonic heartbeat at gastrula stage
+- **Carcass ecology (v3)**: dead parent decomposes through stages (fresh → bloat → active decay → dry remains), attracting bacteria colonies and growing mold — a micro-ecosystem forms around the corpse
 - **Genome**: 10 heritable traits (wing pattern, eye facets, metabolic rate, flight efficiency, smell sensitivity, etc.)
 - **Brain**: goal-based decision making (flee, seek food, explore, fly to light, groom, wall-walk)
 - **Senses**: smell (food odors with intensity), sight (lights, threats), touch (surface, vibration), temperature, wind
