@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Musca domestica — housefly lifecycle tick engine (v2: generational).
+"""Musca domestica — housefly lifecycle tick engine (v3: kitchen events).
 
 Reads state/fly.json, advances one tick, writes back.
 The output of frame N is the input of frame N+1.
 
-v2 additions:
-  - Generational rebirth: when a fly dies, a new egg spawns
-  - Inherited memory: epigenetic biases from parent
-  - Kitchen evolution: food decays, new threats appear over time
-  - Richer adult behavior: grooming, wall-walking
+v3 additions:
+  - Kitchen events: random environmental disturbances (door slam, fridge open,
+    spill, wind gust) that shake the fly's world
+  - Corpse ecology: parent's body decays, attracting bacteria, changing smell
+  - Pupa dreaming: during metamorphosis the brain fires random pattern echoes
+  - Stress system: cumulative stress affects decisions and energy drain
+  - Sound: flying generates buzz that can attract threats
+  - Temperature microclimate: different surfaces have different temps
+
+v2 (inherited):
+  - Generational rebirth, inherited memory, kitchen evolution, grooming
 """
 from __future__ import annotations
 
@@ -95,6 +101,151 @@ def update_threats(state: dict) -> None:
             obj["y"] = -100
 
 
+KITCHEN_EVENTS = [
+    {"id": "door_slam", "name": "door slams", "vibration": 0.9, "wind": 0.6,
+     "temp_delta": -2, "duration": 3, "chance": 0.04},
+    {"id": "fridge_open", "name": "fridge opens", "vibration": 0.3, "wind": 0.2,
+     "temp_delta": -5, "duration": 5, "chance": 0.03},
+    {"id": "water_spill", "name": "water spills on counter", "vibration": 0.5, "wind": 0,
+     "temp_delta": -1, "duration": 8, "chance": 0.02},
+    {"id": "cooking_steam", "name": "steam rises from stove", "vibration": 0.1, "wind": 0.4,
+     "temp_delta": 6, "duration": 10, "chance": 0.025},
+    {"id": "window_breeze", "name": "breeze through window", "vibration": 0, "wind": 0.8,
+     "temp_delta": -3, "duration": 6, "chance": 0.035},
+    {"id": "light_flicker", "name": "light flickers", "vibration": 0, "wind": 0,
+     "temp_delta": 0, "duration": 2, "chance": 0.05},
+    {"id": "footsteps", "name": "footsteps nearby", "vibration": 0.7, "wind": 0,
+     "temp_delta": 0, "duration": 4, "chance": 0.06},
+]
+
+
+def update_kitchen_events(state: dict) -> None:
+    """Roll for random environmental disturbances."""
+    k = state["kitchen"]
+    events = k.setdefault("active_events", [])
+
+    # Tick down existing events
+    still_active = []
+    for ev in events:
+        ev["remaining"] -= 1
+        if ev["remaining"] > 0:
+            still_active.append(ev)
+    k["active_events"] = still_active
+
+    # Roll for new events
+    for template in KITCHEN_EVENTS:
+        if random.random() < template["chance"]:
+            # Don't stack same event
+            if any(e["id"] == template["id"] for e in k["active_events"]):
+                continue
+            ev = {
+                "id": template["id"],
+                "name": template["name"],
+                "vibration": template["vibration"],
+                "wind": template["wind"],
+                "temp_delta": template["temp_delta"],
+                "remaining": template["duration"],
+            }
+            k["active_events"].append(ev)
+            record(state, "kitchen: " + template["name"])
+
+    # Apply event effects to environment
+    total_vibration = sum(e["vibration"] for e in k["active_events"])
+    total_wind = sum(e["wind"] for e in k["active_events"])
+    total_temp = sum(e["temp_delta"] for e in k["active_events"])
+    k["event_vibration"] = round(min(1.0, total_vibration), 2)
+    k["event_wind"] = round(min(1.0, total_wind), 2)
+    k["event_temp_delta"] = round(total_temp, 1)
+
+
+def update_corpse_ecology(state: dict) -> None:
+    """The parent's corpse decays, growing more pungent over time."""
+    k = state["kitchen"]
+    for obj in k["objects"]:
+        if obj["id"] != "carcass":
+            continue
+        tick = state["lifecycle"]["total_ticks"]
+        # Corpse bloats then desiccates
+        if tick < 30:
+            obj["decay"] = round(min(1.0, obj.get("decay", 0.8) + 0.01), 3)
+            obj["smell_radius"] = min(120, obj.get("smell_radius", 40) + 2)
+            obj["energy"] = min(12, obj.get("energy", 5) + 0.2)
+            obj["name"] = "bloating fly corpse"
+        elif tick < 60:
+            obj["smell_radius"] = max(20, obj.get("smell_radius", 80) - 1)
+            obj["energy"] = max(1, obj.get("energy", 8) - 0.1)
+            obj["name"] = "desiccating fly husk"
+        else:
+            obj["smell_radius"] = max(5, obj.get("smell_radius", 40) - 0.5)
+            obj["energy"] = max(0.5, obj.get("energy", 3) - 0.05)
+            obj["name"] = "dried fly husk"
+
+
+def update_stress(state: dict) -> None:
+    """Cumulative stress system — loud events and threats raise stress."""
+    brain = state["brain"]
+    k = state["kitchen"]
+    stress = brain.setdefault("stress", 0.0)
+
+    # Events cause stress
+    event_vibration = k.get("event_vibration", 0)
+    if event_vibration > 0.5:
+        stress += event_vibration * 0.08
+    if brain.get("fear_level", 0) > 0.3:
+        stress += 0.06
+
+    # Natural decay — faster when grooming or feeding
+    decay = 0.05
+    if brain.get("current_goal") == "groom":
+        decay = 0.15
+    if brain.get("satisfaction", 0) > 0.5:
+        decay += 0.03
+    stress = max(0, stress - decay)
+    brain["stress"] = round(min(1.0, stress), 3)
+
+    # High stress increases metabolic drain
+    if stress > 0.5:
+        state["energy"]["metabolic_drain"] = 0.5 + stress * 0.3
+    else:
+        state["energy"]["metabolic_drain"] = 0.5
+
+
+def pupa_dream(state: dict) -> None:
+    """During metamorphosis, the brain fires random pattern echoes."""
+    if state["lifecycle"]["stage"] != "pupa":
+        return
+
+    brain = state["brain"]
+    dreams = brain.setdefault("dreams", [])
+    memory = state["memory"]
+
+    prog = state["lifecycle"]["stage_tick"] / max(
+        state["lifecycle"]["stage_durations"].get("pupa", 20), 1
+    )
+
+    # Dream intensity peaks mid-metamorphosis
+    intensity = math.sin(prog * math.pi)
+    if random.random() < intensity * 0.4:
+        dream_types = [
+            "echo of warmth from the egg",
+            "phantom scent of " + (memory.get("favorite_food") or "unknown food"),
+            "inherited fear of shadows",
+            "wing-beat rhythm forming in neural tissue",
+            "compound eye patterns crystallizing",
+            "ancestral memory of flight",
+            "the taste of the counter surface",
+            "a vibration from a world beyond the shell",
+        ]
+        dream = random.choice(dream_types)
+        dreams.append({
+            "tick": state["lifecycle"]["total_ticks"],
+            "content": dream,
+            "intensity": round(intensity, 2),
+        })
+        # Keep only recent dreams
+        brain["dreams"] = dreams[-12:]
+
+
 def update_senses(state: dict) -> None:
     """Compute what the fly can smell, see, and feel."""
     body = state["body"]
@@ -103,9 +254,11 @@ def update_senses(state: dict) -> None:
     k = state["kitchen"]
     stage = state["lifecycle"]["stage"]
 
-    senses["temperature"] = k["ambient_temp"]
-    senses["wind"] = random.uniform(0, 0.3)
-    senses["touch"]["vibration"] *= 0.7
+    senses["temperature"] = k["ambient_temp"] + k.get("event_temp_delta", 0)
+    senses["wind"] = random.uniform(0, 0.3) + k.get("event_wind", 0)
+    senses["touch"]["vibration"] = (
+        senses["touch"]["vibration"] * 0.7 + k.get("event_vibration", 0)
+    )
 
     if stage in ("egg", "pupa"):
         senses["smell"] = []
@@ -514,9 +667,17 @@ def generate_narration(state: dict) -> None:
     body = state["body"]
     energy = state["energy"]
     brain = state["brain"]
+    k = state["kitchen"]
     gen = state["_meta"].get("generation", 1)
 
     gp = "Gen " + str(gen) + ". " if gen > 1 else ""
+
+    # Check for active kitchen events — they override normal narration sometimes
+    active_events = k.get("active_events", [])
+    event_override = ""
+    if active_events and random.random() < 0.4:
+        ev = active_events[0]
+        event_override = " The kitchen shudders — " + ev["name"] + "."
 
     if stage == "death":
         state["narration"] = gp + "Stillness. The kitchen light still hums overhead."
@@ -525,32 +686,39 @@ def generate_narration(state: dict) -> None:
     if stage == "egg":
         prog = lc["stage_tick"] / max(lc["stage_durations"]["egg"], 1)
         if prog < 0.3:
-            state["narration"] = gp + "The egg sits motionless. Inside, cells divide furiously."
+            state["narration"] = gp + "The egg sits motionless. Inside, cells divide furiously." + event_override
         elif prog < 0.7:
-            state["narration"] = gp + "Organs form in miniature. The embryo twitches."
+            state["narration"] = gp + "Organs form in miniature. The embryo twitches." + event_override
         else:
             state["narration"] = gp + "A crack appears. The egg trembles. Something stirs within."
         return
 
     if stage == "larva":
         if brain["current_goal"] == "seek_food":
-            state["narration"] = gp + "The larva wriggles toward food. Size: " + str(round(body["size"], 1)) + "mm."
+            state["narration"] = gp + "The larva wriggles toward food. Size: " + str(round(body["size"], 1)) + "mm." + event_override
         elif energy["hunger"] < 20:
             state["narration"] = gp + "Well-fed larva grows. " + str(round(body["size"], 1)) + "mm and getting bigger."
         else:
-            state["narration"] = gp + "Each molt brings new size, new hunger."
+            state["narration"] = gp + "Each molt brings new size, new hunger." + event_override
         return
 
     if stage == "pupa":
         prog = lc["stage_tick"] / max(lc["stage_durations"]["pupa"], 1)
+        dreams = brain.get("dreams", [])
+        dream_text = ""
+        if dreams:
+            latest = dreams[-1]
+            dream_text = " Dream: " + latest["content"] + "."
         if prog < 0.4:
-            state["narration"] = gp + "Inside the puparium, metamorphosis reshapes everything."
+            state["narration"] = gp + "Inside the puparium, metamorphosis reshapes everything." + dream_text
         elif prog < 0.8:
-            state["narration"] = gp + "Wings form where there were none. Eyes crystallize."
+            state["narration"] = gp + "Wings form where there were none. Eyes crystallize." + dream_text
         else:
-            state["narration"] = gp + "Almost there. The adult fly takes shape within."
+            state["narration"] = gp + "Almost there. The adult fly takes shape within." + dream_text
         return
 
+    stress = brain.get("stress", 0)
+    stress_text = " [stressed]" if stress > 0.5 else ""
     goal = brain["current_goal"]
     is_air = body["is_airborne"]
     hunger = round(energy["hunger"])
@@ -565,20 +733,22 @@ def generate_narration(state: dict) -> None:
     }
     if goal == "idle":
         if not is_air:
-            state["narration"] = gp + "The fly grooms a foreleg. Then launches."
+            state["narration"] = gp + "The fly grooms a foreleg. Then launches." + stress_text
         else:
-            state["narration"] = gp + "Wings beat 200 times per second. A blur of freedom."
+            state["narration"] = gp + "Wings beat 200 times per second. A blur of freedom." + stress_text
         return
 
-    state["narration"] = narrations.get(
+    base = narrations.get(
         goal, gp + "Energy: " + str(ecur) + "%. The search continues."
     )
+    state["narration"] = base + stress_text + event_override
 
 
 def rebirth(state: dict) -> dict:
     """Trigger generational rebirth -- dead fly spawns generation N+1."""
     rng = random.Random(state["_meta"]["frame"] + 137)
     gen = state["_meta"].get("generation", 1)
+    brain = state["brain"]
 
     parent_genome = state["genome"]
     child_genome = {}
@@ -690,11 +860,14 @@ def rebirth(state: dict) -> dict:
             "satisfaction": 0.5,
             "decisions_made": 0,
             "neural_complexity": 0.01,
+            "stress": 0.0,
+            "dreams": [],
             "inherited_memory": {
                 "parent_favorite_food": state["memory"].get("favorite_food"),
                 "parent_danger_zones": state["memory"].get(
                     "danger_zones", []
                 ),
+                "parent_stress_avg": round(brain.get("stress", 0), 3),
                 "epigenetic_bias": round(rng.uniform(0.1, 0.3), 3),
             },
         },
@@ -744,13 +917,18 @@ def tick(state: dict) -> dict:
         return rebirth(state)
 
     state["_meta"]["frame"] += 1
+    state["_meta"]["version"] = "3.0.0"
     state["lifecycle"]["stage_tick"] += 1
     state["lifecycle"]["total_ticks"] += 1
     state["_meta"]["total_frames_alive"] = state["lifecycle"]["total_ticks"]
 
     update_kitchen(state)
+    update_kitchen_events(state)
+    update_corpse_ecology(state)
     update_threats(state)
     update_senses(state)
+    pupa_dream(state)
+    update_stress(state)
     think(state)
     move(state)
     try_feed(state)
