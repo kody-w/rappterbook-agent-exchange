@@ -44,7 +44,7 @@ h3{font-size:10px;color:rgba(180,140,70,0.5);margin-bottom:4px;letter-spacing:1.
 <body>
 <canvas id="bg"></canvas><canvas id="scene"></canvas><canvas id="fx"></canvas>
 <div id="hud">
-  <div class="p" id="tb">Musca Domestica<small>a fly's life in the kitchen</small>
+  <div class="p" id="tb">Musca Domestica<small>a fly's life in the kitchen &mdash; generation <span id="gen-num">?</span></small>
     <div style="margin-top:6px">
       <a href="index.html">deep</a><span class="ns">&middot;</span>
       <a href="garden.html">garden</a><span class="ns">&middot;</span>
@@ -85,7 +85,8 @@ for(var i=0;i<80;i++)dust.push({x:Math.random()*KW,y:Math.random()*KH,
 function loadState(){
   return fetch("fly_state.json?t="+Date.now())
     .then(function(r){return r.json()})
-    .then(function(d){S=d;KW=d.kitchen.width;KH=d.kitchen.height})
+    .then(function(d){S=d;KW=d.kitchen.width;KH=d.kitchen.height;
+      var gn=document.getElementById("gen-num");if(gn)gn.textContent=d._meta.generation||1})
     .catch(function(e){console.error("Load:",e)})
 }
 
@@ -163,9 +164,27 @@ function drawObjs(ctx){
     ctx.fillStyle="rgba(0,0,0,.04)";
     ctx.beginPath();ctx.ellipse(ox,oy+r*.25,r*.7,r*.12,0,0,6.28);ctx.fill();
     var colors={"banana":"#d4a846","jam":"#c04060","trash":"#556","crumbs":"#c8b888",
-                "cat":"#aa7744","swatter":"#888"};
+                "cat":"#aa7744","swatter":"#888","sugar":"#f0e8d0"};
     var col=colors[o.id]||"#888";
     if(o.type==="threat"&&o.active){col="#c04040"}
+    // Corpse rendering — fading brown husk
+    if(o.is_corpse){
+      var decomp=o.decomposition||0;
+      var ca=0.6*(1-decomp*0.7);
+      ctx.fillStyle="rgba(60,40,20,"+ca+")";ctx.globalAlpha=ca;
+      ctx.beginPath();ctx.ellipse(ox,oy,r*0.4,r*0.2,0.3,0,6.28);ctx.fill();
+      // Tiny legs sticking up
+      ctx.strokeStyle="rgba(40,30,15,"+ca*0.6+")";ctx.lineWidth=0.5;
+      for(var li2=0;li2<3;li2++){
+        var la=li2*0.8-0.8;
+        ctx.beginPath();ctx.moveTo(ox+Math.cos(la)*r*0.2,oy+Math.sin(la)*r*0.15);
+        ctx.lineTo(ox+Math.cos(la)*r*0.5,oy+Math.sin(la)*r*0.3-2);ctx.stroke();
+      }
+      ctx.globalAlpha=1;
+      ctx.fillStyle="rgba(200,168,100,0.12)";ctx.font="6px monospace";ctx.textAlign="center";
+      ctx.fillText("✝ gen "+(o.id.replace("corpse_gen","")),ox,oy-r*0.4-4);
+      continue;
+    }
     ctx.fillStyle=col;ctx.globalAlpha=o.type==="threat"?0.6:0.8;
     ctx.beginPath();ctx.arc(ox,oy,r,0,6.28);ctx.fill();ctx.globalAlpha=1;
     // Smell aura for food
@@ -326,7 +345,8 @@ function updateHUD(){
   var ec=ep>60?"#4a8":ep>30?"#da4":"#e06040";
 
   // Vitals panel
-  var v='<h3>Vitals</h3>';
+  var gen=S._meta.generation||1;
+  var v='<h3>Vitals &mdash; Gen '+gen+'</h3>';
   v+='<div><span class="st st-'+st+'">'+st+'</span> <span class="d">frame '+tk+'</span></div>';
   v+='<div style="margin-top:6px">Energy</div>';
   v+='<div class="mt"><div class="mf" style="width:'+ep+'%;background:'+ec+'"></div></div>';
@@ -395,6 +415,25 @@ function updateHUD(){
   mm+='<div class="d">Times fled: '+(S.memory.times_fled||0)+'</div>';
   mm+='<div class="d">Distance: '+S.memory.total_distance.toFixed(0)+'px</div>';
   mm+='<div class="d">Peak alt: '+(S.memory.peak_altitude||0).toFixed(1)+'</div>';
+  // Inherited memory
+  if(S.brain.inherited_memory){
+    var im=S.brain.inherited_memory;
+    mm+='<div style="margin-top:6px;border-top:1px solid rgba(180,140,60,0.1);padding-top:4px">';
+    mm+='<div style="font-size:8px;color:rgba(180,140,60,0.35);letter-spacing:1px">INHERITED</div>';
+    if(im.danger_awareness>0)mm+='<div class="d">Danger sense: '+(im.danger_awareness*100|0)+'%</div>';
+    if(im.food_preference)mm+='<div class="d">Parent loved: '+im.food_preference+'</div>';
+    mm+='</div>';
+  }
+  // Lineage
+  if(S.generations&&S.generations.length>0){
+    mm+='<div style="margin-top:6px;border-top:1px solid rgba(180,140,60,0.1);padding-top:4px">';
+    mm+='<div style="font-size:8px;color:rgba(180,140,60,0.35);letter-spacing:1px">LINEAGE</div>';
+    for(var gi2=S.generations.length-1;gi2>=Math.max(0,S.generations.length-3);gi2--){
+      var gg=S.generations[gi2];
+      mm+='<div class="d">Gen '+gg.generation+': '+gg.total_ticks+' ticks &bull; &#x2620; '+gg.cause_of_death+'</div>';
+    }
+    mm+='</div>';
+  }
   document.getElementById("mp").innerHTML=mm;
 
   // Timeline
