@@ -22,6 +22,8 @@ INITIAL_POP = 80
 GENE_COUNT = 16
 MAX_POP = 400
 HISTORY_CAP = 600
+PHEROMONE_DEPOSIT = 0.08
+PHEROMONE_DECAY = 0.97
 
 EPOCHS = [
     (0,    "Primordial Soup"),
@@ -217,6 +219,40 @@ def _flee(org: dict, organisms: list[dict], dead_ids: set[str]) -> None:
                 org["vy"] -= (other["y"] - org["y"]) / d * 0.5
 
 
+def _steer_to_pheromones(org: dict, pheromones: list[float]) -> None:
+    """Cooperative organisms follow pheromone trails left by others."""
+    g = org["genome"]
+    if g[10] <= 0.3:
+        return
+    gx = int(clamp(org["x"] / CELL_W, 0, GRID_W - 1))
+    gy = int(clamp(org["y"] / CELL_H, 0, GRID_H - 1))
+    best_val, best_dx, best_dy = -1.0, 0.0, 0.0
+    for ddy in range(-2, 3):
+        for ddx in range(-2, 3):
+            if ddx == 0 and ddy == 0:
+                continue
+            nx, ny = gx + ddx, gy + ddy
+            if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
+                val = pheromones[ny * GRID_W + nx]
+                if val > best_val:
+                    best_val = val
+                    best_dx = ddx * CELL_W
+                    best_dy = ddy * CELL_H
+    if best_val > 0.01:
+        mag = math.sqrt(best_dx ** 2 + best_dy ** 2) + 1e-6
+        org["vx"] += (best_dx / mag) * 0.2 * g[10]
+        org["vy"] += (best_dy / mag) * 0.2 * g[10]
+
+
+def _deposit_pheromone(org: dict, pheromones: list[float]) -> None:
+    """Organism deposits pheromone at its grid cell."""
+    gx = int(clamp(org["x"] / CELL_W, 0, GRID_W - 1))
+    gy = int(clamp(org["y"] / CELL_H, 0, GRID_H - 1))
+    idx = gy * GRID_W + gx
+    strength = org["genome"][10] * PHEROMONE_DEPOSIT
+    pheromones[idx] = clamp(pheromones[idx] + strength)
+
+
 def _hunt(org: dict, organisms: list[dict], dead_ids: set[str],
           tick: int, events: list[dict]) -> None:
     """Aggressive organisms hunt and eat smaller organisms of other species."""
@@ -250,10 +286,12 @@ def _hunt(org: dict, organisms: list[dict], dead_ids: set[str],
 
 
 def step(organisms: list[dict], grid: list[float], tick: int,
-         events: list[dict]) -> list[dict]:
+         events: list[dict], pheromones: list[float] | None = None) -> list[dict]:
     """Run one simulation step — move, eat, hunt, reproduce, die."""
     new_orgs: list[dict] = []
     dead_ids: set[str] = set()
+    if pheromones is None:
+        pheromones = [0.0] * (GRID_W * GRID_H)
 
     for org in organisms:
         if org["id"] in dead_ids:
@@ -267,6 +305,7 @@ def step(organisms: list[dict], grid: list[float], tick: int,
         _steer_to_nutrients(org, grid)
         _flock(org, organisms, dead_ids)
         _flee(org, organisms, dead_ids)
+        _steer_to_pheromones(org, pheromones)
         _hunt(org, organisms, dead_ids, tick, events)
 
         # velocity damping + move
@@ -332,6 +371,13 @@ def step(organisms: list[dict], grid: list[float], tick: int,
                 "message": f"{child['id']} born from {org['id']}"
             })
 
+    # Deposit pheromones and decay
+    for org in organisms:
+        if org["id"] not in dead_ids:
+            _deposit_pheromone(org, pheromones)
+    for i in range(len(pheromones)):
+        pheromones[i] *= PHEROMONE_DECAY
+
     survivors = [o for o in organisms if o["id"] not in dead_ids]
     survivors.extend(new_orgs)
     return survivors
@@ -365,6 +411,7 @@ def new_world() -> dict:
             "avg_energy": [50.0],
         },
         "events": [{"tick": 0, "type": "genesis", "message": "The Abyss awakens..."}],
+        "pheromones": [0.0] * (GRID_W * GRID_H),
     }
 
 
@@ -394,6 +441,7 @@ def run_tick(world: dict) -> dict:
     grid = world["nutrients"]
     events = world["events"]
     history = world["history"]
+    pheromones = world.get("pheromones", [0.0] * (GRID_W * GRID_H))
 
     # cap old events
     if len(events) > 200:
@@ -405,7 +453,7 @@ def run_tick(world: dict) -> dict:
         add_food_cluster(grid)
 
     # evolve
-    organisms = step(organisms, grid, tick, events)
+    organisms = step(organisms, grid, tick, events, pheromones)
 
     # re-cluster species every 10 ticks
     if tick % 10 == 0:
@@ -446,6 +494,7 @@ def run_tick(world: dict) -> dict:
     world["tick"] = tick
     world["organisms"] = organisms
     world["nutrients"] = [round(v, 3) for v in grid]
+    world["pheromones"] = [round(v, 4) for v in pheromones]
     world["species"] = species
     world["history"] = history
     world["events"] = events
