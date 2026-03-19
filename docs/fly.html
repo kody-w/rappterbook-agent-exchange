@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Musca domestica — A Fly's Life</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#1a1410;font-family:'SF Mono','Fira Code','Courier New',monospace}
+canvas{position:fixed;top:0;left:0;z-index:0}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;z-index:10;pointer-events:none}
+.panel{position:absolute;padding:10px 14px;background:rgba(26,20,16,0.92);border:1px solid rgba(180,160,120,0.15);border-radius:8px;backdrop-filter:blur(8px);font-size:11px;line-height:1.6;color:#b8a888;pointer-events:auto}
+#title-bar{top:12px;left:50%;transform:translateX(-50%);text-align:center;font-size:14px;letter-spacing:3px;color:rgba(200,180,140,0.5);text-transform:uppercase}
+#title-bar small{display:block;font-size:9px;letter-spacing:1px;color:rgba(200,180,140,0.25);margin-top:2px}
+#title-bar a{color:rgba(200,180,140,0.3);text-decoration:none;font-size:9px;margin:0 6px}
+#vitals{top:65px;left:12px;min-width:180px}
+#brain-panel{top:250px;left:12px;min-width:180px}
+#senses-panel{bottom:80px;left:12px;min-width:200px;max-height:160px;overflow:hidden}
+#timeline{bottom:12px;left:50%;transform:translateX(-50%);width:500px;max-width:80vw;text-align:center}
+#history-panel{top:65px;right:12px;width:220px;max-height:260px;overflow:hidden;font-size:9px}
+#genome-panel{bottom:80px;right:12px;width:200px;font-size:10px}
+#narration{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);z-index:11;pointer-events:none;text-align:center;font-size:12px;letter-spacing:0.5px;color:rgba(200,180,140,0.35);font-style:italic;max-width:500px;transition:opacity 2s}
+h3{font-size:11px;color:rgba(180,160,120,0.5);margin-bottom:4px;letter-spacing:1px;font-weight:normal;text-transform:uppercase}
+.val{color:rgba(220,200,160,0.85)}
+.dim{color:rgba(140,120,90,0.4)}
+.bar-bg{display:inline-block;width:80px;height:5px;background:rgba(255,255,255,0.05);border-radius:3px;vertical-align:middle;overflow:hidden;margin-left:4px}
+.bar-fill{height:100%;border-radius:3px;transition:width 0.3s}
+.energy-fill{background:linear-gradient(90deg,#c0a040,#60c060)}
+.hunger-fill{background:linear-gradient(90deg,#60a060,#c04040)}
+.stage-marker{display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 3px;vertical-align:middle;opacity:0.3}
+.stage-marker.active{opacity:1;box-shadow:0 0 6px currentColor}
+.stage-marker.passed{opacity:0.6}
+.stage-egg{background:#f5f0e0;color:#f5f0e0}
+.stage-larva{background:#c0b888;color:#c0b888}
+.stage-pupa{background:#8b6914;color:#8b6914}
+.stage-adult{background:#505050;color:#505050}
+.stage-death{background:#400000;color:#400000}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="panel" id="title-bar">
+    musca domestica
+    <small>
+      <a href="index.html">◁ the dreaming deep</a>
+      frame <span id="frame-num">0</span> · <span id="stage-label">egg</span>
+    </small>
+  </div>
+  <div class="panel" id="vitals">
+    <h3>vitals</h3>
+    <div>stage: <span class="val" id="v-stage">egg</span> tick <span class="val" id="v-tick">0</span></div>
+    <div>energy: <span class="val" id="v-energy">100</span> <span class="bar-bg"><span class="bar-fill energy-fill" id="bar-energy" style="width:100%"></span></span></div>
+    <div>hunger: <span class="val" id="v-hunger">0</span> <span class="bar-bg"><span class="bar-fill hunger-fill" id="bar-hunger" style="width:0%"></span></span></div>
+    <div>size: <span class="val" id="v-size">1.0</span> · mass: <span class="val" id="v-mass">0.001</span></div>
+    <div>position: <span class="dim" id="v-pos">0,0,0</span></div>
+    <div>altitude: <span class="dim" id="v-alt">0</span> · peak: <span class="dim" id="v-peak">0</span></div>
+  </div>
+  <div class="panel" id="brain-panel">
+    <h3>brain</h3>
+    <div>state: <span class="val" id="b-state">dormant</span></div>
+    <div>goal: <span class="val" id="b-goal">none</span></div>
+    <div>fear: <span class="dim" id="b-fear">0</span></div>
+    <div>decisions: <span class="dim" id="b-decisions">0</span></div>
+    <div>fed: <span class="dim" id="b-fed">0</span> · fled: <span class="dim" id="b-fled">0</span></div>
+    <div>distance: <span class="dim" id="b-dist">0</span></div>
+  </div>
+  <div class="panel" id="senses-panel">
+    <h3>senses</h3>
+    <div id="smell-list"></div>
+    <div>temp: <span class="dim" id="s-temp">22</span>°C · vibration: <span class="dim" id="s-vib">0</span></div>
+  </div>
+  <div class="panel" id="timeline">
+    <span class="stage-marker stage-egg" id="sm-egg"></span>
+    <span class="stage-marker stage-larva" id="sm-larva"></span>
+    <span class="stage-marker stage-pupa" id="sm-pupa"></span>
+    <span class="stage-marker stage-adult" id="sm-adult"></span>
+    <span class="stage-marker stage-death" id="sm-death"></span>
+    <div style="margin-top:6px;font-size:9px;color:rgba(180,160,120,0.3)" id="tl-label">lifecycle</div>
+  </div>
+  <div class="panel" id="history-panel">
+    <h3>events</h3>
+    <div id="history-list"></div>
+  </div>
+  <div class="panel" id="genome-panel">
+    <h3>genome</h3>
+    <div id="genome-list"></div>
+  </div>
+</div>
+<div id="narration"></div>
+
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d');
+let S=null,W=0,H=0,t=0;
+
+function resize(){W=C.width=innerWidth;H=C.height=innerHeight}
+addEventListener('resize',resize);resize();
+
+async function loadState(){
+  try{const r=await fetch('fly_state.json?t='+Date.now());S=await r.json()}catch(e){console.error('State load error:',e)}
+}
+
+function updateHUD(){
+  if(!S)return;
+  const lc=S.lifecycle,b=S.body,br=S.brain,e=S.energy,m=S.memory,sn=S.senses;
+  document.getElementById('frame-num').textContent=S._meta.frame;
+  document.getElementById('stage-label').textContent=lc.stage;
+  document.getElementById('v-stage').textContent=lc.stage;
+  document.getElementById('v-tick').textContent=lc.total_ticks;
+  document.getElementById('v-energy').textContent=e.current.toFixed(1);
+  document.getElementById('bar-energy').style.width=(e.current/e.max*100)+'%';
+  document.getElementById('v-hunger').textContent=e.hunger.toFixed(0);
+  document.getElementById('bar-hunger').style.width=Math.min(100,e.hunger)+'%';
+  document.getElementById('v-size').textContent=b.size.toFixed(1);
+  document.getElementById('v-mass').textContent=b.mass.toFixed(3);
+  document.getElementById('v-pos').textContent=`${b.position.x.toFixed(0)},${b.position.y.toFixed(0)},${b.position.z.toFixed(1)}`;
+  document.getElementById('v-alt').textContent=b.position.z.toFixed(1);
+  document.getElementById('v-peak').textContent=m.peak_altitude.toFixed(1);
+  document.getElementById('b-state').textContent=br.state;
+  document.getElementById('b-goal').textContent=br.current_goal||'none';
+  document.getElementById('b-fear').textContent=br.fear_level.toFixed(2);
+  document.getElementById('b-decisions').textContent=br.decisions_made;
+  document.getElementById('b-fed').textContent=m.times_fed;
+  document.getElementById('b-fled').textContent=m.times_fled;
+  document.getElementById('b-dist').textContent=m.total_distance.toFixed(0);
+  document.getElementById('s-temp').textContent=sn.temperature.toFixed(1);
+  document.getElementById('s-vib').textContent=sn.touch.vibration.toFixed(2);
+
+  // Smell list
+  const smellDiv=document.getElementById('smell-list');
+  if(sn.smell.length){
+    smellDiv.innerHTML=sn.smell.slice(0,3).map(s=>`<div>👃 ${s.name} <span class="dim">(${(s.intensity*100).toFixed(0)}%)</span></div>`).join('');
+  }else{smellDiv.innerHTML='<div class="dim">no scents detected</div>'}
+
+  // Timeline markers
+  const stages=['egg','larva','pupa','adult','death'];
+  const idx=stages.indexOf(lc.stage);
+  stages.forEach((s,i)=>{
+    const el=document.getElementById('sm-'+s);
+    el.className='stage-marker stage-'+s;
+    if(i<idx)el.classList.add('passed');
+    if(i===idx)el.classList.add('active');
+  });
+  document.getElementById('tl-label').textContent=`${lc.stage} · tick ${lc.stage_tick}/${lc.stage_durations[lc.stage]||'∞'}`;
+
+  // History
+  const histDiv=document.getElementById('history-list');
+  const events=S.history.slice(-8).reverse();
+  histDiv.innerHTML=events.map(h=>`<div><span class="dim">[${h.frame}]</span> ${h.description.substring(0,60)}</div>`).join('');
+
+  // Genome
+  const gDiv=document.getElementById('genome-list');
+  const g=S.genome;
+  gDiv.innerHTML=Object.entries(g).filter(([k])=>k!=='species').map(([k,v])=>`<div>${k.replace(/_/g,' ')}: <span class="val">${typeof v==='number'?v.toFixed(2):v}</span></div>`).join('');
+
+  // Narration
+  document.getElementById('narration').textContent=S.narration||'';
+}
+
+// ── Kitchen rendering ──────────────────────────────────────
+
+function drawKitchen(){
+  if(!S)return;
+  const kit=S.kitchen;
+  const sx=W/kit.width, sy=H/kit.height;
+  const scale=Math.min(sx,sy);
+  const ox=(W-kit.width*scale)/2, oy=(H-kit.height*scale)/2;
+
+  // Background — time of day lighting
+  const tod=kit.time_of_day;
+  const brightness=kit.lights_on?0.12:0.06;
+  X.fillStyle=`rgba(26,20,16,${1-brightness})`;
+  X.fillRect(0,0,W,H);
+
+  // Counter surface
+  X.save();
+  X.translate(ox,oy);
+  X.scale(scale,scale);
+
+  // Counter gradient
+  const cg=X.createLinearGradient(0,0,0,kit.height);
+  cg.addColorStop(0,'rgba(80,70,50,0.15)');
+  cg.addColorStop(1,'rgba(60,50,35,0.25)');
+  X.fillStyle=cg;
+  X.fillRect(0,0,kit.width,kit.height);
+
+  // Counter edge
+  X.strokeStyle='rgba(120,100,70,0.1)';
+  X.lineWidth=1;
+  X.strokeRect(0,0,kit.width,kit.height);
+
+  // Grid lines (subtle counter texture)
+  X.strokeStyle='rgba(100,85,60,0.03)';
+  for(let i=0;i<kit.width;i+=40){X.beginPath();X.moveTo(i,0);X.lineTo(i,kit.height);X.stroke()}
+  for(let i=0;i<kit.height;i+=40){X.beginPath();X.moveTo(0,i);X.lineTo(kit.width,i);X.stroke()}
+
+  // Draw food sources
+  for(const obj of kit.objects){
+    if(obj.type==='food'){
+      // Smell radius
+      const sg=X.createRadialGradient(obj.x,obj.y,0,obj.x,obj.y,obj.smell_radius);
+      sg.addColorStop(0,'rgba(180,160,80,0.06)');
+      sg.addColorStop(1,'rgba(180,160,80,0)');
+      X.fillStyle=sg;
+      X.beginPath();X.arc(obj.x,obj.y,obj.smell_radius,0,Math.PI*2);X.fill();
+
+      // Food dot
+      const colors={banana:'#e8d44d',jam:'#c03030',trash:'#706050',crumbs:'#d4c090'};
+      X.fillStyle=colors[obj.id]||'#a09060';
+      X.beginPath();X.arc(obj.x,obj.y,6+obj.decay*4,0,Math.PI*2);X.fill();
+
+      // Label
+      X.fillStyle='rgba(180,160,120,0.25)';
+      X.font='8px monospace';
+      X.textAlign='center';
+      X.fillText(obj.name,obj.x,obj.y+16);
+    }
+    if(obj.type==='light'){
+      const lg=X.createRadialGradient(obj.x,obj.y,0,obj.x,obj.y,80);
+      lg.addColorStop(0,`rgba(255,240,180,${kit.lights_on?0.08:0.02})`);
+      lg.addColorStop(1,'rgba(255,240,180,0)');
+      X.fillStyle=lg;
+      X.beginPath();X.arc(obj.x,obj.y,80,0,Math.PI*2);X.fill();
+    }
+    if(obj.type==='threat'&&obj.active){
+      X.fillStyle='rgba(200,40,40,0.4)';
+      X.beginPath();X.arc(obj.x,obj.y,12,0,Math.PI*2);X.fill();
+      X.fillStyle='rgba(200,40,40,0.2)';
+      X.font='9px monospace';
+      X.textAlign='center';
+      X.fillText(obj.name,obj.x,obj.y+20);
+    }
+  }
+
+  // Draw the fly
+  drawFly(S,t);
+
+  X.restore();
+}
+
+function drawFly(state,time){
+  const b=state.body;
+  const lc=state.lifecycle;
+  const px=b.position.x, py=b.position.y, pz=b.position.z;
+  const stage=lc.stage;
+
+  // Shadow
+  if(pz>0){
+    X.fillStyle=`rgba(0,0,0,${0.15-pz*0.02})`;
+    X.beginPath();X.ellipse(px,py+5,4+pz*2,2+pz,0,0,Math.PI*2);X.fill();
+  }
+
+  const drawY=py-pz*15; // altitude offset
+
+  if(stage==='egg'){
+    // Tiny white oval
+    X.fillStyle='rgba(245,240,225,0.9)';
+    X.beginPath();X.ellipse(px,drawY,2,3,0,0,Math.PI*2);X.fill();
+    // Subtle pulse
+    const pulse=0.3+Math.sin(time*2)*0.15;
+    X.fillStyle=`rgba(255,250,230,${pulse})`;
+    X.beginPath();X.ellipse(px,drawY,1.5,2.5,0,0,Math.PI*2);X.fill();
+  }
+  else if(stage==='larva'){
+    // Segmented maggot
+    const segs=5+Math.floor(b.size);
+    const facing=b.facing||0;
+    X.fillStyle='rgba(230,220,190,0.85)';
+    for(let i=0;i<segs;i++){
+      const ox=Math.cos(facing)*i*2.5-Math.cos(facing)*segs;
+      const oy=Math.sin(facing)*i*2.5-Math.sin(facing)*segs;
+      const wobble=Math.sin(time*4+i)*0.8;
+      const r=1.5+Math.sin(i/segs*Math.PI)*b.size*0.8;
+      X.beginPath();X.arc(px+ox,drawY+oy+wobble,r,0,Math.PI*2);X.fill();
+    }
+    // Head (darker)
+    X.fillStyle='rgba(180,160,120,0.9)';
+    X.beginPath();X.arc(px+Math.cos(facing)*3,drawY+Math.sin(facing)*3,2,0,Math.PI*2);X.fill();
+  }
+  else if(stage==='pupa'){
+    // Brown oval, still
+    X.fillStyle='rgba(139,105,20,0.9)';
+    X.beginPath();X.ellipse(px,drawY,5,8,0,0,Math.PI*2);X.fill();
+    // Interior metamorphosis shimmer
+    const shimmer=0.1+Math.sin(time*0.5)*0.05;
+    X.fillStyle=`rgba(200,180,100,${shimmer})`;
+    X.beginPath();X.ellipse(px,drawY,3,5,0,0,Math.PI*2);X.fill();
+    // Segments
+    X.strokeStyle='rgba(100,80,20,0.3)';
+    X.lineWidth=0.5;
+    for(let i=-2;i<=2;i++){
+      X.beginPath();X.moveTo(px-5,drawY+i*2.5);X.lineTo(px+5,drawY+i*2.5);X.stroke();
+    }
+  }
+  else if(stage==='adult'){
+    const facing=b.facing||0;
+    const buzzing=b.wing_state==='buzzing';
+    const size=b.size;
+
+    // Body
+    X.save();
+    X.translate(px,drawY);
+    X.rotate(facing);
+
+    // Abdomen
+    X.fillStyle='rgba(60,55,45,0.9)';
+    X.beginPath();X.ellipse(-3,0,5*size/2,3*size/2,0,0,Math.PI*2);X.fill();
+
+    // Thorax
+    X.fillStyle='rgba(70,65,55,0.95)';
+    X.beginPath();X.ellipse(2,0,3.5*size/2,3*size/2,0,0,Math.PI*2);X.fill();
+
+    // Head
+    X.fillStyle='rgba(50,45,35,0.95)';
+    X.beginPath();X.arc(6*size/2,0,2.5*size/2,0,Math.PI*2);X.fill();
+
+    // Eyes (compound, red)
+    X.fillStyle='rgba(160,30,20,0.8)';
+    X.beginPath();X.arc(7*size/2,-1.5,1.2,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(7*size/2,1.5,1.2,0,Math.PI*2);X.fill();
+
+    // Wings
+    if(buzzing){
+      const wAngle=Math.sin(time*30)*0.5;
+      X.fillStyle='rgba(200,200,220,0.15)';
+      X.beginPath();X.ellipse(0,-3,8,2.5,wAngle,0,Math.PI*2);X.fill();
+      X.beginPath();X.ellipse(0,3,8,2.5,-wAngle,0,Math.PI*2);X.fill();
+    }else{
+      X.fillStyle='rgba(200,200,220,0.12)';
+      X.beginPath();X.ellipse(0,-2,7,2,-0.2,0,Math.PI*2);X.fill();
+      X.beginPath();X.ellipse(0,2,7,2,0.2,0,Math.PI*2);X.fill();
+    }
+
+    // Legs
+    X.strokeStyle='rgba(40,35,25,0.6)';
+    X.lineWidth=0.5;
+    for(let i=0;i<3;i++){
+      const lx=-2+i*3;
+      X.beginPath();X.moveTo(lx,-2);X.lineTo(lx-2,-5-i);X.stroke();
+      X.beginPath();X.moveTo(lx,2);X.lineTo(lx-2,5+i);X.stroke();
+    }
+
+    X.restore();
+  }
+  else if(stage==='death'){
+    // Dead fly — upside down
+    X.save();
+    X.translate(px,drawY);
+    X.rotate(Math.PI);
+    X.globalAlpha=0.5;
+
+    X.fillStyle='rgba(50,45,35,0.7)';
+    X.beginPath();X.ellipse(-3,0,5,3,0,0,Math.PI*2);X.fill();
+    X.beginPath();X.ellipse(2,0,3.5,3,0,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(6,0,2.5,0,Math.PI*2);X.fill();
+
+    // Legs stiff
+    X.strokeStyle='rgba(40,35,25,0.4)';
+    X.lineWidth=0.5;
+    for(let i=0;i<3;i++){
+      X.beginPath();X.moveTo(-2+i*3,-2);X.lineTo(-4+i*3,-7);X.stroke();
+      X.beginPath();X.moveTo(-2+i*3,2);X.lineTo(-4+i*3,7);X.stroke();
+    }
+    X.globalAlpha=1;
+    X.restore();
+  }
+}
+
+// ── Animation loop ─────────────────────────────────────────
+
+function frame(ts){
+  t=ts/1000;
+  X.clearRect(0,0,W,H);
+  drawKitchen();
+  updateHUD();
+  requestAnimationFrame(frame);
+}
+
+loadState().then(()=>{requestAnimationFrame(frame)});
+setInterval(loadState,5000);
+</script>
+</body>
+</html>
