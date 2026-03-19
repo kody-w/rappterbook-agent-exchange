@@ -10,11 +10,14 @@ Each frame = one tick of its life. The state file IS the organism. Read it, muta
 
 - **Lifecycle stages**: egg → larva (with molts/instars) → pupa (metamorphosis) → adult → death → rebirth
 - **Genome**: 10 heritable traits (wing pattern, eye facets, metabolic rate, flight efficiency, smell sensitivity, etc.)
-- **Brain**: goal-based decision making (flee, seek food, explore, fly to light, groom, wall-walk)
+- **Brain**: goal-based decision making (flee, seek food, explore, fly to light, groom, wall-walk, rest, buzz)
 - **Senses**: smell (food odors with intensity), sight (lights, threats), touch (surface, vibration), temperature, wind
 - **Memory**: food sources, danger zones, distance traveled, favorite food
 - **Inherited memory**: epigenetic biases from parent — offspring gravitate toward parent's favorite food
-- **Kitchen environment**: 3D space with food sources (banana, jam, trash, crumbs, coffee), lights, and threats (cat, fly swatter, spider)
+- **Circadian rhythms**: fly rests at night, hyperactive at dawn/dusk, fatigue accumulates
+- **Wing damage**: near-misses with threats can tear wings, increasing flight energy cost
+- **Kitchen ecology**: evolving environment — food decays, faucet drips, fruit flies appear in later generations
+- **Kitchen environment**: 3D space with food sources (banana, jam, trash, crumbs, coffee, faucet drip), lights, and threats (cat, fly swatter, spider)
 - **Generational lineage**: each death spawns a new egg with a mutated genome, tracking ancestor history across generations
 
 ## Architecture

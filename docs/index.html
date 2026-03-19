@@ -137,15 +137,29 @@ function drawBG(ctx){
       wgr.addColorStop(1,"rgba(255,248,220,0)");
       ctx.fillStyle=wgr;ctx.fillRect(0,0,w,h);
     }
+    // Moon glow at night
+    if(wobj&&!isDay){
+      var mx2=kx(wobj.x),my2=ks(40);
+      var mgr=ctx.createRadialGradient(mx2,my2,0,mx2,my2,ks(80));
+      mgr.addColorStop(0,"rgba(180,200,240,0.06)");
+      mgr.addColorStop(1,"rgba(180,200,240,0)");
+      ctx.fillStyle=mgr;ctx.beginPath();ctx.arc(mx2,my2,ks(80),0,Math.PI*2);ctx.fill();
+      // Stars
+      for(var si=0;si<8;si++){
+        var sx2=ks(50+si*75),sy2=ks(10+Math.sin(si*2.3)*25);
+        ctx.beginPath();ctx.arc(sx2,sy2,0.8,0,Math.PI*2);
+        ctx.fillStyle="rgba(200,210,240,0.15)";ctx.fill();
+      }
+    }
   }
 }
 
 function drawObj(ctx,obj){
   var x=kx(obj.x),y=ky(obj.y),isDay=S.kitchen.lights_on;
   if(obj.type==="food"){
-    var colors={banana:"#e8c840",jam:"#c04060",trash:"#708060",crumbs:"#d0b880",coffee:"#604020",carcass:"#404040"};
+    var colors={banana:"#e8c840",jam:"#c04060",trash:"#708060",crumbs:"#d0b880",coffee:"#604020",carcass:"#404040",faucet_drip:"#80b8e0"};
     var col=colors[obj.id]||"#a08060";
-    var sz=ks(obj.id==="trash"?28:obj.id==="banana"?18:12);
+    var sz=ks(obj.id==="trash"?28:obj.id==="banana"?18:obj.id==="faucet_drip"?6:12);
     // Smell radius visualization
     var sr=ks(obj.smell_radius*(S.genome.smell_sensitivity||0.9));
     ctx.beginPath();ctx.arc(x,y,sr,0,Math.PI*2);
@@ -160,7 +174,17 @@ function drawObj(ctx,obj){
   }
   if(obj.type==="light"){
     var li=obj.intensity||0.5;
-    if(isDay||obj.id==="window"){
+    if(obj.id==="fruit_flies"){
+      // Tiny swarming dots
+      for(var fi=0;fi<8;fi++){
+        var fx2=x+Math.sin(t*3+fi*0.8)*ks(15);
+        var fy2=y+Math.cos(t*2.5+fi*1.1)*ks(10);
+        ctx.beginPath();ctx.arc(fx2,fy2,1.5,0,Math.PI*2);
+        ctx.fillStyle="rgba(100,80,40,0.3)";ctx.fill();
+      }
+      ctx.fillStyle="rgba(140,110,60,0.25)";ctx.font="8px monospace";ctx.textAlign="center";
+      ctx.fillText(obj.name,x,y+ks(15));
+    }else if(isDay||obj.id==="window"){
       var lg=ctx.createRadialGradient(x,y,0,x,y,ks(60));
       lg.addColorStop(0,"rgba(255,240,180,"+(li*0.15)+")");
       lg.addColorStop(1,"rgba(255,240,180,0)");
@@ -308,24 +332,32 @@ function drawFly(ctx){
     }
   }
 
-  // Wings
+  // Wings (with damage visualization)
   var wingBeat=isAir?Math.sin(t*40)*0.8:0.1;
+  var wdmg=S.body.wing_damage||0;
+  var wingAlpha=0.12+Math.abs(wingBeat)*0.08;
+  if(wdmg>0.1)wingAlpha*=(1-wdmg*0.5);
   ctx.save();ctx.translate(x,y);
   // Left wing
   ctx.beginPath();
-  ctx.ellipse(-sz*0.3,-sz*0.4-wingBeat*sz*0.5,sz*1.5,sz*0.5,0.2+wingBeat*0.3,0,Math.PI*2);
-  ctx.fillStyle="rgba(200,210,220,"+(0.12+Math.abs(wingBeat)*0.08)+")";ctx.fill();
-  ctx.strokeStyle="rgba(150,160,170,0.1)";ctx.lineWidth=0.3;ctx.stroke();
+  ctx.ellipse(-sz*0.3,-sz*0.4-wingBeat*sz*0.5,sz*1.5*(1-wdmg*0.3),sz*0.5,0.2+wingBeat*0.3,0,Math.PI*2);
+  ctx.fillStyle="rgba(200,210,220,"+wingAlpha+")";ctx.fill();
+  ctx.strokeStyle=wdmg>0.2?"rgba(200,80,60,0.15)":"rgba(150,160,170,0.1)";ctx.lineWidth=0.3;ctx.stroke();
   // Wing veins
   ctx.beginPath();
   ctx.moveTo(-sz*0.3,-sz*0.4-wingBeat*sz*0.5);
   ctx.lineTo(-sz*1.5,-sz*0.8-wingBeat*sz*0.5);
   ctx.strokeStyle="rgba(120,130,140,0.08)";ctx.stroke();
+  // Tear marks if damaged
+  if(wdmg>0.15){
+    ctx.beginPath();ctx.moveTo(-sz*0.8,-sz*0.5);ctx.lineTo(-sz*1.0,-sz*0.3);
+    ctx.strokeStyle="rgba(200,60,40,0.2)";ctx.lineWidth=0.5;ctx.stroke();
+  }
   // Right wing
   ctx.beginPath();
-  ctx.ellipse(sz*0.3,-sz*0.4+wingBeat*sz*0.5,sz*1.5,sz*0.5,-0.2-wingBeat*0.3,0,Math.PI*2);
-  ctx.fillStyle="rgba(200,210,220,"+(0.12+Math.abs(wingBeat)*0.08)+")";ctx.fill();
-  ctx.strokeStyle="rgba(150,160,170,0.1)";ctx.lineWidth=0.3;ctx.stroke();
+  ctx.ellipse(sz*0.3,-sz*0.4+wingBeat*sz*0.5,sz*1.5*(1-wdmg*0.3),sz*0.5,-0.2-wingBeat*0.3,0,Math.PI*2);
+  ctx.fillStyle="rgba(200,210,220,"+wingAlpha+")";ctx.fill();
+  ctx.strokeStyle=wdmg>0.2?"rgba(200,80,60,0.15)":"rgba(150,160,170,0.1)";ctx.lineWidth=0.3;ctx.stroke();
   ctx.restore();
 
   // Thorax
@@ -383,6 +415,14 @@ function drawFly(ctx){
   if(goal==="seek_food"){
     ctx.fillStyle="rgba(200,180,60,0.4)";ctx.font="9px monospace";
     ctx.textAlign="center";ctx.fillText("\u2764",x,y-sz*2);
+  }
+  if(goal==="rest"){
+    ctx.fillStyle="rgba(100,80,200,0.4)";ctx.font="9px monospace";
+    ctx.textAlign="center";ctx.fillText("zzz",x,y-sz*2);
+  }
+  if(goal==="buzz"){
+    ctx.fillStyle="rgba(240,200,60,0.5)";ctx.font="9px monospace";
+    ctx.textAlign="center";ctx.fillText("\u26A1",x,y-sz*2);
   }
 }
 
@@ -446,6 +486,30 @@ function updateHUD(){
   v+='<div style="margin-top:4px">Size: <span class="v">'+S.body.size.toFixed(1)+' mm</span></div>';
   v+='<div>Pos: <span class="v">('+S.body.position.x.toFixed(0)+', '+S.body.position.y.toFixed(0)+')</span></div>';
   v+='<div>Surface: <span class="v">'+(S.body.surface||"counter")+'</span></div>';
+  // Circadian rhythm display
+  if(S.circadian){
+    var cc=S.circadian;
+    v+='<div style="margin-top:4px;border-top:1px solid rgba(180,140,60,0.06);padding-top:3px">';
+    v+='<h3 style="margin-bottom:2px">Circadian</h3>';
+    var todPct=((S.kitchen.time_of_day||0)*100).toFixed(0);
+    var dayIcon=S.kitchen.lights_on?'\u2600':'\u263D';
+    v+='<div>'+dayIcon+' Time: <span class="v">'+todPct+'%</span></div>';
+    if(cc.fatigue>0.01){
+      v+='<div class="gr"><span class="gn">fatigue</span>';
+      v+='<span class="gb"><span class="gf" style="width:'+(cc.fatigue*100)+'%;background:rgba(100,80,200,0.5)"></span></span>';
+      v+='<span class="gv">'+(cc.fatigue*100|0)+'</span></div>';
+    }
+    if(cc.restless>0.01){
+      v+='<div class="gr"><span class="gn">restless</span>';
+      v+='<span class="gb"><span class="gf" style="width:'+(cc.restless*100)+'%;background:rgba(240,180,60,0.5)"></span></span>';
+      v+='<span class="gv">'+(cc.restless*100|0)+'</span></div>';
+    }
+    v+='</div>';
+  }
+  // Wing damage display
+  if(S.body.wing_damage && S.body.wing_damage>0.01){
+    v+='<div style="margin-top:3px;color:#e06040">\u26A0 Wing damage: '+(S.body.wing_damage*100).toFixed(0)+'%</div>';
+  }
   if(S._meta.parent_cause_of_death&&gen>1){
     v+='<div style="margin-top:4px;color:rgba(180,100,60,0.4)">Parent died: '+S._meta.parent_cause_of_death+'</div>';
     v+='<div class="d">Parent lifespan: '+S._meta.parent_lifespan+' ticks</div>';

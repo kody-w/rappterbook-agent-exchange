@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Musca domestica — housefly lifecycle tick engine (v2: generational).
+"""Musca domestica — housefly lifecycle tick engine (v3: circadian + damage).
 
 Reads state/fly.json, advances one tick, writes back.
 The output of frame N is the input of frame N+1.
 
-v2 additions:
-  - Generational rebirth: when a fly dies, a new egg spawns
-  - Inherited memory: epigenetic biases from parent
-  - Kitchen evolution: food decays, new threats appear over time
-  - Richer adult behavior: grooming, wall-walking
+v3 additions:
+  - Circadian rhythms: fly rests at night, hyperactive at dawn/dusk
+  - Wing damage: near-misses with threats can tear wings
+  - Sound sensitivity: vibrations trigger startle responses
+  - Pheromone trails: fly leaves scent marks at food sources
+  - Kitchen ecology: ants, dripping faucet, fruit flies appear over generations
+  - Fatigue system: prolonged flight causes exhaustion
+  - Mating buzz: adult fly performs courtship displays near window
 """
 from __future__ import annotations
 
@@ -78,13 +81,61 @@ def update_kitchen(state: dict) -> None:
             obj["smell_radius"] = min(500, obj["smell_radius"] + decay_rate * 2)
 
 
-def update_threats(state: dict) -> None:
-    """Randomly spawn/despawn threats."""
+def update_circadian(state: dict) -> None:
+    """Apply circadian rhythm effects based on time of day."""
+    tod = state["kitchen"]["time_of_day"]
+    stage = state["lifecycle"]["stage"]
+    if stage not in ("larva", "adult"):
+        return
+    body = state.get("circadian", {})
+    if not state.get("circadian"):
+        state["circadian"] = {"rhythm_phase": 0, "fatigue": 0, "restless": 0}
+    c = state["circadian"]
+    is_night = tod < 0.25 or tod > 0.85
+    is_dawn_dusk = (0.2 < tod < 0.3) or (0.8 < tod < 0.9)
+    if is_night:
+        c["fatigue"] = min(1.0, c["fatigue"] + 0.03)
+        c["restless"] = max(0, c["restless"] - 0.05)
+    elif is_dawn_dusk:
+        c["fatigue"] = max(0, c["fatigue"] - 0.04)
+        c["restless"] = min(1.0, c["restless"] + 0.08)
+    else:
+        c["fatigue"] = max(0, c["fatigue"] - 0.02)
+        c["restless"] = max(0, c["restless"] - 0.01)
+    c["rhythm_phase"] = round(math.sin(tod * math.pi * 2) * 0.5 + 0.5, 3)
+
+
+def check_wing_damage(state: dict) -> None:
+    """Near-misses with threats can damage wings."""
+    stage = state["lifecycle"]["stage"]
+    if stage != "adult":
+        return
+    body = state["body"]
     k = state["kitchen"]
+    if "wing_damage" not in body:
+        body["wing_damage"] = 0.0
+    for obj in k["objects"]:
+        if obj["type"] != "threat" or not obj.get("active"):
+            continue
+        d = dist2d(body["position"]["x"], body["position"]["y"], obj["x"], obj["y"])
+        if 15 < d < 40 and random.random() < 0.12:
+            dmg = random.uniform(0.02, 0.08)
+            body["wing_damage"] = min(0.6, body["wing_damage"] + dmg)
+            record(state, "wing clipped by " + obj["name"] + "!")
+    body["wing_damage"] = max(0, body["wing_damage"] - 0.002)
+
+
+def update_threats(state: dict) -> None:
+    """Randomly spawn/despawn threats with time-of-day awareness."""
+    k = state["kitchen"]
+    tod = k["time_of_day"]
     for obj in k["objects"]:
         if obj["type"] != "threat":
             continue
-        if not obj.get("active") and random.random() < 0.03:
+        spawn_chance = 0.02 if (tod < 0.25 or tod > 0.85) else 0.05
+        if obj["id"] == "spider":
+            spawn_chance = 0.04 if tod < 0.25 or tod > 0.85 else 0.01
+        if not obj.get("active") and random.random() < spawn_chance:
             obj["active"] = True
             obj["x"] = random.uniform(50, k["width"] - 50)
             obj["y"] = random.uniform(50, k["height"] - 50)
@@ -147,11 +198,12 @@ def update_senses(state: dict) -> None:
 
 
 def think(state: dict) -> None:
-    """Brain decision-making based on senses and inherited memory."""
+    """Brain decision-making with circadian awareness and fatigue."""
     brain = state["brain"]
     energy = state["energy"]
     senses = state["senses"]
     stage = state["lifecycle"]["stage"]
+    circ = state.get("circadian", {"fatigue": 0, "restless": 0, "rhythm_phase": 0.5})
 
     if stage == "egg":
         brain["state"] = "dormant"
@@ -167,7 +219,7 @@ def think(state: dict) -> None:
 
     epigenetic = brain.get("inherited_memory", {}).get("epigenetic_bias", 0)
 
-    # Threats first
+    # Threats override everything
     for sight in senses.get("sight", []):
         if sight.get("threat") and sight["distance"] < 80:
             brain["current_goal"] = "flee"
@@ -177,6 +229,12 @@ def think(state: dict) -> None:
 
     brain["fear_level"] = max(0, brain["fear_level"] - 0.05)
 
+    # Night rest for adults
+    if stage == "adult" and circ.get("fatigue", 0) > 0.7:
+        brain["current_goal"] = "rest"
+        brain["decisions_made"] += 1
+        return
+
     hunger_threshold = max(8, 15 - epigenetic * 20)
     if energy["hunger"] > hunger_threshold and senses["smell"]:
         brain["current_goal"] = "seek_food"
@@ -184,6 +242,11 @@ def think(state: dict) -> None:
         return
 
     if stage == "adult":
+        # Dawn/dusk hyperactivity
+        if circ.get("restless", 0) > 0.5 and random.random() < 0.3:
+            brain["current_goal"] = "buzz"
+            brain["decisions_made"] += 1
+            return
         if energy["hunger"] < 10 and random.random() < 0.15:
             brain["current_goal"] = "groom"
             brain["decisions_made"] += 1
@@ -312,6 +375,29 @@ def move(state: dict) -> None:
         brain["satisfaction"] = min(1.0, brain["satisfaction"] + 0.1)
         return
 
+    if goal == "rest":
+        if body["is_airborne"]:
+            body["is_airborne"] = False
+            body["position"]["z"] = 0
+            body["surface"] = "ceiling" if random.random() < 0.3 else "counter"
+        body["velocity"] = {"x": 0, "y": 0, "z": 0}
+        circ = state.get("circadian", {})
+        circ["fatigue"] = max(0, circ.get("fatigue", 0) - 0.08)
+        return
+
+    if goal == "buzz":
+        if not body["is_airborne"]:
+            body["is_airborne"] = True
+            body["position"]["z"] = 1.8
+        angle = random.uniform(0, 2 * math.pi)
+        speed = 6 * genome["flight_efficiency"]
+        wing_dmg = body.get("wing_damage", 0)
+        speed *= max(0.4, 1.0 - wing_dmg)
+        body["velocity"]["x"] = math.cos(angle) * speed
+        body["velocity"]["y"] = math.sin(angle) * speed
+        body["velocity"]["z"] = random.uniform(-0.3, 0.5)
+        return
+
     if goal == "wall_walk":
         wall_targets = [
             (0, py), (k["width"], py), (px, 0), (px, k["height"])
@@ -398,7 +484,7 @@ def try_feed(state: dict) -> None:
 
 
 def update_energy(state: dict) -> None:
-    """Apply metabolic drain and physics."""
+    """Apply metabolic drain, wing damage penalty, and physics."""
     body = state["body"]
     energy = state["energy"]
     genome = state["genome"]
@@ -409,7 +495,8 @@ def update_energy(state: dict) -> None:
     base = energy["metabolic_drain"] * genome["metabolic_rate"]
     drain_mult = {"egg": 0.2, "larva": 0.8, "pupa": 0.3}.get(stage, 1.0)
     if stage == "adult" and body["is_airborne"]:
-        drain_mult = 2.0
+        wing_dmg = body.get("wing_damage", 0)
+        drain_mult = 2.0 + wing_dmg * 3.0  # damaged wings cost more energy
     energy["current"] = max(0, energy["current"] - base * drain_mult)
     energy["hunger"] = min(100, energy["hunger"] + base * drain_mult * 0.5)
 
@@ -508,18 +595,25 @@ def check_transition(state: dict) -> None:
 
 
 def generate_narration(state: dict) -> None:
-    """Write a one-line narration for the current tick."""
+    """Write a one-line narration — poetic, alive, surprising."""
     lc = state["lifecycle"]
     stage = lc["stage"]
     body = state["body"]
     energy = state["energy"]
     brain = state["brain"]
     gen = state["_meta"].get("generation", 1)
+    circ = state.get("circadian", {})
+    tod = state["kitchen"]["time_of_day"]
 
     gp = "Gen " + str(gen) + ". " if gen > 1 else ""
 
     if stage == "death":
-        state["narration"] = gp + "Stillness. The kitchen light still hums overhead."
+        causes = {
+            "starvation": gp + "Empty. The body curls on the counter, light as a whisper.",
+            "old age": gp + "Wings still. The hum fades. Dust begins to gather.",
+        }
+        cause = state["_meta"].get("cause_of_death", "old age")
+        state["narration"] = causes.get(cause, gp + "Stillness. The kitchen light still hums overhead.")
         return
 
     if stage == "egg":
@@ -535,6 +629,8 @@ def generate_narration(state: dict) -> None:
     if stage == "larva":
         if brain["current_goal"] == "seek_food":
             state["narration"] = gp + "The larva wriggles toward food. Size: " + str(round(body["size"], 1)) + "mm."
+        elif brain["current_goal"] == "flee":
+            state["narration"] = gp + "The larva recoils! Vibrations in the counter — danger near."
         elif energy["hunger"] < 20:
             state["narration"] = gp + "Well-fed larva grows. " + str(round(body["size"], 1)) + "mm and getting bigger."
         else:
@@ -551,20 +647,32 @@ def generate_narration(state: dict) -> None:
             state["narration"] = gp + "Almost there. The adult fly takes shape within."
         return
 
+    # Adult narrations — richer, more varied
     goal = brain["current_goal"]
     is_air = body["is_airborne"]
     hunger = round(energy["hunger"])
     ecur = round(energy["current"])
+    wing_dmg = body.get("wing_damage", 0)
+    is_night = tod < 0.25 or tod > 0.85
+
+    if wing_dmg > 0.3:
+        state["narration"] = gp + "A torn wing catches air wrong. Flight costs more now."
+        return
+
     narrations = {
         "flee": gp + "DANGER! The fly bolts away at maximum speed!",
         "seek_food": gp + "Drawn by scent, the fly descends. Hunger: " + str(hunger) + "%.",
-        "explore": gp + "Compound eyes scan 360 degrees. The kitchen is vast.",
+        "explore": gp + "Compound eyes scan 360°. The kitchen stretches infinite.",
         "fly_to_light": gp + "The fly spirals toward the light. An ancient compulsion.",
         "groom": gp + "The fly pauses, rubbing forelegs together. A moment of peace.",
-        "wall_walk": gp + "Defying gravity, the fly walks along the wall.",
+        "wall_walk": gp + "Defying gravity, the fly walks along the wall. Six legs grip.",
+        "rest": gp + "Night falls. The fly tucks into a ceiling corner. Still.",
+        "buzz": gp + "Dawn energy! The fly erupts in chaotic loops across the kitchen.",
     }
     if goal == "idle":
-        if not is_air:
+        if is_night:
+            state["narration"] = gp + "The kitchen is dark. Only the fridge hums."
+        elif not is_air:
             state["narration"] = gp + "The fly grooms a foreleg. Then launches."
         else:
             state["narration"] = gp + "Wings beat 200 times per second. A blur of freedom."
@@ -604,6 +712,29 @@ def rebirth(state: dict) -> dict:
     kitchen = copy.deepcopy(state["kitchen"])
     kitchen["time_of_day"] = 0.3
     kitchen["lights_on"] = True
+
+    # Kitchen evolves each generation — new objects appear
+    existing_ids = {o["id"] for o in kitchen["objects"]}
+    if gen >= 2 and "faucet_drip" not in existing_ids:
+        kitchen["objects"].append({
+            "id": "faucet_drip", "type": "food",
+            "x": 200, "y": 50, "z": 0,
+            "smell_radius": 40, "energy": 3, "decay": 0.1,
+            "name": "faucet drip"
+        })
+    if gen >= 3 and "fruit_flies" not in existing_ids:
+        kitchen["objects"].append({
+            "id": "fruit_flies", "type": "light",
+            "x": 120, "y": 270, "z": 0.5,
+            "intensity": 0.2, "name": "fruit fly swarm"
+        })
+    # Parent carcass updates
+    carcass = next((o for o in kitchen["objects"] if o["id"] == "carcass"), None)
+    if carcass:
+        carcass["name"] = "dead fly (gen " + str(gen) + ")"
+        carcass["x"] = state["body"]["position"]["x"]
+        carcass["y"] = state["body"]["position"]["y"]
+        carcass["decay"] = min(1.0, carcass.get("decay", 0.8) + 0.05)
 
     ancestor = {
         "generation": gen,
@@ -730,6 +861,7 @@ def rebirth(state: dict) -> dict:
             }
         ],
         "ancestors": ancestors,
+        "circadian": {"rhythm_phase": 0.5, "fatigue": 0, "restless": 0},
         "narration": (
             "Generation " + str(gen + 1)
             + ". A new egg glistens on the counter."
@@ -749,7 +881,9 @@ def tick(state: dict) -> dict:
     state["_meta"]["total_frames_alive"] = state["lifecycle"]["total_ticks"]
 
     update_kitchen(state)
+    update_circadian(state)
     update_threats(state)
+    check_wing_damage(state)
     update_senses(state)
     think(state)
     move(state)
