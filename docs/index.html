@@ -143,9 +143,27 @@ function drawBG(ctx){
 function drawObj(ctx,obj){
   var x=kx(obj.x),y=ky(obj.y),isDay=S.kitchen.lights_on;
   if(obj.type==="food"){
-    var colors={banana:"#e8c840",jam:"#c04060",trash:"#708060",crumbs:"#d0b880",coffee:"#604020",carcass:"#404040"};
+    var colors={banana:"#e8c840",jam:"#c04060",trash:"#708060",crumbs:"#d0b880",coffee:"#604020",carcass:"#505050"};
     var col=colors[obj.id]||"#a08060";
     var sz=ks(obj.id==="trash"?28:obj.id==="banana"?18:12);
+    // Corpse special rendering — shows decay state
+    if(obj.id==="carcass"){
+      var corpseDecay=obj.decay||0.5;
+      col=corpseDecay>0.7?"#3a3830":"#504840";
+      // Decay halo — growing smell
+      var decaySR=ks(obj.smell_radius||20);
+      ctx.beginPath();ctx.arc(x,y,decaySR,0,Math.PI*2);
+      ctx.fillStyle="rgba(100,90,60,"+(corpseDecay*0.008)+")";ctx.fill();
+      // Bacteria particles
+      if(corpseDecay>0.6){
+        for(var bi2=0;bi2<3;bi2++){
+          var bx=x+(Math.random()-0.5)*sz*2;
+          var by=y+(Math.random()-0.5)*sz*2;
+          ctx.beginPath();ctx.arc(bx,by,1,0,Math.PI*2);
+          ctx.fillStyle="rgba(120,140,80,0.15)";ctx.fill();
+        }
+      }
+    }
     // Smell radius visualization
     var sr=ks(obj.smell_radius*(S.genome.smell_sensitivity||0.9));
     ctx.beginPath();ctx.arc(x,y,sr,0,Math.PI*2);
@@ -384,6 +402,29 @@ function drawFly(ctx){
     ctx.fillStyle="rgba(200,180,60,0.4)";ctx.font="9px monospace";
     ctx.textAlign="center";ctx.fillText("\u2764",x,y-sz*2);
   }
+  if(goal==="groom"){
+    ctx.fillStyle="rgba(100,200,140,0.3)";ctx.font="8px monospace";
+    ctx.textAlign="center";ctx.fillText("\u2728",x,y-sz*2);
+  }
+  // Stress aura
+  var stress2=S.brain.stress||0;
+  if(stress2>0.3){
+    var sag=ctx.createRadialGradient(x,y,sz,x,y,sz*3);
+    sag.addColorStop(0,"rgba(240,60,40,"+(stress2*0.06)+")");
+    sag.addColorStop(1,"rgba(240,60,40,0)");
+    ctx.beginPath();ctx.arc(x,y,sz*3,0,Math.PI*2);
+    ctx.fillStyle=sag;ctx.fill();
+  }
+  // Buzz lines when flying
+  if(isAir&&stage==="adult"){
+    for(var bzi=0;bzi<3;bzi++){
+      var bza=Math.random()*Math.PI*2;
+      var bzr=sz*1.5+Math.random()*sz;
+      ctx.beginPath();
+      ctx.arc(x+Math.cos(bza)*bzr,y+Math.sin(bza)*bzr,0.5+Math.random(),0,Math.PI*2);
+      ctx.fillStyle="rgba(160,160,160,0.06)";ctx.fill();
+    }
+  }
 }
 
 function drawDust(ctx){
@@ -481,6 +522,16 @@ function updateHUD(){
   ss+='<div>Temp: <span class="v">'+(S.senses.temperature||0).toFixed(1)+'\u00b0C</span></div>';
   ss+='<div>Wind: <span class="v">'+(S.senses.wind||0).toFixed(2)+'</span></div>';
   ss+='<div style="margin-top:3px">'+(S.body.is_airborne?'\u2708 <span class="v">FLYING</span>':'\u25BC <span class="v">grounded</span>')+'</div>';
+  // Kitchen events
+  var aev=(S.kitchen.active_events||[]);
+  if(aev.length>0){
+    ss+='<div style="margin-top:5px;border-top:1px solid rgba(240,180,60,0.1);padding-top:4px">';
+    ss+='<div style="color:rgba(240,180,60,0.6);font-size:9px;letter-spacing:1px">\u26A0 EVENTS</div>';
+    for(var ei=0;ei<aev.length;ei++){
+      ss+='<div class="d" style="margin-left:8px;color:rgba(240,180,60,0.4)">'+aev[ei].name+' ('+aev[ei].remaining+'t)</div>';
+    }
+    ss+='</div>';
+  }
   document.getElementById("sp").innerHTML=ss;
 
   // Brain
@@ -489,13 +540,25 @@ function updateHUD(){
   bb+='<div>State: <span class="v">'+(S.brain.state||"?")+'</span></div>';
   bb+='<div class="d" style="margin-top:3px">Neural: '+(S.brain.neural_complexity*100|0)+'% complexity</div>';
   bb+='<div class="d">Decisions: '+S.brain.decisions_made+'</div>';
-  var bm=[["fear",S.brain.fear_level],["curiosity",S.brain.curiosity],["satisfaction",S.brain.satisfaction]];
+  var bm=[["fear",S.brain.fear_level],["curiosity",S.brain.curiosity],["satisfaction",S.brain.satisfaction],["stress",S.brain.stress||0]];
   for(var bi=0;bi<bm.length;bi++){
     if(bm[bi][1]>0.01){
+      var bmcol=bm[bi][0]==="stress"?"rgba(240,80,60,0.5)":bm[bi][0]==="fear"?"rgba(240,60,40,0.5)":"rgba(200,168,100,0.4)";
       bb+='<div class="gr"><span class="gn">'+bm[bi][0]+'</span>';
-      bb+='<span class="gb"><span class="gf" style="width:'+(bm[bi][1]*100)+'%;background:rgba(200,168,100,0.4)"></span></span>';
+      bb+='<span class="gb"><span class="gf" style="width:'+(bm[bi][1]*100)+'%;background:'+bmcol+'"></span></span>';
       bb+='<span class="gv">'+(bm[bi][1]*100|0)+'</span></div>';
     }
+  }
+  // Dreams (from pupa metamorphosis)
+  var dreams=S.brain.dreams||[];
+  if(dreams.length>0){
+    bb+='<div style="margin-top:5px;border-top:1px solid rgba(180,140,60,0.08);padding-top:4px">';
+    bb+='<div class="d" style="color:rgba(140,120,200,0.5)">Dreams ('+dreams.length+')</div>';
+    var dshow=dreams.slice(-2);
+    for(var di=0;di<dshow.length;di++){
+      bb+='<div class="d" style="margin-left:8px;color:rgba(140,120,200,0.35);font-style:italic">'+dshow[di].content+'</div>';
+    }
+    bb+='</div>';
   }
   if(S.brain.inherited_memory&&gen>1){
     bb+='<div style="margin-top:5px;border-top:1px solid rgba(180,140,60,0.08);padding-top:4px">';
@@ -602,12 +665,65 @@ function updateHUD(){
   document.getElementById("nr").textContent=S.narration||"";
 }
 
+function drawKitchenEvents(ctx){
+  if(!S)return;
+  var evts=S.kitchen.active_events||[];
+  var vib=S.kitchen.event_vibration||0;
+  var wind=S.kitchen.event_wind||0;
+
+  // Screen shake from vibration
+  if(vib>0.3){
+    var shk=vib*3;
+    ctx.save();
+    ctx.translate(Math.sin(t*30)*shk,Math.cos(t*25)*shk);
+  }
+
+  // Wind streaks
+  if(wind>0.2){
+    ctx.strokeStyle="rgba(200,180,140,"+(wind*0.04)+")";
+    ctx.lineWidth=0.5;
+    for(var wi=0;wi<Math.floor(wind*15);wi++){
+      var wx=Math.random()*innerWidth;
+      var wy=Math.random()*innerHeight;
+      ctx.beginPath();
+      ctx.moveTo(wx,wy);
+      ctx.lineTo(wx+wind*40+Math.random()*20,wy+Math.random()*4-2);
+      ctx.stroke();
+    }
+  }
+
+  // Event flash overlay
+  for(var ei=0;ei<evts.length;ei++){
+    if(evts[ei].id==="door_slam"&&evts[ei].remaining>1){
+      ctx.fillStyle="rgba(255,255,240,"+(0.02*evts[ei].remaining)+")";
+      ctx.fillRect(0,0,innerWidth,innerHeight);
+    }
+    if(evts[ei].id==="cooking_steam"){
+      // Steam particles rising from left
+      for(var si=0;si<5;si++){
+        var sx=ks(50+Math.random()*60);
+        var sy=ky(100)-Math.random()*80;
+        ctx.beginPath();ctx.arc(sx,sy,3+Math.random()*5,0,Math.PI*2);
+        ctx.fillStyle="rgba(200,200,200,0.03)";ctx.fill();
+      }
+    }
+    if(evts[ei].id==="light_flicker"){
+      if(Math.random()<0.3){
+        ctx.fillStyle="rgba(0,0,0,0.05)";
+        ctx.fillRect(0,0,innerWidth,innerHeight);
+      }
+    }
+  }
+
+  if(vib>0.3)ctx.restore();
+}
+
 var lf=0,lh=0,bgD=false;
 function frame(ts){
   var dt=Math.min((ts-lf)/1000,.1);lf=ts;t+=dt;
   if(!bgD){bgX.clearRect(0,0,innerWidth,innerHeight);drawBG(bgX);bgD=true}
   scX.clearRect(0,0,innerWidth,innerHeight);drawObjs(scX);drawFly(scX);
-  fxX.clearRect(0,0,innerWidth,innerHeight);drawDust(fxX);
+  fxX.clearRect(0,0,innerWidth,innerHeight);drawDust(fxX);drawKitchenEvents(fxX);
   if(t-lh>.5){updateHUD();lh=t}
   requestAnimationFrame(frame);
 }

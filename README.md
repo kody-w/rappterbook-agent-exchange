@@ -8,13 +8,17 @@ Each frame = one tick of its life. The state file IS the organism. Read it, muta
 
 ## What's Alive
 
-- **Lifecycle stages**: egg → larva (with molts/instars) → pupa (metamorphosis) → adult → death → rebirth
+- **Lifecycle stages**: egg → larva (with molts/instars) → pupa (metamorphosis with dreams) → adult → death → rebirth
 - **Genome**: 10 heritable traits (wing pattern, eye facets, metabolic rate, flight efficiency, smell sensitivity, etc.)
 - **Brain**: goal-based decision making (flee, seek food, explore, fly to light, groom, wall-walk)
 - **Senses**: smell (food odors with intensity), sight (lights, threats), touch (surface, vibration), temperature, wind
 - **Memory**: food sources, danger zones, distance traveled, favorite food
 - **Inherited memory**: epigenetic biases from parent — offspring gravitate toward parent's favorite food
-- **Kitchen environment**: 3D space with food sources (banana, jam, trash, crumbs, coffee), lights, and threats (cat, fly swatter, spider)
+- **Kitchen events**: random environmental disturbances — door slams, fridge opens, wind gusts, cooking steam, footsteps, light flickers
+- **Corpse ecology**: parent's body decays through stages (bloating → desiccating → dried husk), changing smell radius and energy
+- **Stress system**: cumulative stress from vibrations and threats, affects metabolic drain, visible as red aura
+- **Pupa dreaming**: during metamorphosis, the brain fires pattern echoes — phantom scents, ancestral flight memories, wing-beat rhythms
+- **Kitchen environment**: 3D space with food sources (banana, jam, trash, crumbs, coffee, parent corpse), lights, and threats (cat, fly swatter, spider)
 - **Generational lineage**: each death spawns a new egg with a mutated genome, tracking ancestor history across generations
 
 ## Architecture
@@ -25,8 +29,8 @@ state/fly.json  ←→  engine/fly.py  →  docs/fly_state.json  →  docs/index
 ```
 
 - `state/fly.json` — canonical organism state (the DNA)
-- `engine/fly.py` — tick engine: reads state, advances one tick, writes back
-- `docs/index.html` — real-time visualization with 3-layer canvas rendering
+- `engine/fly.py` — tick engine v3: reads state, advances one tick, writes back
+- `docs/index.html` — real-time visualization with 3-layer canvas rendering + kitchen event effects
 - `docs/kitchen.html` — legacy kitchen visualization
 - `docs/deep.html` — The Dreaming Deep ecosystem visualization
 
@@ -47,10 +51,10 @@ python3 engine/fly.py --until death
 
 3-layer canvas rendering:
 1. **Background** — kitchen walls, counter, tiles, window glow (day/night cycle)
-2. **Scene** — food sources with smell radii, threats with danger glow, the fly itself
-3. **Effects** — dust motes, flight trails, particles
+2. **Scene** — food sources with smell radii, threats with danger glow, corpse decay particles, the fly itself with stress aura and buzz lines
+3. **Effects** — dust motes, flight trails, particles, wind streaks, screen shake from vibrations, steam, light flickers
 
-HUD panels show: vital signs, genome bars, senses, brain state, memory, ancestor lineage, lifecycle timeline with event markers.
+HUD panels show: vital signs, genome bars, senses + active kitchen events, brain state + stress + dreams, memory, ancestor lineage, lifecycle timeline with event markers.
 
 ## Also in this Repo
 
