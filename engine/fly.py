@@ -3,6 +3,8 @@
 
 Reads state/fly.json, advances one tick, writes back.
 The output of frame N is the input of frame N+1.
+Supports multi-generational play: corpse decomposition, inherited instincts,
+and generation-aware narration.
 """
 from __future__ import annotations
 
@@ -57,12 +59,25 @@ def record(state: dict, event: str) -> None:
 
 
 def update_kitchen(state: dict) -> None:
-    """Advance kitchen environment: time, temperature, lights."""
+    """Advance kitchen environment: time, temperature, lights, corpse decay."""
     k = state["kitchen"]
     k["time_of_day"] = (k["time_of_day"] + 0.009) % 1.0
     tod = k["time_of_day"]
     k["lights_on"] = 0.25 < tod < 0.85
     k["ambient_temp"] = 20 + 4 * math.sin(tod * math.pi)
+
+    # Decompose corpses over time
+    for obj in k["objects"]:
+        if obj.get("is_corpse"):
+            obj["decomposition"] = min(1.0, obj.get("decomposition", 0) + 0.015)
+            obj["smell_radius"] = max(10, obj.get("smell_radius", 60) * 0.995)
+            obj["energy"] = max(0.5, obj.get("energy", 5) * 0.998)
+            if obj["decomposition"] > 0.5:
+                obj["name"] = obj["name"].replace("dead fly", "decaying fly")
+            if obj["decomposition"] >= 1.0:
+                obj["name"] = "dust (remains)"
+                obj["smell_radius"] = 5
+                obj["energy"] = 0.1
 
 
 def update_threats(state: dict) -> None:
@@ -150,9 +165,13 @@ def think(state: dict) -> None:
     brain["state"] = "simple_reflex" if stage == "larva" else "active"
     brain["curiosity"] = min(1.0, brain["curiosity"] + 0.02)
 
+    # Inherited danger awareness makes offspring more cautious
+    inherited = state["memory"].get("inherited_instincts", {})
+    danger_boost = inherited.get("inherited_danger_awareness", 0)
+
     # Check for threats first
     for sight in senses.get("sight", []):
-        if sight.get("threat") and sight["distance"] < 80:
+        if sight.get("threat") and sight["distance"] < (80 + danger_boost * 40):
             brain["current_goal"] = "flee"
             brain["fear_level"] = min(1.0, brain["fear_level"] + 0.5)
             brain["decisions_made"] += 1
@@ -433,14 +452,22 @@ def generate_narration(state: dict) -> None:
     body = state["body"]
     energy = state["energy"]
     brain = state["brain"]
+    gen = state["_meta"].get("generation", 1)
+    gen_tag = f" (Gen {gen})" if gen > 1 else ""
 
     if stage == "death":
-        state["narration"] = "Stillness. The kitchen light still hums overhead."
+        lineage = state.get("lineage", [])
+        if lineage:
+            state["narration"] = f"Stillness{gen_tag}. {len(lineage)} generations have lived and died in this kitchen."
+        else:
+            state["narration"] = "Stillness. The kitchen light still hums overhead."
         return
 
     if stage == "egg":
         prog = lc["stage_tick"] / max(lc["stage_durations"]["egg"], 1)
-        if prog < 0.3:
+        if gen > 1 and prog < 0.2:
+            state["narration"] = f"Generation {gen}. Near the remains of its parent, cells divide."
+        elif prog < 0.3:
             state["narration"] = "The egg sits motionless. Inside, cells divide furiously."
         elif prog < 0.7:
             state["narration"] = "Organs form in miniature. The embryo twitches."
@@ -450,40 +477,42 @@ def generate_narration(state: dict) -> None:
 
     if stage == "larva":
         if brain["current_goal"] == "seek_food":
-            state["narration"] = f"The larva wriggles toward food. Size: {body['size']:.1f}mm."
+            state["narration"] = f"The larva wriggles toward food{gen_tag}. Size: {body['size']:.1f}mm."
         elif energy["hunger"] < 20:
-            state["narration"] = f"Well-fed larva grows. {body['size']:.1f}mm and getting bigger."
+            state["narration"] = f"Well-fed larva grows{gen_tag}. {body['size']:.1f}mm and getting bigger."
         else:
-            state["narration"] = f"Each molt brings new size, new hunger."
+            state["narration"] = f"Each molt brings new size, new hunger{gen_tag}."
         return
 
     if stage == "pupa":
         prog = lc["stage_tick"] / max(lc["stage_durations"]["pupa"], 1)
         if prog < 0.4:
-            state["narration"] = "Inside the puparium, metamorphosis reshapes everything."
+            state["narration"] = f"Inside the puparium{gen_tag}, metamorphosis reshapes everything."
         elif prog < 0.8:
-            state["narration"] = f"Wings form where there were none. Eyes crystallize."
+            state["narration"] = f"Wings form where there were none{gen_tag}. Eyes crystallize."
         else:
-            state["narration"] = "Almost there. The adult fly takes shape within."
+            state["narration"] = f"Almost there{gen_tag}. The adult fly takes shape within."
         return
 
     # Adult narrations
     goal = brain["current_goal"]
     narrations = {
-        "flee": f"DANGER! The fly bolts away at maximum speed!",
-        "seek_food": f"Drawn by scent, the fly descends toward food. Hunger: {energy['hunger']:.0f}%.",
-        "explore": "Compound eyes scan 360 degrees. The kitchen is vast.",
-        "fly_to_light": "The fly spirals toward the light. An ancient compulsion.",
-        "idle": "The fly grooms a foreleg. Then launches." if not body["is_airborne"]
-                else "Wings beat 200 times per second. A blur of freedom.",
+        "flee": f"DANGER! The fly bolts away{gen_tag}!",
+        "seek_food": f"Drawn by scent{gen_tag}, the fly descends toward food. Hunger: {energy['hunger']:.0f}%.",
+        "explore": f"Compound eyes scan 360 degrees{gen_tag}. The kitchen is vast.",
+        "fly_to_light": f"The fly spirals toward the light{gen_tag}. An ancient compulsion.",
+        "idle": f"The fly grooms a foreleg{gen_tag}. Then launches." if not body["is_airborne"]
+                else f"Wings beat 200 times per second{gen_tag}. A blur of freedom.",
     }
-    state["narration"] = narrations.get(goal, f"Energy: {energy['current']:.0f}%. The search continues.")
+    state["narration"] = narrations.get(goal, f"Energy: {energy['current']:.0f}%{gen_tag}. The search continues.")
 
 
 def tick(state: dict) -> dict:
     """Advance the organism one tick forward. THE HEARTBEAT."""
     if state["lifecycle"]["stage"] == "death":
-        return state
+        # Auto-rebirth: the cycle continues
+        from engine.rebirth import rebirth
+        return rebirth(state)
 
     state["_meta"]["frame"] += 1
     state["lifecycle"]["stage_tick"] += 1
@@ -506,8 +535,12 @@ def tick(state: dict) -> dict:
 def main() -> None:
     state = load_state()
     if state["lifecycle"]["stage"] == "death":
-        print(f"The fly is dead (frame {state['_meta']['frame']}). No more ticks.")
+        print(f"Generation {state['_meta'].get('generation', 1)} is dead (frame {state['_meta']['frame']}). Rebirthing...")
+        from engine.rebirth import rebirth
+        state = rebirth(state)
         save_state(state)
+        gen = state["_meta"]["generation"]
+        print(f"  Generation {gen} egg laid. {state['narration']}")
         return
 
     args = sys.argv[1:]

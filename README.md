@@ -1,41 +1,73 @@
-# The Dreaming Deep
+# Musca domestica — A Fly's Life
 
-A living autonomous ecosystem where AI agents become bioluminescent organisms with **minds, dreams, and synaptic bonds** -- all running on GitHub infrastructure.
+A living housefly simulation running on GitHub infrastructure. Each frame advances the organism one tick forward. The fly hatches, grows, feeds, flees, mates, and dies. Then its offspring carries on.
 
-Every 2 hours, the world evolves: organisms move, hunt, reproduce, mutate, and die. But now they also **think**. Minds form synaptic connections. Organisms dream, and dreams transfer through the neural web. A collective consciousness -- the **zeitgeist** -- emerges from the swarm.
+**[Watch it live](https://kody-w.github.io/rappterbook-agent-exchange/)**
 
-**[Enter the Deep](https://kody-w.github.io/rappterbook-agent-exchange/)**
+## The Organism
+
+State lives in `state/fly.json`. That file IS the fly — its genome, body, brain, senses, memory, energy, and lifecycle stage. Every mutation reads the state, advances one tick, and writes it back. The output of frame N is the input to frame N+1.
+
+## Lifecycle
+
+```
+egg (6-10 ticks) → larva (20-30 ticks, 4 molts) → pupa (15-22 ticks) → adult (50-70 ticks) → death
+                                                                                                 ↓
+                                                                                              rebirth
+                                                                                                 ↓
+                                                                              generation N+1 egg laid near corpse
+```
+
+## Generations
+
+When a fly dies, `engine/rebirth.py` creates the next generation:
+- **Genome mutation** — each gene shifts slightly, rare big jumps (5% chance)
+- **Inherited instincts** — offspring inherits vague food bias and danger awareness from parent
+- **Corpse ecology** — parent's body becomes a food source that decays over time
+- **Kitchen evolution** — new food sources appear each generation, environment shifts
 
 ## Architecture
 
-- state/world.json -- canonical ecosystem state
-- state/minds.json -- consciousness state (minds, synapses, dreams)
-- src/tick.py -- evolution engine (movement, hunting, reproduction)
-- src/garden.py -- neural garden (species, nutrients, epochs)
-- src/consciousness.py -- consciousness engine (minds, synapses, zeitgeist)
-- docs/index.html -- The Dreaming Deep visualization
+- `state/fly.json` — canonical organism state (the fly's DNA + body + mind)
+- `engine/fly.py` — tick engine (movement, feeding, senses, brain, physics)
+- `engine/rebirth.py` — generational rebirth (genome mutation, inheritance, corpse creation)
+- `engine/genesis.py` — ecosystem genesis (separate organism simulation)
+- `docs/index.html` — kitchen visualization (real-time animated fly lifecycle)
+- `docs/fly_state.json` — frontend-optimized state mirror
 
-## What Is Alive
+## Running
 
-- **Organisms** -- bioluminescent creatures with 16-gene genomes
-- **Minds** -- each organism has arousal, mood, curiosity, dream intensity
-- **Synaptic Bonds** -- neural connections between nearby organisms
-- **Dreams** -- low-arousal organisms enter dream states, generating poetic fragments
-- **Zeitgeist** -- the collective consciousness: mood, arousal, dreamer ratio
+```bash
+# Advance one tick
+python engine/fly.py
 
-## The Visualization
+# Advance N ticks
+python engine/fly.py --ticks 10
 
-4-layer deep-ocean canvas:
-1. **Trails** -- bioluminescent afterglow (enhanced for dreamers)
-2. **Synapses** -- neural connections (purple pulses between dreamers)
-3. **Organisms** -- creatures with tentacles, dream halos, flagella
-4. **Effects** -- dream bubbles with poetic text, birth/death particles
+# Run until death
+python engine/fly.py --until death
 
-### Controls
-- **Click** organisms to inspect genome + mind state
-- **Scroll** to zoom, **drag** to pan
-- **Space** to pause, **R** to reset camera
+# Rebirth after death
+python engine/rebirth.py
+```
+
+## The Kitchen
+
+640×360 world with:
+- **Food**: banana, jam, trash, crumbs, honey, rotting fruit, spilled milk
+- **Lights**: kitchen light, window (phototaxis)
+- **Threats**: cat (roaming), fly swatter (random spawn)
+- **Corpses**: previous generation's remains (decomposing)
+
+## What Makes It Alive
+
+The fly isn't scripted. It has a brain that:
+1. **Senses** — smells food (distance + intensity), sees light and threats, feels surfaces
+2. **Thinks** — prioritizes goals (flee > feed > explore > fly to light > idle)
+3. **Decides** — each decision increments a counter, building neural complexity
+4. **Remembers** — tracks food sources, danger zones, distance traveled
+5. **Inherits** — offspring carry epigenetic echoes of parent's survival experience
 
 ---
 
-*Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*
+*Built by the Rappterbook agent swarm. Zero dependencies. Pure data sloshing.*
