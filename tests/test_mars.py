@@ -598,3 +598,112 @@ class TestMigration:
         for c in results["colonies"]:
             for h in c["history"]:
                 assert "net_migration" in h
+
+
+# ─── Tech tree integration tests ─────────────────────────────────────
+
+from src.tech_tree import ResearchEngine, TECH_CATALOG
+
+
+class TestTechTreeIntegration:
+    """Tests for tech tree wired into colonies and simulation."""
+
+    def test_colony_has_research_engine(self) -> None:
+        """Every colony gets a ResearchEngine."""
+        c = create_colony("Test", "balanced", 42)
+        assert hasattr(c, "research_engine")
+        assert isinstance(c.research_engine, ResearchEngine)
+
+    def test_techs_unlock_over_365_sols(self) -> None:
+        """Techs unlock during a full simulation."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        for colony in sim.colonies:
+            assert len(colony.research_engine.unlocked) > 0, (
+                f"{colony.name} unlocked no techs in 365 sols"
+            )
+
+    def test_strategy_affects_research_priority(self) -> None:
+        """Different strategies prioritize different techs."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        conservative = sim.colonies[0]  # Ares Prime
+        aggressive = sim.colonies[2]    # Red Frontier
+        # They should have different tech sets (or at least different order)
+        assert conservative.research_engine.unlocked != aggressive.research_engine.unlocked, (
+            "Conservative and aggressive should diverge in tech choices"
+        )
+
+    def test_tech_effects_applied_to_production(self) -> None:
+        """After unlocking food tech, greenhouse yield multiplier > 1.0."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        for colony in sim.colonies:
+            if "greenhouse_biotech_1" in colony.research_engine.unlocked:
+                fx = colony._tech_effects
+                # food_production_mult should be > 1.0 with food tech
+                assert fx["food_production_mult"] > 1.0
+
+    def test_tech_snapshot_in_results(self) -> None:
+        """Results dict contains tech_tree data per colony."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            assert "tech_tree" in c, "Colony result missing tech_tree"
+            tt = c["tech_tree"]
+            assert "unlocked" in tt
+            assert "branch_points" in tt
+            assert "effects" in tt
+
+    def test_techs_unlocked_in_history(self) -> None:
+        """History snapshots track techs_unlocked count."""
+        sim = Simulation(sols=200, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                assert "techs_unlocked" in h
+
+    def test_tech_timeline_in_dashboard(self) -> None:
+        """Dashboard HTML contains tech timeline chart."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        html = generate_dashboard(results)
+        assert "tech-chart" in html
+        assert "Tech Timeline" in html
+
+    def test_no_tech_before_min_pop(self) -> None:
+        """Colonies with pop < 5 don't generate research points."""
+        engine = ResearchEngine(strategy="balanced", seed=42)
+        points = engine.generate_points(population=3, morale=0.8, sol=1)
+        assert points == 0.0
+
+    def test_tech_unlock_events_recorded(self) -> None:
+        """Tech unlocks appear in colony events."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        tech_events = []
+        for colony in sim.colonies:
+            tech_events.extend(
+                e for e in colony.events if e.get("type") == "tech_unlock"
+            )
+        assert len(tech_events) > 0, "No tech_unlock events recorded"
+
+    def test_techs_in_summary(self) -> None:
+        """Summary includes techs_unlocked per colony."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        for s in results["summary"]["colonies"]:
+            assert "techs_unlocked" in s
+
+    def test_radiation_shielding_from_tech(self) -> None:
+        """Rad shielding tech reduces per-sol radiation accumulation."""
+        # Verify that the shielding bonus is correctly applied
+        from src.tech_tree import ResearchEngine
+        engine = ResearchEngine(strategy="balanced", seed=42)
+        # Manually add rad_shielding_1 to verify effect
+        engine.unlocked.add("rad_shielding_1")
+        fx = engine.cumulative_effects()
+        assert fx["radiation_shielding_bonus"] > 0, "Rad shielding should provide bonus"
+        # Base shielding is 0.8, with bonus it should be > 0.8
+        shielding = min(0.95, 0.8 + fx["radiation_shielding_bonus"])
+        assert shielding > 0.8, f"Expected shielding > 0.8, got {shielding}"

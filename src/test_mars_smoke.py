@@ -97,3 +97,31 @@ def test_births_require_population() -> None:
     c.tick(snap)
     assert c.total_births == 0
     assert c.total_deaths == 0
+
+
+def test_tech_tree_wired() -> None:
+    """Tech tree is wired and techs unlock over 200 sols."""
+    sim = Simulation(sols=200, env_seed=42)
+    results = sim.run()
+    total_techs = sum(
+        len(c["tech_tree"]["unlocked"]) for c in results["colonies"]
+    )
+    assert total_techs > 0, "No techs unlocked in 200 sols"
+
+
+def test_tech_effects_serializable() -> None:
+    """Tech tree snapshot is JSON-serializable."""
+    import json
+    sim = Simulation(sols=100, env_seed=42)
+    results = sim.run()
+    for c in results["colonies"]:
+        json.dumps(c["tech_tree"])  # Should not raise
+
+
+def test_tech_divergence() -> None:
+    """Different strategies produce different tech paths."""
+    sim = Simulation(sols=365, env_seed=42)
+    sim.run()
+    techs = [sorted(c.research_engine.unlocked) for c in sim.colonies]
+    # Not all identical
+    assert len(set(tuple(t) for t in techs)) > 1, "All colonies chose same techs"

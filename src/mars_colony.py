@@ -15,6 +15,8 @@ from __future__ import annotations
 import math
 import random
 
+from src.tech_tree import ResearchEngine
+
 # Per-person daily consumption
 FOOD_KG_SOL = 1.8
 WATER_L_SOL = 3.0
@@ -132,6 +134,15 @@ class Colony:
         self.epidemic: Epidemic | None = None
         self.genetic_diversity = min(1.0, population / 200.0)
 
+        # Research engine — 8 techs, 4 branches, strategy-weighted
+        self.research_engine = ResearchEngine(strategy=strategy, seed=seed + 9999)
+        self._base_medical_level = max(0.0, min(1.0, medical_level))
+        self._tech_effects = self.research_engine.cumulative_effects()
+
+    def _refresh_tech_effects(self) -> None:
+        """Recompute and cache cumulative tech effects after an unlock."""
+        self._tech_effects = self.research_engine.cumulative_effects()
+
     def carrying_capacity(self) -> float:
         """Compute carrying capacity K from bottleneck resources.
 
@@ -146,7 +157,8 @@ class Colony:
         water_k = water_daily / net_water_per_person if net_water_per_person > 0 else 999
         power_daily = self.solar_m2 * SOLAR_PANEL_KWH_M2 * 0.7 + NUCLEAR_POWER_KWH
         power_k = power_daily / POWER_KWH_SOL if POWER_KWH_SOL > 0 else 999
-        return max(2.0, min(habitat_k, food_k, water_k, power_k))
+        base_k = min(habitat_k, food_k, water_k, power_k)
+        return max(2.0, base_k + self._tech_effects["carrying_capacity_bonus"])
 
     def _consume_resources(self) -> dict:
         """Consume food, water, power. Returns shortage ratios."""
@@ -169,19 +181,25 @@ class Colony:
         return {"food": food_ratio, "water": water_ratio, "power": power_ratio}
 
     def _produce_resources(self, solar_flux: float, base_flux: float) -> None:
-        """Produce food from greenhouse, power from solar + nuclear."""
-        flux_ratio = solar_flux / base_flux if base_flux > 0 else 0.5
+        """Produce food from greenhouse, power from solar + nuclear.
 
-        food_produced = self.greenhouse_m2 * GREENHOUSE_KG_SOL_M2 * max(0.2, flux_ratio)
+        Tech effects boost food yield, power output, and water extraction.
+        """
+        flux_ratio = solar_flux / base_flux if base_flux > 0 else 0.5
+        fx = self._tech_effects
+
+        food_mult = 1.0 + fx["food_production_mult"] - 1.0  # additive from base 1.0
+        food_produced = self.greenhouse_m2 * GREENHOUSE_KG_SOL_M2 * max(0.2, flux_ratio) * food_mult
         self.food_kg += food_produced
 
         # Solar + nuclear baseline (nuclear provides storm-proof minimum)
+        power_mult = 1.0 + fx["power_production_mult"] - 1.0
         power_solar = self.solar_m2 * SOLAR_PANEL_KWH_M2 * flux_ratio
-        power_nuclear = NUCLEAR_POWER_KWH
-        self.power_kwh += power_solar + power_nuclear
+        power_nuclear = NUCLEAR_POWER_KWH + fx.get("nuclear_power", 0.0)
+        self.power_kwh += (power_solar + power_nuclear) * power_mult
 
-        # Water mining (ice extraction from regolith) — boosted by discoveries
-        water_mined = 5.0 + self.population * 0.1 + self.water_mining_bonus
+        # Water mining (ice extraction from regolith) — boosted by discoveries + tech
+        water_mined = 5.0 + self.population * 0.1 + self.water_mining_bonus + fx["water_bonus"]
         self.water_l += water_mined
 
     def _compute_births(self, ratios: dict) -> int:
@@ -272,9 +290,17 @@ class Colony:
         elif env.get("storm") == "regional":
             death_rate += 0.0005
 
-        # Medical quality reduces deaths (breakthroughs add up to 0.2 more)
-        effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
+        # Medical quality reduces deaths (breakthroughs + tech bonuses)
+        effective_medical = min(
+            1.0,
+            self._base_medical_level
+            + self.medical_breakthroughs * 0.05
+            + self._tech_effects["medical_bonus"],
+        )
         death_rate *= (1.0 - 0.4 * effective_medical)
+
+        # Tech death-rate multiplier (gene therapy, nano-medicine, etc.)
+        death_rate *= self._tech_effects["death_rate_mult"]
 
         # Epidemic mortality
         if self.epidemic is not None:
@@ -291,7 +317,7 @@ class Colony:
         return min(deaths, self.population)
 
     def _update_morale(self, ratios: dict, env: dict) -> None:
-        """Morale drifts based on conditions."""
+        """Morale drifts based on conditions + tech bonuses."""
         target = 0.5
 
         # Food and water security boost morale
@@ -308,6 +334,9 @@ class Colony:
         if env.get("storm"):
             target -= 0.1 if env["storm"] == "global" else 0.05
 
+        # Tech morale bonus (aquaponics, fusion excitement, etc.)
+        target += self._tech_effects["morale_bonus"]
+
         # Drift toward target (inertia)
         self.morale += (target - self.morale) * 0.1
         self.morale = max(0.0, min(1.0, self.morale))
@@ -320,6 +349,8 @@ class Colony:
         expand_rate = {"conservative": 1.5, "balanced": 3.0, "aggressive": 5.0}.get(
             self.strategy, 1.0
         )
+        # Tech construction speed bonus (3D printing, bots, etc.)
+        expand_rate *= self._tech_effects["habitat_expansion_mult"]
         # Expand habitat when crowded
         density = self.population / max(1, self.habitat_m2 / HABITAT_M2_MIN)
         if density > 0.8:
@@ -425,8 +456,8 @@ class Colony:
         """
         self.sol += 1
 
-        # Radiation accumulation (habitat shielding reduces by 80%)
-        shielding = 0.8
+        # Radiation accumulation (base 80% shielding + tech bonus)
+        shielding = min(0.95, 0.8 + self._tech_effects["radiation_shielding_bonus"])
         self.cumulative_radiation_msv += env["radiation_msv"] * (1 - shielding)
 
         # Production
@@ -459,6 +490,19 @@ class Colony:
         # Genetic diversity drift
         self._drift_genetic_diversity()
 
+        # Technology research
+        self.research_engine.generate_points(self.population, self.morale, self.sol)
+        newly_unlocked = self.research_engine.check_unlocks(self.sol)
+        if newly_unlocked:
+            self._refresh_tech_effects()
+            for tech in newly_unlocked:
+                self.morale = min(1.0, self.morale + 0.04)
+                self.events.append({
+                    "sol": self.sol, "type": "tech_unlock",
+                    "tech": tech["name"], "tech_id": tech["id"],
+                    "branch": tech["branch"], "tier": tech["tier"],
+                })
+
         # Log events
         if births > 0:
             self.events.append({"sol": self.sol, "type": "births", "count": births})
@@ -484,6 +528,7 @@ class Colony:
             "cumulative_radiation_msv": round(self.cumulative_radiation_msv, 2),
             "carrying_capacity": round(self.carrying_capacity(), 1),
             "genetic_diversity": round(self.genetic_diversity, 4),
+            "techs_unlocked": len(self.research_engine.unlocked),
             "net_migration": 0,  # updated by Simulation after migration phase
         }
         self.history.append(snapshot)

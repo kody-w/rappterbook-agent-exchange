@@ -62,6 +62,9 @@ def main() -> None:
         mig = s.get('net_migration', 0)
         mig_str = f"  |  Migration: {mig:+d}" if mig != 0 else ""
         print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}{mig_str}")
+        techs = s.get('techs_unlocked', [])
+        if techs:
+            print(f"    Techs: {', '.join(techs)}")
     total_mig = results["summary"].get("total_migrations", 0)
     total_epidemics = sum(
         sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
@@ -111,6 +114,10 @@ def _compact_results(results: dict) -> dict:
             "carrying_capacity": [h.get("carrying_capacity", 0) for h in c["history"]],
             "genetic_diversity": [h.get("genetic_diversity", 1.0) for h in c["history"]],
             "net_migration": [h.get("net_migration", 0) for h in c["history"]],
+            "techs_unlocked": [h.get("techs_unlocked", 0) for h in c["history"]],
+            "tech_events": [
+                e for e in c.get("events", []) if e.get("type") == "tech_unlock"
+            ],
         })
     env_temps = [e["temperature_c"] for e in results["environment"]["history"]]
     env_dust = [e["dust_opacity"] for e in results["environment"]["history"]]

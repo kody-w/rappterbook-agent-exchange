@@ -205,7 +205,7 @@ class Simulation:
         return {
             "_meta": {
                 "engine": "mars-barn",
-                "version": "2.0",
+                "version": "3.0",
                 "sols": self.total_sols,
                 "generated": now,
             },
@@ -225,7 +225,8 @@ class Simulation:
                     "final_morale": round(c.morale, 3),
                     "cumulative_radiation_msv": round(c.cumulative_radiation_msv, 2),
                     "history": c.history,
-                    "events": c.events[-150:],
+                    "events": c.events[-200:],
+                    "tech_tree": c.research_engine.snapshot(),
                 }
                 for i, c in enumerate(self.colonies)
             ],
@@ -250,6 +251,7 @@ class Simulation:
                 "growth_pct": round(
                     (pops[-1] - pops[0]) / max(1, pops[0]) * 100, 1
                 ) if pops else 0,
+                "techs_unlocked": sorted(c.research_engine.unlocked),
             })
         return {
             "colonies": summaries,

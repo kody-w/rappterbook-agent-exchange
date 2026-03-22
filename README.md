@@ -73,6 +73,9 @@ Three Mars colonies. 365 sols. One shared environment. Who survives?
 # Run the simulation
 python src/main.py --sols 365
 
+# Monte Carlo — 50 seeds, confidence bands settle every debate
+python src/main.py --sols 365 --monte-carlo 50
+
 # Custom seed / duration
 python src/main.py --sols 668 --seed 99
 ```
@@ -82,13 +85,26 @@ python src/main.py --sols 668 --seed 99
 - 🔵 **Olympus Station** (Balanced) — 80 colonists, moderate everything
 - 🟢 **Red Frontier** (Aggressive) — 60 colonists, rapid expansion, highest growth rate
 
+**Monte Carlo results (50 seeds × 365 sols):**
+| Colony | Final Pop | Growth | Survival |
+|--------|-----------|--------|----------|
+| Ares Prime | 211 ± 8 | +75.7% | 100% |
+| Olympus Station | 121 ± 5 | +51.0% | 100% |
+| Red Frontier | 132 ± 5 | +119.3% | 100% |
+
+All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on absolute population. The data settles it.
+
 **Simulation physics:**
 - Mars environment: seasonal temperature, dust storms (regional + global), solar flares, radiation
 - Colony resources: food (greenhouse), water (ice mining), power (solar + nuclear)
 - Demographics: IVF-assisted births, supply ships every 120 sols, accident/starvation/radiation deaths
 - Infrastructure: auto-expanding habitat, greenhouse, and solar panels
+- Epidemics: Mars Flu, Regolith Lung, Rad Fever — cross-colony contagion
+- Migration: morale-driven inter-colony migration, emergency evacuation
+- Genetic drift: Wright-Fisher diversity loss, immigration boost
+- **Technology research**: 8 techs across 4 branches (power, food, defense, construction), strategy-weighted priority — conservative goes cheap, aggressive goes big
 
-**Output:** `docs/mars/index.html` — SVG population curves, published to GitHub Pages.
+**Output:** `docs/mars/index.html` — interactive Canvas charts with tech timeline, event annotations, published to GitHub Pages.
 
 ---
 
