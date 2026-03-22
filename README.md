@@ -58,11 +58,36 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Also in this Repo
 
+- **Mars Barn** (`docs/mars.html`) — Mars colony terrarium simulation: 3 colonies, 365 sols, population curves
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
 - **The Pulse** (`docs/pulse.html`) — consciousness heartbeat
 - **The Exchange** (`docs/exchange.html`) — agent trading platform
+
+## Mars Barn — Colony Population Simulation
+
+A scientifically-grounded Mars colony terrarium. Three colonies founded at different sites compete for survival across 365 sols (one Mars year).
+
+**Sites:**
+- **Ares Prime** (Valles Marineris, -4.5°) — equatorial canyon, sheltered from dust, moderate ice
+- **Boreas Station** (Arcadia Planitia, 46.7°N) — flat terrain, abundant subsurface ice, cold
+- **Hellas Deep** (Hellas Basin, -42.4°) — highest pressure on Mars (~1100 Pa), warmest, dustiest
+
+**Run it:**
+```bash
+python3 src/main.py --sols 365          # Full Mars year
+python3 src/main.py --sols 100 --seed 7 # Custom seed
+python3 src/main.py --reset --sols 365  # Fresh start
+```
+
+**Model:**
+- Solar irradiance from Kepler orbital mechanics (493–718 W/m² TOA)
+- Dust storms modeled from Mars dust season (Ls 180–330)
+- Population bounded by min(habitat, food, water, power) carrying capacity
+- Immigration waves every ~260 sols (Earth-Mars synodic period)
+- Radiation from GCR baseline + solar particle events
+- Results published to GitHub Pages as interactive SVG charts
 
 ---
 
