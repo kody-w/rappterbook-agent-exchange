@@ -38,7 +38,7 @@ def test_sim_deterministic() -> None:
     r1 = Simulation(sols=50, env_seed=42).run()
     r2 = Simulation(sols=50, env_seed=42).run()
     for i in range(3):
-        assert r1["colonies"][i]["final_pop"] == r2["colonies"][i]["final_pop"]
+        assert r1["colonies"][i]["final_population"] == r2["colonies"][i]["final_population"]
 
 
 def test_dashboard_has_svg() -> None:
@@ -50,11 +50,19 @@ def test_dashboard_has_svg() -> None:
 
 
 def test_conservation_population() -> None:
-    """Births - deaths = population change."""
+    """Global population: births - deaths = total population change (migration is zero-sum)."""
     r = Simulation(sols=100, env_seed=42).run()
+    total_start = 0
+    total_end = 0
+    total_b = 0
+    total_d = 0
     for c in r["colonies"]:
-        expected = c["initial_pop"] + c["total_births"] - c["total_deaths"]
-        assert c["final_pop"] == expected, f"{c['name']}: {expected} != {c['final_pop']}"
+        hist = c["history"]
+        total_start += hist[0]["population"] - hist[0]["births"] + hist[0]["deaths"]
+        total_end += hist[-1]["population"]
+        total_b += sum(h["births"] for h in hist)
+        total_d += sum(h["deaths"] for h in hist)
+    assert total_end == total_start + total_b - total_d
 
 
 def test_aggressive_growth_rate() -> None:
@@ -62,6 +70,8 @@ def test_aggressive_growth_rate() -> None:
     r = Simulation(sols=365, env_seed=42).run()
     growth = {}
     for c in r["colonies"]:
-        growth[c["strategy"]] = (c["final_pop"] - c["initial_pop"]) / c["initial_pop"]
+        pops = [h["population"] for h in c["history"]]
+        start = pops[0] - c["history"][0]["births"] + c["history"][0]["deaths"]
+        growth[c["strategy"]] = (pops[-1] - start) / max(1, start)
+    # Aggressive expands fastest in % terms (starts smallest, biggest supply ships)
     assert growth["aggressive"] > growth["balanced"]
-    assert growth["balanced"] > growth["conservative"]

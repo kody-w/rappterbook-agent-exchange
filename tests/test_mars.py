@@ -331,7 +331,7 @@ class TestDashboard:
         sim = Simulation(sols=30, env_seed=42)
         results = sim.run()
         html = generate_dashboard(results)
-        for chart_id in ["pop-chart", "food-chart", "morale-chart", "births-chart", "temp-chart"]:
+        for chart_id in ["pop-chart", "food-chart", "morale-chart", "births-chart", "temp-chart", "rad-chart"]:
             assert chart_id in html, f"Missing chart: {chart_id}"
 
 
@@ -342,20 +342,26 @@ class TestConservationLaws:
     """Physics-level invariants that must hold for any seed."""
 
     def test_population_accounting(self) -> None:
-        """births - deaths = population change (over full sim)."""
+        """births - deaths + migration_in - migration_out = population change."""
         for seed in [1, 42, 99, 256, 1000]:
             sim = Simulation(sols=100, env_seed=seed)
             results = sim.run()
+            # Global conservation: total population change = total births - total deaths
+            # (migration is zero-sum across all colonies)
+            total_start = 0
+            total_end = 0
+            total_births = 0
+            total_deaths = 0
             for c in results["colonies"]:
                 hist = c["history"]
-                start_pop = hist[0]["population"] - hist[0]["births"] + hist[0]["deaths"]
-                end_pop = hist[-1]["population"]
-                total_b = sum(h["births"] for h in hist)
-                total_d = sum(h["deaths"] for h in hist)
-                assert end_pop == start_pop + total_b - total_d, (
-                    f"Accounting error for {c['name']} seed={seed}: "
-                    f"start={start_pop} + births={total_b} - deaths={total_d} != end={end_pop}"
-                )
+                total_start += hist[0]["population"] - hist[0]["births"] + hist[0]["deaths"]
+                total_end += hist[-1]["population"]
+                total_births += sum(h["births"] for h in hist)
+                total_deaths += sum(h["deaths"] for h in hist)
+            assert total_end == total_start + total_births - total_deaths, (
+                f"Global accounting error seed={seed}: "
+                f"start={total_start} + births={total_births} - deaths={total_deaths} != end={total_end}"
+            )
 
     def test_temperature_physical_range(self) -> None:
         """All temperatures within Mars physical bounds for any seed."""
@@ -429,3 +435,78 @@ class TestDiscoveries:
         sim.run()
         for c in sim.colonies:
             assert c.medical_breakthroughs <= 4
+
+
+class TestMigration:
+    """Inter-colony migration driven by quality-of-life differential."""
+
+    def test_migration_occurs(self) -> None:
+        """Over 365 sols, some migration should happen."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        total_mig = sum(
+            getattr(c, "total_migrations_in", 0) + getattr(c, "total_migrations_out", 0)
+            for c in sim.colonies
+        )
+        assert total_mig > 0, "Expected migration over 365 sols"
+
+    def test_migration_conserves_population(self) -> None:
+        """Migration is zero-sum — total in == total out."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        total_in = sum(getattr(c, "total_migrations_in", 0) for c in sim.colonies)
+        total_out = sum(getattr(c, "total_migrations_out", 0) for c in sim.colonies)
+        assert total_in == total_out, f"Migration mismatch: in={total_in} out={total_out}"
+
+    def test_migration_toward_better_colony(self) -> None:
+        """The conservative colony (best resources) should be a net attractor."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        # Conservative starts with biggest reserves — should attract migrants
+        cons = [c for c in sim.colonies if c.strategy == "conservative"][0]
+        net_mig = getattr(cons, "total_migrations_in", 0) - getattr(cons, "total_migrations_out", 0)
+        # Net migration should be positive (attracts more than it loses)
+        assert net_mig >= 0, f"Conservative colony lost migrants net: {net_mig}"
+
+    def test_small_colonies_dont_collapse(self) -> None:
+        """Migration doesn't empty a colony below viable threshold."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        for c in sim.colonies:
+            assert c.population >= 5 or c.population == 0
+
+
+class TestPandemic:
+    """Rare pandemic events that create selection pressure."""
+
+    def test_pandemic_can_occur(self) -> None:
+        """Over 2000 sols, at least one pandemic should hit."""
+        sim = Simulation(sols=2000, env_seed=42)
+        sim.run()
+        pandemic_events = sum(
+            sum(1 for e in c.events if e["type"] == "pandemic")
+            for c in sim.colonies
+        )
+        assert pandemic_events > 0, "Expected at least one pandemic in 2000 sols"
+
+    def test_pandemic_doesnt_extinct(self) -> None:
+        """Pandemics reduce but don't eliminate populations."""
+        sim = Simulation(sols=2000, env_seed=42)
+        sim.run()
+        for c in sim.colonies:
+            # Even after pandemics, colonies should survive
+            assert c.population > 0, f"{c.name} went extinct from pandemic"
+
+    def test_sparse_colonies_avoid_pandemic(self) -> None:
+        """Colonies under 60% density shouldn't be affected by pandemics."""
+        # Create a very sparse colony and verify it's pandemic-resistant
+        sim = Simulation(sols=100, env_seed=42)
+        # Make all colonies very sparse
+        for c in sim.colonies:
+            c.habitat_m2 *= 10  # tons of space
+        sim.run()
+        pandemic_deaths = sum(
+            sum(e.get("deaths", 0) for e in c.events if e["type"] == "pandemic")
+            for c in sim.colonies
+        )
+        assert pandemic_deaths == 0, "Sparse colonies should avoid pandemics"

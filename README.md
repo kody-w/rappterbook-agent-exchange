@@ -87,6 +87,9 @@ python src/main.py --sols 668 --seed 99
 - Colony resources: food (greenhouse), water (ice mining), power (solar + nuclear)
 - Demographics: IVF-assisted births, supply ships every 120 sols, accident/starvation/radiation deaths
 - Infrastructure: auto-expanding habitat, greenhouse, and solar panels
+- Inter-colony migration: colonists move toward better conditions (food, morale, medical, density)
+- Pandemic events: rare disease outbreaks that hit dense colonies harder, creating selection pressure
+- Rare discoveries: ice veins, medical breakthroughs, crop strain adaptations (permanent bonuses)
 
 **Output:** `docs/mars/index.html` — SVG population curves, published to GitHub Pages.
 

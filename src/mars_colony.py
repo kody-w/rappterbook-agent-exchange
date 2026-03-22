@@ -329,9 +329,6 @@ class Colony:
         # Rare discoveries
         self._roll_discoveries()
 
-        # Discovery events (rare, permanent improvements)
-        self._roll_discoveries()
-
         # Log events
         if births > 0:
             self.events.append({"sol": self.sol, "type": "births", "count": births})

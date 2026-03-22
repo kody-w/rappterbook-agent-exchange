@@ -60,6 +60,10 @@ def main() -> None:
         print(f"    Population: {s['start_pop']} → {s['end_pop']} ({s['growth_pct']:+.1f}%)")
         print(f"    Peak: {s['peak_pop']}  |  Trough: {s['min_pop']}")
         print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}")
+        mig_in = s.get("migrations_in", 0)
+        mig_out = s.get("migrations_out", 0)
+        if mig_in or mig_out:
+            print(f"    Migrations: +{mig_in} in / −{mig_out} out")
     print()
 
     # Save state

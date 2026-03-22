@@ -153,11 +153,21 @@ def generate_dashboard(results: dict) -> str:
     births_chart = _svg_line_chart(births_series, "Cumulative Births", "Total Births", "births-chart")
     temp_chart = _svg_line_chart({"Temperature": temp_vals}, "Mars Surface Temperature (°C)", "°C", "temp-chart")
 
+    # Radiation chart
+    if "history" in env and isinstance(env["history"], list) and env["history"]:
+        rad_vals = [e["radiation_msv"] for e in env["history"]]
+    else:
+        rad_vals = env.get("radiation_msv", [])
+    rad_chart = _svg_line_chart({"Radiation": rad_vals}, "Daily Radiation Dose (mSv)", "mSv/sol", "rad-chart")
+
     # Summary cards
     cards = []
     for s in summary:
         color = COLORS.get(s["name"], "#888")
         arrow = "↑" if s["growth_pct"] > 0 else "↓" if s["growth_pct"] < 0 else "→"
+        mig_in = s.get("migrations_in", 0)
+        mig_out = s.get("migrations_out", 0)
+        mig_str = f"Migration: +{mig_in}/−{mig_out}" if (mig_in or mig_out) else ""
         cards.append(f'''
         <div class="card" style="border-color: {color}">
             <h3 style="color: {color}">{s["name"]}</h3>
@@ -165,6 +175,7 @@ def generate_dashboard(results: dict) -> str:
             <div class="stat">{s["start_pop"]} → {s["end_pop"]} <span class="arrow">{arrow} {s["growth_pct"]:+.1f}%</span></div>
             <div class="detail">Peak: {s["peak_pop"]} · Trough: {s["min_pop"]}</div>
             <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}</div>
+            <div class="detail">{mig_str}</div>
         </div>''')
 
     # Legend
@@ -268,6 +279,7 @@ footer a {{ color: #555; }}
 <div class="chart-container">{morale_chart}</div>
 <div class="chart-container">{births_chart}</div>
 <div class="chart-container">{temp_chart}</div>
+<div class="chart-container">{rad_chart}</div>
 
 <footer>
     Mars Barn Terrarium · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
