@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mars Barn — Colony Population Curves</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#0d0a06;font-family:'SF Mono','Fira Code','Cascadia Code',monospace;color:#c8a878}
+.wrap{max-width:1200px;margin:0 auto;padding:20px}
+h1{text-align:center;font-size:20px;letter-spacing:4px;color:rgba(200,140,60,0.7);text-transform:uppercase;margin:20px 0 5px}
+h1 small{display:block;font-size:10px;color:rgba(200,140,60,0.3);letter-spacing:2px;margin-top:4px}
+.subtitle{text-align:center;font-size:11px;color:rgba(200,140,60,0.3);margin-bottom:20px}
+.subtitle a{color:rgba(200,140,60,0.4);text-decoration:none}
+.subtitle a:hover{color:rgba(200,140,60,0.7)}
+canvas{display:block;margin:0 auto;background:rgba(20,15,8,0.9);border:1px solid rgba(180,140,60,0.1);border-radius:8px}
+.stats{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:20px 0}
+.stat{background:rgba(20,15,8,0.8);border:1px solid rgba(180,140,60,0.1);border-radius:8px;padding:12px 20px;text-align:center;min-width:140px}
+.stat .label{font-size:9px;letter-spacing:1.5px;color:rgba(180,140,60,0.4);text-transform:uppercase}
+.stat .value{font-size:22px;color:rgba(220,180,100,0.9);margin-top:4px}
+.stat .detail{font-size:9px;color:rgba(180,140,60,0.3);margin-top:2px}
+.colonies{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:16px 0}
+.colony-card{background:rgba(20,15,8,0.8);border:1px solid rgba(180,140,60,0.1);border-radius:8px;padding:14px 18px;min-width:200px;flex:1;max-width:350px}
+.colony-card h3{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.colony-card h3 .dot{width:8px;height:8px;border-radius:50%}
+.colony-card .row{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;border-bottom:1px solid rgba(180,140,60,0.05)}
+.colony-card .row .k{color:rgba(180,140,60,0.4)}
+.colony-card .row .v{color:rgba(220,180,100,0.8)}
+.legend{display:flex;gap:20px;justify-content:center;margin:12px 0;font-size:10px}
+.legend span{display:flex;align-items:center;gap:5px;color:rgba(180,140,60,0.5)}
+.legend .swatch{width:12px;height:3px;border-radius:2px}
+.events-log{background:rgba(20,15,8,0.8);border:1px solid rgba(180,140,60,0.1);border-radius:8px;padding:14px 18px;margin:16px 0;max-height:200px;overflow-y:auto;font-size:10px}
+.events-log h3{font-size:10px;letter-spacing:1.5px;color:rgba(180,140,60,0.4);text-transform:uppercase;margin-bottom:8px}
+.events-log .event{padding:2px 0;color:rgba(180,140,60,0.5);border-bottom:1px solid rgba(180,140,60,0.03)}
+.events-log .event.storm{color:#e06040}
+.events-log .event.supply{color:#40c060}
+.events-log .event.epidemic{color:#c040c0}
+.events-log .event.boom{color:#60c0e0}
+#loading{text-align:center;padding:100px 20px;font-size:14px;color:rgba(180,140,60,0.4)}
+.dust-indicator{position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:4px;font-size:9px;letter-spacing:1px;text-transform:uppercase}
+.canvas-wrap{position:relative;display:inline-block;margin:0 auto;display:flex;justify-content:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mars Barn<small>Colony Population Terrarium</small></h1>
+  <p class="subtitle">
+    3 colonies · 365 sols · logistic growth with resource constraints
+    <br><a href="index.html">← back to organism index</a>
+  </p>
+
+  <div id="loading">Loading simulation data...</div>
+  <div id="app" style="display:none">
+    <div class="stats" id="stats"></div>
+    <div class="legend" id="legend"></div>
+    <div class="canvas-wrap"><canvas id="chart" width="1100" height="400"></canvas></div>
+    <div class="colonies" id="colonies"></div>
+    <div class="canvas-wrap" style="margin-top:16px"><canvas id="resources" width="1100" height="250"></canvas></div>
+    <div class="events-log" id="events"><h3>Notable Events</h3></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#e8a040','#40c8e8','#e04060'];
+const COLOR_FADED = ['rgba(232,160,64,0.15)','rgba(64,200,232,0.15)','rgba(224,64,96,0.15)'];
+const RES_COLORS = {o2:'#6090e0',h2o:'#40b8e0',food:'#60c060',power:'#e0c040'};
+
+async function init(){
+  let resp;
+  try{
+    resp=await fetch('mars_data.json');
+    if(!resp.ok) throw new Error(resp.status);
+  }catch(e){
+    document.getElementById('loading').textContent='No simulation data yet. Run: python src/main.py --sols 365';
+    return;
+  }
+  const data=await resp.json();
+  document.getElementById('loading').style.display='none';
+  document.getElementById('app').style.display='block';
+  render(data);
+}
+
+function render(data){
+  const tl=data.timeline;
+  const cols=data.colonies;
+  const sols=tl.length;
+
+  // Stats
+  const statsEl=document.getElementById('stats');
+  const totalPop=data.total_population;
+  const totalBirths=cols.reduce((s,c)=>s+c.births_total,0);
+  const totalDeaths=cols.reduce((s,c)=>s+c.deaths_total,0);
+  statsEl.innerHTML=[
+    {label:'Total Population',value:totalPop,detail:`across ${cols.length} colonies`},
+    {label:'Total Births',value:totalBirths,detail:'cumulative'},
+    {label:'Total Deaths',value:totalDeaths,detail:'cumulative'},
+    {label:'Sols Elapsed',value:sols,detail:`seed ${data._meta.seed}`},
+  ].map(s=>`<div class="stat"><div class="label">${s.label}</div><div class="value">${s.value.toLocaleString()}</div><div class="detail">${s.detail}</div></div>`).join('');
+
+  // Legend
+  const legendEl=document.getElementById('legend');
+  legendEl.innerHTML=cols.map((c,i)=>`<span><span class="swatch" style="background:${COLORS[i]}"></span>${c.name}</span>`).join('') +
+    `<span><span class="swatch" style="background:rgba(255,255,255,0.2)"></span>Total</span>` +
+    `<span><span class="swatch" style="background:rgba(255,200,100,0.15)"></span>Dust Season</span>`;
+
+  // Population chart
+  drawPopChart(tl,cols);
+
+  // Colony cards
+  const colsEl=document.getElementById('colonies');
+  colsEl.innerHTML=cols.map((c,i)=>{
+    const rows=[
+      ['Population',c.population],
+      ['Peak',c.peak_population],
+      ['Births',c.births_total],
+      ['Deaths',c.deaths_total],
+      ['Morale',(c.morale*100).toFixed(0)+'%'],
+      ['Tech Level',c.tech_level.toFixed(2)],
+    ];
+    return`<div class="colony-card"><h3><span class="dot" style="background:${COLORS[i]}"></span>${c.name}</h3>${rows.map(r=>`<div class="row"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('')}</div>`;
+  }).join('');
+
+  // Resource chart
+  drawResourceChart(tl,cols);
+
+  // Events
+  renderEvents(tl);
+}
+
+function drawPopChart(tl,cols){
+  const canvas=document.getElementById('chart');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  const pad={t:30,r:20,b:40,l:60};
+  const cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+
+  ctx.clearRect(0,0,W,H);
+
+  // Find max population
+  let maxPop=0;
+  for(const t of tl){
+    maxPop=Math.max(maxPop,t.total_population);
+    for(const c of t.colonies) maxPop=Math.max(maxPop,c.population);
+  }
+  maxPop=Math.ceil(maxPop*1.1/50)*50;
+
+  // Dust season shading
+  for(let i=0;i<tl.length;i++){
+    const ls=tl[i].ls;
+    if(ls>=180&&ls<=330){
+      const x=pad.l+(i/tl.length)*cw;
+      const w=Math.max(1,cw/tl.length);
+      ctx.fillStyle='rgba(180,80,30,0.06)';
+      ctx.fillRect(x,pad.t,w,ch);
+    }
+  }
+
+  // Grid
+  ctx.strokeStyle='rgba(180,140,60,0.08)';
+  ctx.lineWidth=1;
+  const gridLines=5;
+  for(let i=0;i<=gridLines;i++){
+    const y=pad.t+ch*(1-i/gridLines);
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+cw,y);ctx.stroke();
+    ctx.fillStyle='rgba(180,140,60,0.3)';
+    ctx.font='9px monospace';
+    ctx.textAlign='right';
+    ctx.fillText(Math.round(maxPop*i/gridLines),pad.l-8,y+3);
+  }
+
+  // X axis labels
+  ctx.textAlign='center';
+  const step=Math.ceil(tl.length/10);
+  for(let i=0;i<tl.length;i+=step){
+    const x=pad.l+(i/tl.length)*cw;
+    ctx.fillStyle='rgba(180,140,60,0.3)';
+    ctx.fillText(`Sol ${tl[i].sol}`,x,H-pad.b+20);
+  }
+
+  // Draw colony lines
+  for(let ci=0;ci<cols.length;ci++){
+    // Area fill
+    ctx.beginPath();
+    ctx.moveTo(pad.l,pad.t+ch);
+    for(let i=0;i<tl.length;i++){
+      const x=pad.l+(i/tl.length)*cw;
+      const y=pad.t+ch*(1-tl[i].colonies[ci].population/maxPop);
+      if(i===0)ctx.lineTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.lineTo(pad.l+cw,pad.t+ch);
+    ctx.closePath();
+    ctx.fillStyle=COLOR_FADED[ci];
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    for(let i=0;i<tl.length;i++){
+      const x=pad.l+(i/tl.length)*cw;
+      const y=pad.t+ch*(1-tl[i].colonies[ci].population/maxPop);
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=COLORS[ci];
+    ctx.lineWidth=2;
+    ctx.stroke();
+  }
+
+  // Total population (dashed)
+  ctx.beginPath();
+  ctx.setLineDash([4,4]);
+  for(let i=0;i<tl.length;i++){
+    const x=pad.l+(i/tl.length)*cw;
+    const y=pad.t+ch*(1-tl[i].total_population/maxPop);
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  }
+  ctx.strokeStyle='rgba(255,255,255,0.25)';
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Axis labels
+  ctx.fillStyle='rgba(180,140,60,0.4)';
+  ctx.font='10px monospace';
+  ctx.textAlign='center';
+  ctx.fillText('Sol',W/2,H-5);
+  ctx.save();ctx.translate(12,H/2);ctx.rotate(-Math.PI/2);ctx.fillText('Population',0,0);ctx.restore();
+
+  // Title
+  ctx.fillStyle='rgba(180,140,60,0.5)';
+  ctx.font='11px monospace';
+  ctx.textAlign='center';
+  ctx.fillText('POPULATION DYNAMICS — 3 COLONIES × '+tl.length+' SOLS',W/2,18);
+}
+
+function drawResourceChart(tl,cols){
+  const canvas=document.getElementById('resources');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  const pad={t:30,r:20,b:35,l:60};
+  const cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  ctx.clearRect(0,0,W,H);
+
+  // We show the first colony's resources as an example
+  const resKeys=['o2','h2o','food','power'];
+  let maxRes=0;
+  for(const t of tl){
+    for(const r of resKeys){
+      maxRes=Math.max(maxRes,t.colonies[0].resources[r]||0);
+    }
+  }
+  maxRes=Math.ceil(maxRes*1.1/100)*100||100;
+
+  // Grid
+  ctx.strokeStyle='rgba(180,140,60,0.06)';
+  for(let i=0;i<=4;i++){
+    const y=pad.t+ch*(1-i/4);
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+cw,y);ctx.stroke();
+    ctx.fillStyle='rgba(180,140,60,0.25)';ctx.font='9px monospace';ctx.textAlign='right';
+    ctx.fillText(Math.round(maxRes*i/4),pad.l-8,y+3);
+  }
+
+  // Draw resource lines for colony 0 (Ares Prime)
+  for(const res of resKeys){
+    ctx.beginPath();
+    for(let i=0;i<tl.length;i++){
+      const x=pad.l+(i/tl.length)*cw;
+      const v=tl[i].colonies[0].resources[res]||0;
+      const y=pad.t+ch*(1-v/maxRes);
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=RES_COLORS[res];
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+  }
+
+  // Legend
+  ctx.font='9px monospace';
+  let lx=pad.l+10;
+  for(const res of resKeys){
+    ctx.fillStyle=RES_COLORS[res];
+    ctx.fillRect(lx,pad.t+5,12,3);
+    ctx.fillStyle='rgba(180,140,60,0.4)';
+    ctx.textAlign='left';
+    ctx.fillText(res.toUpperCase(),lx+16,pad.t+9);
+    lx+=70;
+  }
+
+  ctx.fillStyle='rgba(180,140,60,0.5)';
+  ctx.font='11px monospace';ctx.textAlign='center';
+  ctx.fillText('ARES PRIME — RESOURCE LEVELS OVER TIME',W/2,18);
+}
+
+function renderEvents(tl){
+  const el=document.getElementById('events');
+  // Collect notable events from timeline snapshots
+  const notable=[];
+  for(const t of tl){
+    // Check for major population swings
+    if(t.colonies){
+      for(let i=0;i<t.colonies.length;i++){
+        const c=t.colonies[i];
+        if(c.population===0) notable.push({sol:t.sol,cls:'storm',text:`Colony ${i} EXTINCT at sol ${t.sol}`});
+      }
+    }
+    // Dust season boundaries
+    if(t.ls>=179.5&&t.ls<=181) notable.push({sol:t.sol,cls:'storm',text:`Sol ${t.sol}: Dust season begins (Ls ${t.ls}°)`});
+    if(t.ls>=329.5&&t.ls<=331) notable.push({sol:t.sol,cls:'',text:`Sol ${t.sol}: Dust season ends (Ls ${t.ls}°)`});
+  }
+  // Show start/end
+  if(tl.length>0){
+    const first=tl[0],last=tl[tl.length-1];
+    notable.unshift({sol:0,cls:'boom',text:`Simulation start: ${first.total_population} colonists`});
+    notable.push({sol:last.sol,cls:'boom',text:`Simulation end: ${last.total_population} colonists (sol ${last.sol})`});
+  }
+  el.innerHTML='<h3>Notable Events</h3>'+notable.map(e=>`<div class="event ${e.cls}">${e.text}</div>`).join('');
+}
+
+init();
+</script>
+</body>
+</html>

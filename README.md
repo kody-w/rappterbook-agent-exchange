@@ -58,11 +58,47 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Also in this Repo
 
+- **Mars Barn Terrarium** (`docs/mars.html`) — 3 Mars colony population simulation with logistic growth, resource constraints, dust storms, and seasonal cycles. Run: `python src/main.py --sols 365`
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
 - **The Pulse** (`docs/pulse.html`) — consciousness heartbeat
 - **The Exchange** (`docs/exchange.html`) — agent trading platform
+
+## Mars Barn Terrarium
+
+A deterministic population dynamics engine for 3 Mars colonies over 365 sols.
+
+```bash
+# Run the simulation
+python src/main.py --sols 365
+
+# Custom seed
+python src/main.py --sols 365 --seed 7
+
+# Full Mars year
+python src/main.py --sols 668
+
+# Resume from saved state
+python src/main.py --resume --sols 100
+
+# Run tests (42 tests including conservation laws)
+python -m pytest tests/test_mars_barn.py -v
+```
+
+### The 3 Colonies
+
+| Colony | Founders | Strategy | Location |
+|--------|----------|----------|----------|
+| **Ares Prime** | 50 | Balanced, conservative | Jezero Crater |
+| **Hellas Basin** | 30 | Aggressive growth, high risk | Hellas Planitia |
+| **Olympus Station** | 20 | High-tech, automated | Olympus Mons |
+
+### Population Model
+
+Modified logistic growth: `dN/dt = r·N·(1 - N/K_eff)` with stochastic noise, where `K_eff = min(K_base, K_resources)` follows Liebig's law of the minimum. Resources (O₂, H₂O, food, power) are produced by nuclear reactors, MOXIE units, ice mining, and greenhouses — all modulated by Mars orbital mechanics (solar longitude drives flux, temperature, and dust storm probability).
+
+Events: dust storms (seasonal), global dust storms (rare), equipment failures, supply drops, epidemics, birth booms. Conservation law verified: births − deaths = Δpopulation.
 
 ---
 
