@@ -29,14 +29,14 @@ BASE_DEATH_RATE = 6.0 / 1000.0 / 668.6   # 6/1000/year — young, screened colon
 ACCIDENT_RATE = 0.0002  # per sol per person — trained crew
 
 # Supply ships
-SUPPLY_SHIP_INTERVAL = 200  # sols between Hohmann transfer arrivals
-SUPPLY_SHIP_COLONISTS = {"conservative": 15, "balanced": 20, "aggressive": 30}
+SUPPLY_SHIP_INTERVAL = 120  # sols between supply flights
+SUPPLY_SHIP_COLONISTS = {"conservative": 20, "balanced": 25, "aggressive": 35}
 
 # Resource production
-GREENHOUSE_KG_SOL_M2 = 0.02  # food yield per m² greenhouse per sol
+GREENHOUSE_KG_SOL_M2 = 0.08  # food yield per m² greenhouse per sol (vertical Mars farms)
 WATER_RECYCLE_RATE = 0.93
-SOLAR_PANEL_KWH_M2 = 0.15  # base output per m² panel at mean flux
-NUCLEAR_POWER_KWH = 50.0   # baseline nuclear reactor output (RTG + fission)
+SOLAR_PANEL_KWH_M2 = 0.22  # base output per m² panel (high-eff GaAs)
+NUCLEAR_POWER_KWH = 100.0  # baseline fission reactor output (Kilopower)
 
 # Radiation thresholds (cumulative mSv)
 RADIATION_CONCERN = 200   # increased cancer risk
@@ -82,6 +82,8 @@ class Colony:
         self.sol = 0
         self.history: list[dict] = []
         self.events: list[dict] = []
+        self.water_mining_bonus = 0.0
+        self.medical_breakthroughs = 0
 
     def _consume_resources(self) -> dict:
         """Consume food, water, power. Returns shortage ratios."""
@@ -115,8 +117,8 @@ class Colony:
         power_nuclear = NUCLEAR_POWER_KWH
         self.power_kwh += power_solar + power_nuclear
 
-        # Water mining (ice extraction from regolith) — constant drip
-        water_mined = 5.0 + self.population * 0.1
+        # Water mining (ice extraction from regolith) — boosted by discoveries
+        water_mined = 5.0 + self.population * 0.1 + self.water_mining_bonus
         self.water_l += water_mined
 
     def _compute_births(self, ratios: dict) -> int:
@@ -196,8 +198,9 @@ class Colony:
         elif env.get("storm") == "regional":
             death_rate += 0.0005
 
-        # Medical quality reduces deaths
-        death_rate *= (1.0 - 0.4 * self.medical_level)
+        # Medical quality reduces deaths (breakthroughs add up to 0.2 more)
+        effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
+        death_rate *= (1.0 - 0.4 * effective_medical)
 
         # Accidents
         death_rate += ACCIDENT_RATE
@@ -236,7 +239,7 @@ class Colony:
         if self.population == 0:
             return
 
-        expand_rate = {"conservative": 0.5, "balanced": 1.0, "aggressive": 2.0}.get(
+        expand_rate = {"conservative": 1.5, "balanced": 3.0, "aggressive": 5.0}.get(
             self.strategy, 1.0
         )
         # Expand habitat when crowded
@@ -253,6 +256,43 @@ class Colony:
         power_per_cap = self.power_kwh / max(1, self.population)
         if power_per_cap < POWER_KWH_SOL * 2:
             self.solar_m2 += expand_rate * 0.5
+
+    def _roll_discoveries(self) -> None:
+        """Rare permanent improvements — ice veins, medical breakthroughs.
+
+        These are the surprises that change colony trajectories.
+        ~1% per sol each, meaning ~3-4 discoveries per year per colony.
+        """
+        if self.population < 5:
+            return
+
+        # Ice vein discovery — permanent water mining boost
+        if self.rng.random() < 0.008:
+            bonus = self.rng.uniform(2.0, 8.0)
+            self.water_mining_bonus += bonus
+            self.morale = min(1.0, self.morale + 0.05)
+            self.events.append({
+                "sol": self.sol, "type": "discovery",
+                "kind": "ice_vein", "bonus": round(bonus, 1),
+            })
+
+        # Medical breakthrough — permanent mortality reduction
+        if self.rng.random() < 0.005 and self.medical_breakthroughs < 4:
+            self.medical_breakthroughs += 1
+            self.morale = min(1.0, self.morale + 0.08)
+            self.events.append({
+                "sol": self.sol, "type": "discovery",
+                "kind": "medical",
+            })
+
+        # Crop strain adaptation — greenhouse efficiency boost
+        if self.rng.random() < 0.006:
+            boost = self.rng.uniform(5.0, 15.0)
+            self.greenhouse_m2 += boost  # equivalent to adding greenhouse area
+            self.events.append({
+                "sol": self.sol, "type": "discovery",
+                "kind": "crop_strain", "boost_m2": round(boost, 1),
+            })
 
     def tick(self, env: dict) -> dict:
         """Advance one sol. env comes from MarsEnvironment.tick().
@@ -286,6 +326,12 @@ class Colony:
         # Infrastructure
         self._expand_infrastructure()
 
+        # Rare discoveries
+        self._roll_discoveries()
+
+        # Discovery events (rare, permanent improvements)
+        self._roll_discoveries()
+
         # Log events
         if births > 0:
             self.events.append({"sol": self.sol, "type": "births", "count": births})
@@ -318,24 +364,24 @@ def create_colony(name: str, strategy: str, seed: int) -> Colony:
     """Factory for the three colony archetypes."""
     configs = {
         "conservative": {
-            "population": 100,
-            "food_kg": 100 * FOOD_KG_SOL * 200,  # 200 sols reserve
-            "water_l": 100 * WATER_L_SOL * (1 - WATER_RECYCLE_RATE) * 200,
-            "power_kwh": 100 * POWER_KWH_SOL * 5,
-            "habitat_m2": 100 * HABITAT_M2_MIN * 1.3,
-            "greenhouse_m2": 500,
-            "solar_m2": 800,
+            "population": 120,
+            "food_kg": 120 * FOOD_KG_SOL * 200,  # 200 sols reserve
+            "water_l": 120 * WATER_L_SOL * (1 - WATER_RECYCLE_RATE) * 200,
+            "power_kwh": 120 * POWER_KWH_SOL * 5,
+            "habitat_m2": 120 * HABITAT_M2_MIN * 1.5,
+            "greenhouse_m2": 2500,
+            "solar_m2": 2000,
             "medical_level": 0.8,
-            "morale": 0.75,
+            "morale": 0.80,
         },
         "balanced": {
             "population": 80,
             "food_kg": 80 * FOOD_KG_SOL * 150,
             "water_l": 80 * WATER_L_SOL * (1 - WATER_RECYCLE_RATE) * 150,
             "power_kwh": 80 * POWER_KWH_SOL * 4,
-            "habitat_m2": 80 * HABITAT_M2_MIN * 1.1,
-            "greenhouse_m2": 350,
-            "solar_m2": 600,
+            "habitat_m2": 80 * HABITAT_M2_MIN * 1.2,
+            "greenhouse_m2": 1500,
+            "solar_m2": 1500,
             "medical_level": 0.6,
             "morale": 0.70,
         },
@@ -345,8 +391,8 @@ def create_colony(name: str, strategy: str, seed: int) -> Colony:
             "water_l": 60 * WATER_L_SOL * (1 - WATER_RECYCLE_RATE) * 100,
             "power_kwh": 60 * POWER_KWH_SOL * 3,
             "habitat_m2": 60 * HABITAT_M2_MIN * 0.9,
-            "greenhouse_m2": 250,
-            "solar_m2": 450,
+            "greenhouse_m2": 800,
+            "solar_m2": 1200,
             "medical_level": 0.4,
             "morale": 0.65,
         },

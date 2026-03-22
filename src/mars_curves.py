@@ -104,21 +104,48 @@ def _svg_line_chart(
     return "\n".join(lines)
 
 
+def _extract_series(colonies: list, env: dict) -> tuple:
+    """Extract chart series from either format (flat arrays or list-of-dicts)."""
+    c0 = colonies[0]
+    if "history" in c0 and isinstance(c0["history"], list) and c0["history"]:
+        # sim.run() format: colonies[i]["history"] = [{"population": ..., ...}, ...]
+        pop = {c["name"]: [h["population"] for h in c["history"]] for c in colonies}
+        food = {c["name"]: [h["food_kg"] for h in c["history"]] for c in colonies}
+        morale = {c["name"]: [h["morale"] for h in c["history"]] for c in colonies}
+        births = {c["name"]: _cumsum([h["births"] for h in c["history"]]) for c in colonies}
+    else:
+        # saved JSON format: colonies[i]["population"] = [int, ...]
+        pop = {c["name"]: c["population"] for c in colonies}
+        food = {c["name"]: c["food_kg"] for c in colonies}
+        morale = {c["name"]: c["morale"] for c in colonies}
+        births = {c["name"]: _cumsum(c["births"]) for c in colonies}
+
+    if "history" in env and isinstance(env["history"], list) and env["history"]:
+        dust = [e["dust_opacity"] for e in env["history"]]
+        temp = [e["temperature_c"] for e in env["history"]]
+    else:
+        dust = env["dust_opacity"]
+        temp = env["temperature_c"]
+
+    return pop, food, morale, births, dust, temp
+
+
 def generate_dashboard(results: dict) -> str:
-    """Generate a complete HTML page with population curves."""
+    """Generate a complete HTML page with population curves.
+
+    Handles both sim.run() output (list-of-dicts) and saved JSON (flat arrays).
+    """
     colonies = results["colonies"]
-    env_hist = results["environment"]["history"]
+    env = results["environment"]
     summary = results["summary"]["colonies"]
     meta = results["_meta"]
 
-    # Build series for each chart
-    pop_series = {c["name"]: [h["population"] for h in c["history"]] for c in colonies}
-    food_series = {c["name"]: [h["food_kg"] for h in c["history"]] for c in colonies}
-    morale_series = {c["name"]: [h["morale"] for h in c["history"]] for c in colonies}
-    births_series = {c["name"]: _cumsum([h["births"] for h in c["history"]]) for c in colonies}
+    pop_series, food_series, morale_series, births_series, dust_raw, temp_vals = (
+        _extract_series(colonies, env)
+    )
 
-    dust_vals = [e["dust_opacity"] * max(h["population"] for c in colonies for h in c["history"]) for e in env_hist]
-    temp_vals = [e["temperature_c"] for e in env_hist]
+    peak_pop = max(max(v) for v in pop_series.values())
+    dust_vals = [d * peak_pop for d in dust_raw]
 
     pop_chart = _svg_line_chart(pop_series, "Population Over Time", "People", "pop-chart", dust_vals, "Dust storms")
     food_chart = _svg_line_chart(food_series, "Food Reserves (kg)", "kg", "food-chart")

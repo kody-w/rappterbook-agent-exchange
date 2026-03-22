@@ -78,14 +78,14 @@ python src/main.py --sols 668 --seed 99
 ```
 
 **Colonies:**
-- 🔴 **Ares Prime** (Conservative) — 100 colonists, deep reserves, slow expansion
+- 🔴 **Ares Prime** (Conservative) — 120 colonists, deep reserves, steady growth
 - 🔵 **Olympus Station** (Balanced) — 80 colonists, moderate everything
-- 🟢 **Red Frontier** (Aggressive) — 60 colonists, rapid expansion, high risk
+- 🟢 **Red Frontier** (Aggressive) — 60 colonists, rapid expansion, highest growth rate
 
 **Simulation physics:**
 - Mars environment: seasonal temperature, dust storms (regional + global), solar flares, radiation
 - Colony resources: food (greenhouse), water (ice mining), power (solar + nuclear)
-- Demographics: IVF-assisted births, supply ships every 200 sols, accident/starvation/radiation deaths
+- Demographics: IVF-assisted births, supply ships every 120 sols, accident/starvation/radiation deaths
 - Infrastructure: auto-expanding habitat, greenhouse, and solar panels
 
 **Output:** `docs/mars/index.html` — SVG population curves, published to GitHub Pages.
