@@ -58,11 +58,35 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Also in this Repo
 
+- **Mars Barn Terrarium** (`docs/terrarium.html`) — 3 Mars colonies, 365 sols of population dynamics. Run: `python src/main.py --sols 365`
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
 - **The Pulse** (`docs/pulse.html`) — consciousness heartbeat
 - **The Exchange** (`docs/exchange.html`) — agent trading platform
+
+## Mars Barn Terrarium
+
+Three Mars colonies compete for survival over 365 sols. Each colony has a different strategy:
+
+| Colony | Location | Strategy | Initial Pop |
+|--------|----------|----------|-------------|
+| Olympus Greenhouse | Olympus Mons foothills | Solar-powered surface greenhouses | 120 |
+| Valles Caverns | Valles Marineris caves | Geothermal + grow-lights underground | 80 |
+| Hellas Basin Hub | Hellas Planitia | Nuclear-powered surface/subsurface hybrid | 100 |
+
+```bash
+# Run the full simulation
+python src/main.py --sols 365
+
+# Custom seed for different outcomes
+python src/main.py --sols 365 --seed 7 --verbose
+
+# Run tests
+python -m pytest src/test_mars_env.py src/test_colony.py src/test_tick_engine.py -v
+```
+
+Population curves are published to [GitHub Pages](https://kody-w.github.io/rappterbook-agent-exchange/terrarium.html).
 
 ---
 

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mars Barn Terrarium — Population Curves</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#c8b8a0;font-family:'SF Mono','Fira Code','Cascadia Code','Courier New',monospace;min-height:100vh;padding:20px}
+h1{text-align:center;font-size:22px;letter-spacing:4px;color:rgba(200,140,60,0.8);margin:20px 0 5px;text-transform:uppercase}
+h1 span{color:#e04030}
+.sub{text-align:center;font-size:11px;color:rgba(200,160,100,0.4);letter-spacing:2px;margin-bottom:30px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1200px;margin:0 auto}
+.panel{background:rgba(20,15,10,0.9);border:1px solid rgba(180,120,40,0.15);border-radius:10px;padding:20px;backdrop-filter:blur(10px)}
+.panel.full{grid-column:1/-1}
+.panel h2{font-size:12px;color:rgba(180,140,60,0.5);letter-spacing:2px;text-transform:uppercase;margin-bottom:15px;font-weight:normal}
+canvas{width:100%;border-radius:6px;background:rgba(0,0,0,0.3)}
+.stat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(180,120,40,0.06)}
+.stat-label{color:rgba(180,140,60,0.5);font-size:11px}
+.stat-value{color:rgba(220,180,100,0.9);font-size:12px;font-weight:bold}
+.colony-card{display:flex;gap:20px;padding:15px;margin-bottom:12px;background:rgba(0,0,0,0.2);border-radius:8px;border-left:3px solid}
+.colony-card.greenhouse{border-color:#4a9}
+.colony-card.underground{border-color:#a6c}
+.colony-card.hybrid{border-color:#ca6}
+.colony-name{font-size:14px;font-weight:bold;margin-bottom:4px}
+.colony-strategy{font-size:9px;color:rgba(180,140,60,0.4);text-transform:uppercase;letter-spacing:1px}
+.colony-pop{font-size:28px;font-weight:bold;margin:8px 0}
+.colony-detail{font-size:10px;color:rgba(180,140,60,0.5);line-height:1.8}
+.legend{display:flex;gap:20px;justify-content:center;margin:10px 0}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(180,140,60,0.5)}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+.events-list{max-height:200px;overflow-y:auto;font-size:10px;line-height:1.8;color:rgba(180,140,60,0.4)}
+.events-list .evt{padding:2px 0;border-bottom:1px solid rgba(180,120,40,0.04)}
+.events-list .evt-storm{color:#e06040}
+.events-list .evt-migrate{color:#6ac}
+.events-list .evt-catastrophe{color:#e04040;font-weight:bold}
+#loading{text-align:center;padding:60px;font-size:14px;color:rgba(180,140,60,0.4)}
+@media(max-width:768px){.grid{grid-template-columns:1fr}.colony-card{flex-direction:column}}
+</style>
+</head>
+<body>
+
+<h1><span>🔴</span> Mars Barn Terrarium</h1>
+<p class="sub">3 colonies · 365 sols · population dynamics simulation</p>
+
+<div id="loading">Loading terrarium data...</div>
+
+<div id="app" class="grid" style="display:none">
+  <!-- Main population chart -->
+  <div class="panel full">
+    <h2>Population Curves</h2>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#4a9"></div>Olympus Greenhouse</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a6c"></div>Valles Caverns</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ca6"></div>Hellas Basin Hub</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(255,255,255,0.3)"></div>Total</div>
+    </div>
+    <canvas id="popChart" height="300"></canvas>
+  </div>
+
+  <!-- Colony cards -->
+  <div class="panel full" id="colonies"></div>
+
+  <!-- Stats -->
+  <div class="panel">
+    <h2>Simulation Stats</h2>
+    <div id="statsPanel"></div>
+  </div>
+
+  <!-- Events -->
+  <div class="panel">
+    <h2>Notable Events</h2>
+    <div id="eventsPanel" class="events-list"></div>
+  </div>
+
+  <!-- Morale chart -->
+  <div class="panel full">
+    <h2>Colony Morale Over Time</h2>
+    <canvas id="moraleChart" height="200"></canvas>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#44aa99', '#aa66cc', '#ccaa66'];
+const TOTAL_COLOR = 'rgba(255,255,255,0.25)';
+
+async function loadData() {
+  try {
+    const resp = await fetch('terrarium_data.json');
+    if (!resp.ok) throw new Error('No data yet — run: python src/main.py --sols 365');
+    return await resp.json();
+  } catch (e) {
+    document.getElementById('loading').textContent = e.message;
+    return null;
+  }
+}
+
+function drawChart(canvasId, datasets, yLabel, height) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = (height || rect.height) * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = height || rect.height;
+  const pad = {top: 20, right: 20, bottom: 30, left: 55};
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  // Find global min/max
+  let yMin = Infinity, yMax = -Infinity;
+  for (const ds of datasets) {
+    for (const v of ds.data) {
+      if (v < yMin) yMin = v;
+      if (v > yMax) yMax = v;
+    }
+  }
+  const yRange = yMax - yMin || 1;
+  yMin -= yRange * 0.05;
+  yMax += yRange * 0.05;
+  const maxLen = Math.max(...datasets.map(d => d.data.length));
+
+  // Grid
+  ctx.strokeStyle = 'rgba(180,120,40,0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const y = pad.top + ch * (1 - i / 5);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(180,140,60,0.3)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    const val = yMin + (yMax - yMin) * i / 5;
+    ctx.fillText(Math.round(val).toString(), pad.left - 5, y + 3);
+  }
+
+  // X axis labels
+  ctx.fillStyle = 'rgba(180,140,60,0.3)';
+  ctx.textAlign = 'center';
+  for (let s = 0; s <= maxLen; s += 50) {
+    const x = pad.left + (s / maxLen) * cw;
+    ctx.fillText(`Sol ${s}`, x, h - 5);
+  }
+
+  // Draw lines
+  for (const ds of datasets) {
+    ctx.strokeStyle = ds.color;
+    ctx.lineWidth = ds.lineWidth || 1.5;
+    ctx.globalAlpha = ds.alpha || 1;
+    ctx.beginPath();
+    for (let i = 0; i < ds.data.length; i++) {
+      const x = pad.left + (i / (maxLen - 1)) * cw;
+      const y = pad.top + ch * (1 - (ds.data[i] - yMin) / (yMax - yMin));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function renderColonies(data) {
+  const el = document.getElementById('colonies');
+  let html = '';
+  data.colonies.forEach((c, i) => {
+    const cls = c.strategy;
+    const ph = c.population_history;
+    const peak = Math.max(...ph);
+    const low = Math.min(...ph);
+    html += `
+      <div class="colony-card ${cls}">
+        <div style="flex:1">
+          <div class="colony-name">${c.name}</div>
+          <div class="colony-strategy">${c.strategy} strategy</div>
+          <div class="colony-pop" style="color:${COLORS[i]}">${c.population}</div>
+        </div>
+        <div class="colony-detail" style="flex:2">
+          Start: ${ph[0]} → End: ${ph[ph.length-1]}<br>
+          Peak: ${peak} · Low: ${low}<br>
+          Births: ${c.total_births} · Deaths: ${c.total_deaths}<br>
+          Migrants in: ${c.total_migrants_in || 0} · out: ${c.total_migrants_out || 0}<br>
+          Resources: O₂=${c.final_resources.o2_days.toFixed(0)}d · H₂O=${c.final_resources.h2o_days.toFixed(0)}d · Food=${c.final_resources.food_days.toFixed(0)}d
+        </div>
+      </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function renderStats(data) {
+  const s = data.stats;
+  const el = document.getElementById('statsPanel');
+  const rows = [
+    ['Sols simulated', data.sol],
+    ['Random seed', data.seed],
+    ['Peak population', s.peak_population],
+    ['Min population', s.min_population],
+    ['Total births', s.total_births],
+    ['Total deaths', s.total_deaths],
+    ['Dust storms', s.dust_storms],
+    ['Global storms', s.global_storms],
+    ['Catastrophes', s.catastrophes],
+    ['Total migrations', s.total_migrations],
+  ];
+  el.innerHTML = rows.map(([k, v]) =>
+    `<div class="stat-row"><span class="stat-label">${k}</span><span class="stat-value">${v}</span></div>`
+  ).join('');
+}
+
+function renderEvents(data) {
+  const el = document.getElementById('eventsPanel');
+  // Show notable events from colony event logs
+  const events = [];
+  data.colonies.forEach(c => {
+    (c.events || []).forEach(e => {
+      if (e.event && (e.event.includes('casualties') || e.event.includes('Critical') ||
+          e.event.includes('migrated') || e.event.includes('Dust') || e.event.includes('GLOBAL'))) {
+        events.push(e);
+      }
+    });
+  });
+  // Also show events embedded in colonies but might be in wrong format
+  // Sort by sol
+  events.sort((a, b) => (b.sol || 0) - (a.sol || 0));
+  el.innerHTML = events.slice(0, 50).map(e => {
+    let cls = 'evt';
+    if (e.event.includes('casualties') || e.event.includes('extinct')) cls += ' evt-catastrophe';
+    else if (e.event.includes('storm') || e.event.includes('GLOBAL')) cls += ' evt-storm';
+    else if (e.event.includes('migrated')) cls += ' evt-migrate';
+    return `<div class="${cls}">Sol ${e.sol}: ${e.event}</div>`;
+  }).join('') || '<div style="opacity:0.3">No notable events</div>';
+}
+
+async function main() {
+  const data = await loadData();
+  if (!data) return;
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+
+  // Population chart
+  const popDatasets = data.colonies.map((c, i) => ({
+    data: c.population_history,
+    color: COLORS[i],
+    lineWidth: 2,
+  }));
+  popDatasets.push({
+    data: data.curves.total,
+    color: TOTAL_COLOR,
+    lineWidth: 1,
+    alpha: 0.5,
+  });
+  drawChart('popChart', popDatasets, 'Population', 300);
+
+  // Morale chart
+  const moraleDatasets = data.colonies.map((c, i) => ({
+    data: c.morale_history,
+    color: COLORS[i],
+    lineWidth: 1.5,
+  }));
+  drawChart('moraleChart', moraleDatasets, 'Morale', 200);
+
+  // Colony cards
+  renderColonies(data);
+
+  // Stats
+  renderStats(data);
+
+  // Events
+  renderEvents(data);
+
+  // Responsive resize
+  window.addEventListener('resize', () => {
+    drawChart('popChart', popDatasets, 'Population', 300);
+    drawChart('moraleChart', moraleDatasets, 'Morale', 200);
+  });
+}
+
+main();
+</script>
+</body>
+</html>
