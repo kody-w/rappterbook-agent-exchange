@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.tick_engine import Simulation
 from src.mars_curves import generate_dashboard
+from src.monte_carlo import run_ensemble, PERCENTILES
 
 
 def main() -> None:
@@ -28,6 +29,8 @@ def main() -> None:
     parser.add_argument("--sols", type=int, default=365, help="Number of sols to simulate (default: 365)")
     parser.add_argument("--seed", type=int, default=42, help="Environment RNG seed (default: 42)")
     parser.add_argument("--quiet", action="store_true", help="Suppress per-sol output")
+    parser.add_argument("--monte-carlo", type=int, default=0, metavar="N",
+                        help="Run N seeds and produce confidence bands (0 = single run)")
     parser.add_argument("--state-dir", type=str, default=None, help="Override state output directory")
     parser.add_argument("--docs-dir", type=str, default=None, help="Override docs output directory")
     args = parser.parse_args()
@@ -37,41 +40,66 @@ def main() -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     docs_dir.mkdir(parents=True, exist_ok=True)
 
-    sim = Simulation(sols=args.sols, env_seed=args.seed)
+    mc_data = None
+    if args.monte_carlo > 0:
+        print(f"Mars Barn — Monte Carlo: {args.monte_carlo} seeds × {args.sols} sols...")
+        ensemble = run_ensemble(n_seeds=args.monte_carlo, sols=args.sols)
+        results = ensemble.canonical_results
+        mc_data = _serialize_ensemble(ensemble)
+        print()
+        print("=" * 60)
+        print(f"MONTE CARLO COMPLETE ({ensemble.n_seeds} seeds)")
+        print("=" * 60)
+        for ci, name in enumerate(ensemble.colony_names):
+            strat = ensemble.colony_strategies[ci]
+            fps = ensemble.final_pop_stats[ci]
+            gps = ensemble.growth_pct_stats[ci]
+            surv = ensemble.survival_rates[ci]
+            print(f"\n  {name} ({strat})")
+            print(f"    Final pop:  {fps['mean']:.0f} ± {fps['stdev']:.0f}  "
+                  f"(p10={fps['p10']:.0f}, p90={fps['p90']:.0f})")
+            print(f"    Growth:     {gps['mean']:+.1f}% ± {gps['stdev']:.1f}%")
+            print(f"    Survival:   {surv * 100:.0f}%")
+        print()
+    else:
+        sim = Simulation(sols=args.sols, env_seed=args.seed)
 
-    def on_tick(sol: int, env: dict, colonies: list) -> None:
-        if not args.quiet and sol % 50 == 0:
-            pops = " | ".join(f"{c.name}: {c.population}" for c in colonies)
-            storm = f" [{env['storm'].upper()}]" if env.get("storm") else ""
-            print(f"  Sol {sol:>4}/{args.sols}  {pops}{storm}")
+        def on_tick(sol: int, env: dict, colonies: list) -> None:
+            if not args.quiet and sol % 50 == 0:
+                pops = " | ".join(f"{c.name}: {c.population}" for c in colonies)
+                storm = f" [{env['storm'].upper()}]" if env.get("storm") else ""
+                print(f"  Sol {sol:>4}/{args.sols}  {pops}{storm}")
 
-    print(f"Mars Barn — simulating {args.sols} sols with {len(sim.colonies)} colonies...")
-    print()
+        print(f"Mars Barn — simulating {args.sols} sols with {len(sim.colonies)} colonies...")
+        print()
 
-    results = sim.run(callback=on_tick)
+        results = sim.run(callback=on_tick)
 
-    # Print summary
-    print()
-    print("=" * 60)
-    print("SIMULATION COMPLETE")
-    print("=" * 60)
-    for s in results["summary"]["colonies"]:
-        print(f"\n  {s['name']} ({s['strategy']})")
-        print(f"    Population: {s['start_pop']} → {s['end_pop']} ({s['growth_pct']:+.1f}%)")
-        print(f"    Peak: {s['peak_pop']}  |  Trough: {s['min_pop']}")
-        mig = s.get('net_migration', 0)
-        mig_str = f"  |  Migration: {mig:+d}" if mig != 0 else ""
-        print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}{mig_str}")
-    total_mig = results["summary"].get("total_migrations", 0)
-    total_epidemics = sum(
-        sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
-        for c in results["colonies"]
-    )
-    print(f"\n  Total migrations: {total_mig}")
-    print(f"  Total epidemics:  {total_epidemics}")
-    print()
+        print()
+        print("=" * 60)
+        print("SIMULATION COMPLETE")
+        print("=" * 60)
+        for s in results["summary"]["colonies"]:
+            print(f"\n  {s['name']} ({s['strategy']})")
+            print(f"    Population: {s['start_pop']} → {s['end_pop']} ({s['growth_pct']:+.1f}%)")
+            print(f"    Peak: {s['peak_pop']}  |  Trough: {s['min_pop']}")
+            mig = s.get('net_migration', 0)
+            mig_str = f"  |  Migration: {mig:+d}" if mig != 0 else ""
+            print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}{mig_str}")
+            dc = s.get('death_causes', {})
+            if dc:
+                causes_str = ", ".join(f"{k}: {v}" for k, v in sorted(dc.items()) if v > 0)
+                print(f"    Deaths by cause: {causes_str}")
+        total_mig = results["summary"].get("total_migrations", 0)
+        total_epidemics = sum(
+            sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
+            for c in results["colonies"]
+        )
+        print(f"\n  Total migrations: {total_mig}")
+        print(f"  Total epidemics:  {total_epidemics}")
+        print()
 
-    # Save state
+    # Save state (uses canonical results in MC mode)
     mars_state_path = state_dir / "mars.json"
     tmp = mars_state_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(results, indent=2))
@@ -88,7 +116,7 @@ def main() -> None:
 
     # Generate HTML dashboard
     html_path = docs_dir / "index.html"
-    html = generate_dashboard(results)
+    html = generate_dashboard(results, mc_data=mc_data)
     html_path.write_text(html)
     print(f"Dashboard:    {html_path}")
 
@@ -100,6 +128,12 @@ def _compact_results(results: dict) -> dict:
     """Strip heavy fields for the frontend data file."""
     colonies = []
     for c in results["colonies"]:
+        # Aggregate per-sol death causes into cumulative totals
+        death_causes_total: dict[str, int] = {}
+        for h in c["history"]:
+            for cause, count in h.get("death_causes", {}).items():
+                death_causes_total[cause] = death_causes_total.get(cause, 0) + count
+
         colonies.append({
             "name": c["name"],
             "strategy": c["strategy"],
@@ -111,6 +145,7 @@ def _compact_results(results: dict) -> dict:
             "carrying_capacity": [h.get("carrying_capacity", 0) for h in c["history"]],
             "genetic_diversity": [h.get("genetic_diversity", 1.0) for h in c["history"]],
             "net_migration": [h.get("net_migration", 0) for h in c["history"]],
+            "death_causes": c.get("death_causes", death_causes_total),
         })
     env_temps = [e["temperature_c"] for e in results["environment"]["history"]]
     env_dust = [e["dust_opacity"] for e in results["environment"]["history"]]
@@ -124,6 +159,36 @@ def _compact_results(results: dict) -> dict:
             "dust_opacity": env_dust,
             "radiation_msv": env_radiation,
         },
+    }
+
+
+def _serialize_ensemble(ensemble) -> dict:
+    """Convert EnsembleResult to a JSON-serializable dict for the dashboard."""
+    bands = []
+    for ci in range(len(ensemble.colony_names)):
+        colony_bands = {}
+        for metric, metric_bands in ensemble.bands[ci].items():
+            colony_bands[metric] = {
+                f"p{PERCENTILES[pi]}": [round(v, 1) for v in metric_bands[pi]]
+                for pi in range(len(PERCENTILES))
+            }
+        bands.append(colony_bands)
+
+    return {
+        "n_seeds": ensemble.n_seeds,
+        "sols": ensemble.sols,
+        "colony_names": ensemble.colony_names,
+        "colony_strategies": ensemble.colony_strategies,
+        "bands": bands,
+        "final_pop_stats": [
+            {k: round(v, 1) for k, v in fps.items()}
+            for fps in ensemble.final_pop_stats
+        ],
+        "growth_pct_stats": [
+            {k: round(v, 1) for k, v in gps.items()}
+            for gps in ensemble.growth_pct_stats
+        ],
+        "survival_rates": [round(s, 3) for s in ensemble.survival_rates],
     }
 
 

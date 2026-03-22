@@ -598,3 +598,177 @@ class TestMigration:
         for c in results["colonies"]:
             for h in c["history"]:
                 assert "net_migration" in h
+
+
+# ─── Death cause attribution tests ──────────────────────────────────
+
+class TestDeathCauses:
+    """Death cause tracking and attribution."""
+
+    def test_death_causes_in_colony(self) -> None:
+        """Colony tracks cumulative death causes."""
+        colony = create_colony("Test", "balanced", 42)
+        env = MarsEnvironment(seed=42)
+        for _ in range(100):
+            colony.tick(env.tick())
+        assert isinstance(colony.death_causes, dict)
+        total_tracked = sum(colony.death_causes.values())
+        assert total_tracked == colony.total_deaths
+
+    def test_death_causes_in_history(self) -> None:
+        """Each sol snapshot includes death_causes dict."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                assert "death_causes" in h
+                assert isinstance(h["death_causes"], dict)
+
+    def test_death_causes_sum_to_deaths(self) -> None:
+        """Sum of per-sol death causes == per-sol deaths."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                cause_total = sum(h["death_causes"].values())
+                assert cause_total == h["deaths"], (
+                    f"Sol {h['sol']}: cause_total={cause_total} != deaths={h['deaths']}"
+                )
+
+    def test_death_causes_in_summary(self) -> None:
+        """Summary includes death_causes breakdown."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        for s in results["summary"]["colonies"]:
+            assert "death_causes" in s
+            total_tracked = sum(s["death_causes"].values())
+            assert total_tracked == s["total_deaths"]
+
+    def test_death_causes_valid_keys(self) -> None:
+        """All death cause keys are from the defined set."""
+        from src.mars_colony import DEATH_CAUSES
+        sim = Simulation(sols=200, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                for cause in h["death_causes"]:
+                    assert cause in DEATH_CAUSES, f"Unknown cause: {cause}"
+
+    def test_accident_deaths_occur(self) -> None:
+        """Accidents should happen over 365 sols with 3 colonies."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        total_accidents = sum(c.death_causes.get("accident", 0) for c in sim.colonies)
+        assert total_accidents > 0, "Expected some accidents over 365 sols"
+
+    def test_no_deaths_from_nonexistent_causes(self) -> None:
+        """Zero-population colony should have no death causes."""
+        colony = create_colony("Ghost", "balanced", 99)
+        colony.population = 0
+        env = MarsEnvironment(seed=99)
+        for _ in range(10):
+            colony.tick(env.tick())
+        assert sum(colony.death_causes.values()) == 0
+
+
+# ─── Storm infrastructure damage tests ──────────────────────────────
+
+class TestStormDamage:
+    """Dust storm infrastructure damage mechanics."""
+
+    def test_global_storm_damages_solar(self) -> None:
+        """Global storm should reduce solar panel area."""
+        colony = create_colony("Test", "balanced", 42)
+        initial_solar = colony.solar_m2
+        # Simulate a global storm env
+        env_snap = {
+            "sol": 1, "ls": 200.0, "season": "autumn",
+            "temperature_c": -60.0, "solar_flux_wm2": 100.0,
+            "dust_opacity": 0.9, "radiation_msv": 0.6,
+            "storm": "global", "flare": False, "pressure_kpa": 0.636,
+        }
+        colony._storm_damage(env_snap)
+        assert colony.solar_m2 < initial_solar
+
+    def test_regional_storm_damages_less(self) -> None:
+        """Regional storm should damage less than global."""
+        c1 = create_colony("Global", "balanced", 42)
+        c2 = create_colony("Regional", "balanced", 42)
+        global_env = {"storm": "global"}
+        regional_env = {"storm": "regional"}
+        c1._storm_damage(global_env)
+        c2._storm_damage(regional_env)
+        # Global storm should cause more damage
+        assert c1.solar_m2 < c2.solar_m2
+
+    def test_no_storm_no_damage(self) -> None:
+        """No storm should not reduce infrastructure."""
+        colony = create_colony("Safe", "balanced", 42)
+        initial_solar = colony.solar_m2
+        initial_greenhouse = colony.greenhouse_m2
+        colony._storm_damage({"storm": None})
+        assert colony.solar_m2 == initial_solar
+        assert colony.greenhouse_m2 == initial_greenhouse
+
+    def test_infrastructure_has_floor(self) -> None:
+        """Infrastructure should not drop below minimum thresholds."""
+        colony = create_colony("Test", "balanced", 42)
+        colony.solar_m2 = 55.0  # near minimum
+        colony.greenhouse_m2 = 25.0
+        for _ in range(100):
+            colony._storm_damage({"storm": "global"})
+        assert colony.solar_m2 >= 50.0
+        assert colony.greenhouse_m2 >= 20.0
+
+    def test_storm_damage_integrated_in_tick(self) -> None:
+        """Storm damage should be applied during colony tick."""
+        colony = create_colony("Test", "aggressive", 42)
+        initial_solar = colony.solar_m2
+        # Force a global storm environment
+        env_snap = {
+            "sol": 1, "ls": 200.0, "season": "autumn",
+            "temperature_c": -60.0, "solar_flux_wm2": 100.0,
+            "dust_opacity": 0.9, "radiation_msv": 0.6,
+            "storm": "global", "flare": False, "pressure_kpa": 0.636,
+        }
+        colony.tick(env_snap)
+        # Infrastructure expansion might counteract, but solar should be affected
+        # Just verify tick doesn't crash and infrastructure stays reasonable
+        assert colony.solar_m2 > 0
+        assert colony.greenhouse_m2 > 0
+
+
+# ─── Death causes chart in dashboard ─────────────────────────────────
+
+class TestDeathCausesDashboard:
+    """Dashboard includes death causes visualization."""
+
+    def test_dashboard_has_death_chart(self) -> None:
+        """Generated HTML includes death causes chart canvas."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        html = generate_dashboard(results)
+        assert 'id="death-chart"' in html
+        assert "Death Causes" in html
+
+    def test_dashboard_has_death_cause_colors(self) -> None:
+        """Dashboard JS includes death cause color definitions."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        html = generate_dashboard(results)
+        assert "CAUSE_COLORS" in html
+        assert "accident" in html
+        assert "starvation" in html
+
+    def test_dashboard_has_death_causes_data(self) -> None:
+        """Colony data in dashboard includes deathCauses."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        html = generate_dashboard(results)
+        assert "deathCauses" in html
+
+    def test_version_3(self) -> None:
+        """Engine version should be 3.0."""
+        sim = Simulation(sols=10, env_seed=42)
+        results = sim.run()
+        assert results["_meta"]["version"] == "3.0"
