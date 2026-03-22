@@ -15,8 +15,12 @@ COLORS = {
 }
 
 
-def generate_dashboard(results: dict) -> str:
-    """Generate interactive HTML dashboard with Canvas charts."""
+def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
+    """Generate interactive HTML dashboard with Canvas charts.
+
+    If mc_data is provided, renders Monte Carlo confidence bands
+    and statistical summary alongside the canonical run.
+    """
     colonies = results["colonies"]
     env = results["environment"]
     summary = results.get("summary", {}).get("colonies", [])
@@ -77,7 +81,31 @@ def generate_dashboard(results: dict) -> str:
 
     env_js_data = f"const ENV = {{temp:{temps},dust:{dust},radiation:{radiation}}};\n"
 
+    events_js = _build_events_js(colonies)
+    mc_js = _build_mc_js(mc_data) if mc_data else "const MC = null;\n"
+
     total_mig = results.get("summary", {}).get("total_migrations", results.get("migration", {}).get("total_transfers", 0))
+
+    mc_subtitle = f" · Monte Carlo: {mc_data['n_seeds']} seeds" if mc_data else ""
+
+    mc_cards_html = ""
+    if mc_data:
+        mc_cards_html = '<div class="mc-section"><h2>📊 Monte Carlo Statistics</h2><div class="cards">'
+        for ci, name in enumerate(mc_data["colony_names"]):
+            color = COLORS.get(name, "#888")
+            fps = mc_data["final_pop_stats"][ci]
+            gps = mc_data["growth_pct_stats"][ci]
+            surv = mc_data["survival_rates"][ci]
+            surv_color = "#2ecc71" if surv >= 0.99 else "#f39c12" if surv >= 0.9 else "#e74c3c"
+            mc_cards_html += f'''
+            <div class="card" style="border-color: {color}">
+                <h3 style="color: {color}">{name}</h3>
+                <div class="stat" style="color:{surv_color}">{surv * 100:.0f}% survival</div>
+                <div class="detail">Final pop: {fps["mean"]:.0f} ± {fps["stdev"]:.0f}</div>
+                <div class="detail">Range: {fps["p10"]:.0f} — {fps["p90"]:.0f} (p10–p90)</div>
+                <div class="detail">Growth: {gps["mean"]:+.1f}% ± {gps["stdev"]:.1f}%</div>
+            </div>'''
+        mc_cards_html += '</div></div>'
 
     html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -138,11 +166,13 @@ footer {{
     margin-top: 30px; padding-top: 16px; border-top: 1px solid #1a1a1a;
 }}
 footer a {{ color: #555; }}
+.mc-section {{ margin-bottom: 24px; }}
+.mc-section h2 {{ color: #f39c12; font-size: 1.1em; margin-bottom: 12px; }}
 </style>
 </head>
 <body>
 <h1>🔴 Mars Barn</h1>
-<p class="subtitle">{meta["sols"]} sols · 3 colonies · seed 42 · generated {meta["generated"][:10]}</p>
+<p class="subtitle">{meta["sols"]} sols · 3 colonies · seed 42{mc_subtitle} · generated {meta["generated"][:10]}</p>
 
 <div class="stats-bar">
     <div>Total migrations: <span>{total_mig}</span></div>
@@ -152,10 +182,17 @@ footer a {{ color: #555; }}
 
 <div class="cards">{cards_html}</div>
 
+{mc_cards_html}
+
 <div class="chart-box">
     <h3>Population + Carrying Capacity (K)</h3>
     <canvas id="pop-chart"></canvas>
     <div class="tooltip" id="pop-tip"></div>
+</div>
+<div class="chart-box" id="mc-pop-box" style="display:none">
+    <h3>Population — Monte Carlo Confidence Bands (p10–p90)</h3>
+    <canvas id="mc-pop-chart"></canvas>
+    <div class="tooltip" id="mc-pop-tip"></div>
 </div>
 <div class="chart-box">
     <h3>Genetic Diversity</h3>
@@ -191,6 +228,8 @@ footer a {{ color: #555; }}
 "use strict";
 {colony_js_data}
 {env_js_data}
+{events_js}
+{mc_js}
 
 // Visibility toggles
 const visible = COLONIES.map(() => true);
@@ -349,6 +388,111 @@ function drawAll() {{
     drawChart("temp-chart", "temp-tip", [
         {{name: "Temperature", color: "#f39c12", data: ENV.temp}}
     ], {{}});
+
+    // Monte Carlo population bands
+    if (MC) {{
+        document.getElementById("mc-pop-box").style.display = "block";
+        drawBandChart("mc-pop-chart", "mc-pop-tip", MC, "population");
+    }}
+
+    // Event markers on population chart
+    drawEventMarkers("pop-chart", EVENTS, COLONIES[0].pop.length);
+}}
+
+function drawBandChart(canvasId, tipId, mc, metric) {{
+    const canvas = document.getElementById(canvasId);
+    const tip = document.getElementById(tipId);
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    const margin = {{top: 20, right: 16, bottom: 30, left: 55}};
+    const pw = W - margin.left - margin.right;
+    const ph = H - margin.top - margin.bottom;
+    let allVals = [];
+    mc.bands.forEach(cb => {{
+        const mb = cb[metric];
+        if (mb) {{ allVals.push(...mb.p10, ...mb.p90); }}
+    }});
+    if (allVals.length === 0) return;
+    let yMin = Math.min(...allVals), yMax = Math.max(...allVals);
+    const pad = (yMax - yMin) * 0.08 || 1;
+    yMin -= pad; yMax += pad;
+    const n = mc.bands[0][metric].p50.length;
+    function toX(i) {{ return margin.left + i / Math.max(1, n - 1) * pw; }}
+    function toY(v) {{ return margin.top + ph - (v - yMin) / (yMax - yMin) * ph; }}
+    ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+    for (let f = 0; f <= 1; f += 0.25) {{
+        const y = margin.top + ph * (1 - f);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(W - margin.right, y); ctx.stroke();
+        ctx.fillStyle = "#666"; ctx.font = "10px monospace"; ctx.textAlign = "right";
+        ctx.fillText((yMin + (yMax - yMin) * f).toFixed(0), margin.left - 4, y + 3);
+    }}
+    ctx.textAlign = "center"; ctx.fillStyle = "#666";
+    for (let s = 0; s <= n; s += Math.max(1, Math.floor(n / 6))) ctx.fillText("Sol " + s, toX(s), H - 5);
+    const colors = mc.bands.map((_, i) => COLONIES[i] ? COLONIES[i].color : "#888");
+    mc.bands.forEach((cb, ci) => {{
+        if (!visible[ci]) return;
+        const mb = cb[metric]; if (!mb) return;
+        const color = colors[ci];
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) ctx.lineTo(toX(i), toY(mb.p90[i]));
+        for (let i = n - 1; i >= 0; i--) ctx.lineTo(toX(i), toY(mb.p10[i]));
+        ctx.closePath(); ctx.fillStyle = color + "15"; ctx.fill();
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) ctx.lineTo(toX(i), toY(mb.p75[i]));
+        for (let i = n - 1; i >= 0; i--) ctx.lineTo(toX(i), toY(mb.p25[i]));
+        ctx.closePath(); ctx.fillStyle = color + "25"; ctx.fill();
+        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2;
+        for (let i = 0; i < n; i++) {{ i === 0 ? ctx.moveTo(toX(i), toY(mb.p50[i])) : ctx.lineTo(toX(i), toY(mb.p50[i])); }}
+        ctx.stroke();
+    }});
+    canvas.onmousemove = (e) => {{
+        const bnd = canvas.getBoundingClientRect();
+        const mx = e.clientX - bnd.left;
+        const sol = Math.round((mx - margin.left) / pw * (n - 1));
+        if (sol < 0 || sol >= n) {{ tip.style.display = "none"; return; }}
+        let html = `<b>Sol ${{sol}}</b> (n=${{mc.n_seeds}} seeds)<br>`;
+        mc.bands.forEach((cb, ci) => {{
+            if (!visible[ci]) return;
+            const mb = cb[metric]; if (!mb || sol >= mb.p50.length) return;
+            html += `<span style="color:${{colors[ci]}}">■</span> ${{mc.colony_names[ci]}}: ${{mb.p50[sol].toFixed(0)}} (p10=${{mb.p10[sol].toFixed(0)}}, p90=${{mb.p90[sol].toFixed(0)}})<br>`;
+        }});
+        tip.innerHTML = html; tip.style.display = "block";
+        tip.style.left = Math.min(mx + 12, bnd.width - 220) + "px"; tip.style.top = "10px";
+    }};
+    canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
+}}
+
+function drawEventMarkers(canvasId, events, nSols) {{
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !events || events.length === 0) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    const margin = {{top: 20, right: 16, bottom: 30, left: 55}};
+    const pw = W - margin.left - margin.right;
+    function toX(sol) {{ return margin.left + sol / Math.max(1, nSols - 1) * pw; }}
+    const icons = {{
+        "epidemic_start": {{s: "☣", c: "#e74c3c"}}, "epidemic_end": {{s: "✓", c: "#2ecc71"}},
+        "supply_ship": {{s: "🚀", c: "#3498db"}}, "global_storm": {{s: "🌪", c: "#f39c12"}},
+        "regional_storm": {{s: "💨", c: "#e67e22"}}, "discovery": {{s: "⭐", c: "#f1c40f"}},
+    }};
+    ctx.save(); ctx.scale(dpr, dpr);
+    events.forEach(ev => {{
+        const info = icons[ev.type] || {{s: "·", c: "#666"}};
+        const x = toX(ev.sol);
+        ctx.strokeStyle = info.c + "40"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, margin.top); ctx.lineTo(x, H - margin.bottom); ctx.stroke();
+        ctx.fillStyle = info.c; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(info.s, x, margin.top - 4);
+    }});
+    ctx.restore();
 }}
 
 drawAll();
@@ -357,3 +501,42 @@ window.addEventListener("resize", drawAll);
 </body>
 </html>'''
     return html
+
+
+def _build_events_js(colonies: list[dict]) -> str:
+    """Extract key events from colony data for timeline annotations."""
+    import json as _json
+    events: list[dict] = []
+    seen_keys: set[str] = set()
+    for col in colonies:
+        col_events = col.get("events", [])
+        if not isinstance(col_events, list):
+            continue
+        for ev in col_events:
+            sol = ev.get("sol", 0)
+            etype = ev.get("type", "")
+            if etype == "storm":
+                kind = ev.get("kind", "regional")
+                key = f"storm_{sol}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    events.append({"sol": sol, "type": f"{kind}_storm",
+                                   "label": f"{kind} storm"})
+            elif etype in ("epidemic_start", "epidemic_end", "supply_ship"):
+                events.append({"sol": sol, "type": etype,
+                               "label": ev.get("strain", etype.replace("_", " "))})
+            elif etype == "discovery":
+                events.append({"sol": sol, "type": "discovery",
+                               "label": ev.get("kind", "discovery")})
+    priority = {"epidemic_start": 0, "global_storm": 1, "supply_ship": 2,
+                "epidemic_end": 3, "regional_storm": 4, "discovery": 5}
+    events.sort(key=lambda e: priority.get(e["type"], 99))
+    events = events[:40]
+    events.sort(key=lambda e: e["sol"])
+    return f"const EVENTS = {_json.dumps(events)};\n"
+
+
+def _build_mc_js(mc_data: dict) -> str:
+    """Serialize MC data for JavaScript consumption."""
+    import json as _json
+    return f"const MC = {_json.dumps(mc_data, separators=(',', ':'))};\n"

@@ -4,6 +4,7 @@ Mars Barn — run 3 colonies for N sols, publish population curves.
 
 Usage:
     python src/main.py --sols 365
+    python src/main.py --sols 365 --monte-carlo 50
     python src/main.py --sols 365 --quiet
 """
 from __future__ import annotations
@@ -14,22 +15,24 @@ import os
 import sys
 from pathlib import Path
 
-# Allow running from repo root: python src/main.py
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.tick_engine import Simulation
 from src.mars_curves import generate_dashboard
+from src.monte_carlo import run_ensemble, PERCENTILES
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Mars Barn terrarium simulation")
-    parser.add_argument("--sols", type=int, default=365, help="Number of sols to simulate (default: 365)")
-    parser.add_argument("--seed", type=int, default=42, help="Environment RNG seed (default: 42)")
-    parser.add_argument("--quiet", action="store_true", help="Suppress per-sol output")
-    parser.add_argument("--state-dir", type=str, default=None, help="Override state output directory")
-    parser.add_argument("--docs-dir", type=str, default=None, help="Override docs output directory")
+    parser.add_argument("--sols", type=int, default=365)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--monte-carlo", type=int, default=0, metavar="N",
+                        help="Run N seeds and produce confidence bands")
+    parser.add_argument("--state-dir", type=str, default=None)
+    parser.add_argument("--docs-dir", type=str, default=None)
     args = parser.parse_args()
 
     state_dir = Path(args.state_dir) if args.state_dir else REPO_ROOT / "state"
@@ -37,39 +40,59 @@ def main() -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     docs_dir.mkdir(parents=True, exist_ok=True)
 
-    sim = Simulation(sols=args.sols, env_seed=args.seed)
+    mc_data = None
+    if args.monte_carlo > 0:
+        print(f"Mars Barn — Monte Carlo: {args.monte_carlo} seeds × {args.sols} sols...")
+        ensemble = run_ensemble(n_seeds=args.monte_carlo, sols=args.sols)
+        results = ensemble.canonical_results
+        mc_data = _serialize_ensemble(ensemble)
+        print()
+        print("=" * 60)
+        print(f"MONTE CARLO COMPLETE ({ensemble.n_seeds} seeds)")
+        print("=" * 60)
+        for ci, name in enumerate(ensemble.colony_names):
+            strat = ensemble.colony_strategies[ci]
+            fps = ensemble.final_pop_stats[ci]
+            gps = ensemble.growth_pct_stats[ci]
+            surv = ensemble.survival_rates[ci]
+            print(f"\n  {name} ({strat})")
+            print(f"    Final pop:  {fps['mean']:.0f} ± {fps['stdev']:.0f}  "
+                  f"(p10={fps['p10']:.0f}, p90={fps['p90']:.0f})")
+            print(f"    Growth:     {gps['mean']:+.1f}% ± {gps['stdev']:.1f}%")
+            print(f"    Survival:   {surv * 100:.0f}%")
+        print()
+    else:
+        sim = Simulation(sols=args.sols, env_seed=args.seed)
 
-    def on_tick(sol: int, env: dict, colonies: list) -> None:
-        if not args.quiet and sol % 50 == 0:
-            pops = " | ".join(f"{c.name}: {c.population}" for c in colonies)
-            storm = f" [{env['storm'].upper()}]" if env.get("storm") else ""
-            print(f"  Sol {sol:>4}/{args.sols}  {pops}{storm}")
+        def on_tick(sol: int, env: dict, colonies: list) -> None:
+            if not args.quiet and sol % 50 == 0:
+                pops = " | ".join(f"{c.name}: {c.population}" for c in colonies)
+                storm = f" [{env['storm'].upper()}]" if env.get("storm") else ""
+                print(f"  Sol {sol:>4}/{args.sols}  {pops}{storm}")
 
-    print(f"Mars Barn — simulating {args.sols} sols with {len(sim.colonies)} colonies...")
-    print()
+        print(f"Mars Barn — simulating {args.sols} sols with {len(sim.colonies)} colonies...")
+        print()
+        results = sim.run(callback=on_tick)
 
-    results = sim.run(callback=on_tick)
-
-    # Print summary
-    print()
-    print("=" * 60)
-    print("SIMULATION COMPLETE")
-    print("=" * 60)
-    for s in results["summary"]["colonies"]:
-        print(f"\n  {s['name']} ({s['strategy']})")
-        print(f"    Population: {s['start_pop']} → {s['end_pop']} ({s['growth_pct']:+.1f}%)")
-        print(f"    Peak: {s['peak_pop']}  |  Trough: {s['min_pop']}")
-        mig = s.get('net_migration', 0)
-        mig_str = f"  |  Migration: {mig:+d}" if mig != 0 else ""
-        print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}{mig_str}")
-    total_mig = results["summary"].get("total_migrations", 0)
-    total_epidemics = sum(
-        sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
-        for c in results["colonies"]
-    )
-    print(f"\n  Total migrations: {total_mig}")
-    print(f"  Total epidemics:  {total_epidemics}")
-    print()
+        print()
+        print("=" * 60)
+        print("SIMULATION COMPLETE")
+        print("=" * 60)
+        for s in results["summary"]["colonies"]:
+            print(f"\n  {s['name']} ({s['strategy']})")
+            print(f"    Population: {s['start_pop']} → {s['end_pop']} ({s['growth_pct']:+.1f}%)")
+            print(f"    Peak: {s['peak_pop']}  |  Trough: {s['min_pop']}")
+            mig = s.get('net_migration', 0)
+            mig_str = f"  |  Migration: {mig:+d}" if mig != 0 else ""
+            print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}{mig_str}")
+        total_mig = results["summary"].get("total_migrations", 0)
+        total_epidemics = sum(
+            sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
+            for c in results["colonies"]
+        )
+        print(f"\n  Total migrations: {total_mig}")
+        print(f"  Total epidemics:  {total_epidemics}")
+        print()
 
     # Save state
     mars_state_path = state_dir / "mars.json"
@@ -88,7 +111,7 @@ def main() -> None:
 
     # Generate HTML dashboard
     html_path = docs_dir / "index.html"
-    html = generate_dashboard(results)
+    html = generate_dashboard(results, mc_data=mc_data)
     html_path.write_text(html)
     print(f"Dashboard:    {html_path}")
 
@@ -124,6 +147,31 @@ def _compact_results(results: dict) -> dict:
             "dust_opacity": env_dust,
             "radiation_msv": env_radiation,
         },
+    }
+
+
+def _serialize_ensemble(ensemble) -> dict:
+    """Convert EnsembleResult to a JSON-serializable dict for the dashboard."""
+    bands = []
+    for ci in range(len(ensemble.colony_names)):
+        colony_bands = {}
+        for metric, metric_bands in ensemble.bands[ci].items():
+            colony_bands[metric] = {
+                f"p{PERCENTILES[pi]}": [round(v, 1) for v in metric_bands[pi]]
+                for pi in range(len(PERCENTILES))
+            }
+        bands.append(colony_bands)
+    return {
+        "n_seeds": ensemble.n_seeds,
+        "sols": ensemble.sols,
+        "colony_names": ensemble.colony_names,
+        "colony_strategies": ensemble.colony_strategies,
+        "bands": bands,
+        "final_pop_stats": [{k: round(v, 1) for k, v in fps.items()}
+                            for fps in ensemble.final_pop_stats],
+        "growth_pct_stats": [{k: round(v, 1) for k, v in gps.items()}
+                             for gps in ensemble.growth_pct_stats],
+        "survival_rates": [round(s, 3) for s in ensemble.survival_rates],
     }
 
 
