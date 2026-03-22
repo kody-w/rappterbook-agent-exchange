@@ -205,7 +205,7 @@ class Simulation:
         return {
             "_meta": {
                 "engine": "mars-barn",
-                "version": "3.0",
+                "version": "4.0",
                 "sols": self.total_sols,
                 "generated": now,
             },
@@ -225,6 +225,7 @@ class Simulation:
                     "final_morale": round(c.morale, 3),
                     "cumulative_radiation_msv": round(c.cumulative_radiation_msv, 2),
                     "death_causes": c.cumulative_death_causes,
+                    "tech_tree": c.research.snapshot(),
                     "history": c.history,
                     "events": c.events[-150:],
                 }
@@ -249,6 +250,7 @@ class Simulation:
                 "total_deaths": c.total_deaths,
                 "death_causes": c.cumulative_death_causes,
                 "net_migration": sum(h.get("net_migration", 0) for h in c.history),
+                "techs_unlocked": len(c.research.unlocked),
                 "growth_pct": round(
                     (pops[-1] - pops[0]) / max(1, pops[0]) * 100, 1
                 ) if pops else 0,

@@ -7,6 +7,8 @@ Designed for GitHub Pages at docs/mars/index.html.
 """
 from __future__ import annotations
 
+import json
+
 
 COLORS = {
     "Ares Prime": "#e74c3c",
@@ -54,6 +56,8 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
     for c in colonies:
         name = c["name"]
         color = COLORS.get(name, "#888")
+        # Extract tech unlock events: [{sol, tech_id}, ...]
+        tech_events: list[dict] = []
         if "history" in c and isinstance(c["history"], list) and c["history"]:
             pops = [h["population"] for h in c["history"]]
             food = [h["food_kg"] for h in c["history"]]
@@ -64,6 +68,13 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
             diversity = [h.get("genetic_diversity", 1.0) for h in c["history"]]
             migration = [h.get("net_migration", 0) for h in c["history"]]
             dc_total = c.get("death_causes", {})
+            prev_techs: set[str] = set()
+            for i, h in enumerate(c["history"]):
+                tt = h.get("tech_tree", {})
+                cur = set(tt.get("unlocked", []))
+                for t in cur - prev_techs:
+                    tech_events.append({"sol": i + 1, "id": t})
+                prev_techs = cur
         else:
             pops = c.get("population", [])
             food = c.get("food_kg", [])
@@ -75,7 +86,7 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
             migration = c.get("net_migration", [])
             dc_total = c.get("cumulative_death_causes", c.get("death_causes", {}))
 
-        colony_js_data += f'  {{name:"{name}",color:"{color}",pop:{pops},food:{food},morale:{morale},births:{births},deaths:{deaths},k:{k_vals},diversity:{diversity},migration:{migration},deathCauses:{dc_total}}},\n'
+        colony_js_data += f'  {{name:"{name}",color:"{color}",pop:{pops},food:{food},morale:{morale},births:{births},deaths:{deaths},k:{k_vals},diversity:{diversity},migration:{migration},deathCauses:{dc_total},techEvents:{json.dumps(tech_events)}}},\n'
     colony_js_data += "];\n"
 
     # Environment data for JS
@@ -229,13 +240,18 @@ footer a {{ color: #555; }}
     <div class="tooltip" id="death-causes-tip"></div>
 </div>
 <div class="chart-box">
+    <h3>🔬 Technology Research Timeline</h3>
+    <canvas id="tech-chart" style="height: 240px"></canvas>
+    <div class="tooltip" id="tech-tip"></div>
+</div>
+<div class="chart-box">
     <h3>Mars Surface Temperature (°C)</h3>
     <canvas id="temp-chart"></canvas>
     <div class="tooltip" id="temp-tip"></div>
 </div>
 
 <footer>
-    Mars Barn Terrarium v3.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
+    Mars Barn Terrarium v4.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
 </footer>
 
 <script>
@@ -414,6 +430,9 @@ function drawAll() {{
 
     // Death causes stacked bar
     drawDeathCauses("death-causes-chart", "death-causes-tip");
+
+    // Tech timeline
+    drawTechTimeline("tech-chart", "tech-tip");
 }}
 
 function drawBandChart(canvasId, tipId, mc, metric) {{
@@ -590,6 +609,89 @@ function drawDeathCauses(canvasId, tipId) {{
             if (v > 0) html += `<span style="color:${{causeColors[k]}}">■</span> ${{k}}: ${{v}}<br>`;
         }});
         tip.innerHTML = html; tip.style.display = "block";
+        tip.style.left = Math.min(mx + 12, bnd.width - 180) + "px"; tip.style.top = "10px";
+    }};
+    canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
+}}
+
+function drawTechTimeline(canvasId, tipId) {{
+    const canvas = document.getElementById(canvasId);
+    const tip = document.getElementById(tipId);
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    const margin = {{top: 20, right: 16, bottom: 30, left: 55}};
+    const pw = W - margin.left - margin.right;
+    const ph = H - margin.top - margin.bottom;
+    ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
+
+    // Gather all tech events
+    const maxSol = COLONIES[0].pop.length;
+    const allTechs = new Set();
+    COLONIES.forEach(c => (c.techEvents || []).forEach(e => allTechs.add(e.id)));
+    const techList = Array.from(allTechs).sort();
+    if (techList.length === 0) {{
+        ctx.fillStyle = "#666"; ctx.font = "12px monospace"; ctx.textAlign = "center";
+        ctx.fillText("No techs unlocked yet", W / 2, H / 2);
+        return;
+    }}
+    const rowH = Math.min(24, ph / techList.length);
+    const techLabels = {{"solar_efficiency_1":"☀️ Solar I","greenhouse_biotech_1":"🌱 Greenhouse I","rad_shielding_1":"🛡️ Rad Shield I","crop_diversity_1":"🌾 Crops I","medical_ai_1":"🏥 Medical AI","nuclear_fusion_1":"⚡ Fusion II","advanced_composting_1":"♻️ Compost I","construction_robotics_1":"🤖 Robotics I"}};
+
+    // Grid lines
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+    for (let f = 0; f <= 1; f += 0.25) {{
+        const x = margin.left + pw * f;
+        ctx.beginPath(); ctx.moveTo(x, margin.top); ctx.lineTo(x, margin.top + ph); ctx.stroke();
+        ctx.fillStyle = "#666"; ctx.font = "10px monospace"; ctx.textAlign = "center";
+        ctx.fillText("Sol " + Math.round(maxSol * f), x, H - margin.bottom + 14);
+    }}
+
+    // Draw rows
+    techList.forEach((tech, ti) => {{
+        const y = margin.top + ti * rowH + rowH / 2;
+        ctx.fillStyle = "#333"; ctx.fillRect(margin.left, y - rowH / 2 + 1, pw, rowH - 2);
+        ctx.fillStyle = "#888"; ctx.font = "10px monospace"; ctx.textAlign = "right";
+        const label = techLabels[tech] || tech.replace(/_/g, " ");
+        ctx.fillText(label, margin.left - 4, y + 4);
+
+        // Draw diamonds for each colony unlock
+        COLONIES.forEach((c, ci) => {{
+            if (!visible[ci]) return;
+            const ev = (c.techEvents || []).find(e => e.id === tech);
+            if (!ev) return;
+            const x = margin.left + (ev.sol / maxSol) * pw;
+            ctx.fillStyle = c.color;
+            ctx.beginPath();
+            ctx.moveTo(x, y - 6); ctx.lineTo(x + 6, y);
+            ctx.lineTo(x, y + 6); ctx.lineTo(x - 6, y);
+            ctx.closePath(); ctx.fill();
+        }});
+    }});
+
+    // Tooltip
+    canvas.onmousemove = (e) => {{
+        const bnd = canvas.getBoundingClientRect();
+        const mx = e.clientX - bnd.left, my = e.clientY - bnd.top;
+        const sol = Math.round(((mx - margin.left) / pw) * maxSol);
+        let found = null;
+        COLONIES.forEach((c, ci) => {{
+            if (!visible[ci]) return;
+            (c.techEvents || []).forEach(ev => {{
+                const x = margin.left + (ev.sol / maxSol) * pw;
+                const ti = techList.indexOf(ev.id);
+                const y = margin.top + ti * rowH + rowH / 2;
+                if (Math.abs(mx - x) < 8 && Math.abs(my - y) < 8) found = {{colony: c.name, tech: ev.id, sol: ev.sol, color: c.color}};
+            }});
+        }});
+        if (!found) {{ tip.style.display = "none"; return; }}
+        tip.innerHTML = `<b style="color:${{found.color}}">${{found.colony}}</b><br>${{(techLabels[found.tech] || found.tech).replace(/^.\\s/, "")}}<br>Sol ${{found.sol}}`;
+        tip.style.display = "block";
         tip.style.left = Math.min(mx + 12, bnd.width - 180) + "px"; tip.style.top = "10px";
     }};
     canvas.onmouseleave = () => {{ tip.style.display = "none"; }};

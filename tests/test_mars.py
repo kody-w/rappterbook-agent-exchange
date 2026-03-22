@@ -757,12 +757,12 @@ class TestDeathCausesDashboard:
         html = generate_dashboard(results)
         assert "deathCauses" in html
 
-    def test_dashboard_version_3(self) -> None:
-        """Dashboard footer shows v3.0."""
+    def test_dashboard_version_4(self) -> None:
+        """Dashboard footer shows v4.0."""
         sim = Simulation(sols=30, env_seed=42)
         results = sim.run()
         html = generate_dashboard(results)
-        assert "v3.0" in html
+        assert "v4.0" in html
 
     def test_dashboard_shows_killers(self) -> None:
         """Summary cards include top killer info."""
@@ -770,3 +770,78 @@ class TestDeathCausesDashboard:
         results = sim.run()
         html = generate_dashboard(results)
         assert "Killers" in html
+
+
+# ============================================================
+# Tech Tree Integration Tests
+# ============================================================
+
+
+class TestTechTreeIntegration:
+    """Integration tests for the tech tree wired into the simulation."""
+
+    def test_tech_tree_in_history(self) -> None:
+        """tech_tree snapshot appears in colony history entries."""
+        sim = Simulation(sols=10, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                assert "tech_tree" in h
+                assert "unlocked" in h["tech_tree"]
+
+    def test_techs_unlock_over_365_sols(self) -> None:
+        """Each colony unlocks at least 1 tech in 365 sols."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            tt = c["tech_tree"]
+            assert len(tt["unlocked"]) >= 1, (
+                f"{c['name']} unlocked 0 techs in 365 sols"
+            )
+
+    def test_tech_in_results(self) -> None:
+        """tech_tree key present in results colonies."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            assert "tech_tree" in c
+            assert "unlocked" in c["tech_tree"]
+            assert "effects" in c["tech_tree"]
+
+    def test_techs_unlocked_in_summary(self) -> None:
+        """Summary includes techs_unlocked count."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        for s in results["summary"]["colonies"]:
+            assert "techs_unlocked" in s
+            assert s["techs_unlocked"] >= 0
+
+    def test_strategies_unlock_different_techs(self) -> None:
+        """Different strategies unlock techs in different order."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        tech_lists = [c["tech_tree"]["unlocked"] for c in results["colonies"]]
+        assert len(set(tuple(t) for t in tech_lists)) > 1, (
+            "All colonies unlocked identical tech sequences"
+        )
+
+    def test_carrying_capacity_grows_with_tech(self) -> None:
+        """Carrying capacity increases as construction techs unlock."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            early_k = c["history"][0]["carrying_capacity"]
+            late_k = c["history"][-1]["carrying_capacity"]
+            assert late_k >= early_k, (
+                f"{c['name']}: K shrank from {early_k} to {late_k}"
+            )
+
+    def test_conservation_still_holds(self) -> None:
+        """Population conservation: births - deaths + migration = delta."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            initial = c["initial_population"]
+            net_mig = sum(h.get("net_migration", 0) for h in c["history"])
+            expected = initial + c["total_births"] - c["total_deaths"] + net_mig
+            assert c["final_population"] == expected
