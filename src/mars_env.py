@@ -90,14 +90,45 @@ class DustStorm:
         return self.remaining_sols > 0
 
 
+# Terraforming thresholds (progress 0.0–1.0)
+TERRAFORM_TEMP_BONUS_C = 20.0        # at progress=1.0, +20°C
+TERRAFORM_PRESSURE_BONUS_KPA = 5.0   # at 1.0, +5 kPa
+TERRAFORM_STORM_DAMPING = 0.5        # at 1.0, storm chance halved
+TERRAFORM_RADIATION_DAMPING = 0.4    # at 1.0, GCR reduced 40%
+
+TERRAFORM_THRESHOLDS = {
+    0.1: "early_terraforming",
+    0.3: "atmosphere_thickening",
+    0.5: "liquid_water_possible",
+    0.8: "breathable_approach",
+}
+
+
 class MarsEnvironment:
-    """Mars environment state machine — advance one sol at a time."""
+    """Mars environment state machine — advance one sol at a time.
+
+    Supports terraforming feedback: colonies modify atmospheric pressure,
+    temperature, radiation shielding. The output of sol N changes sol N+1.
+    """
 
     def __init__(self, seed: int = 42) -> None:
         self.rng = random.Random(seed)
         self.sol = 0
         self.storm: DustStorm | None = None
         self.flare = False
+        self.terraforming_progress = 0.0
+
+    def apply_terraforming(self, delta: float) -> None:
+        """Accumulate terraforming progress from colony industrial output."""
+        self.terraforming_progress = min(1.0, self.terraforming_progress + delta)
+
+    def terraform_phase(self) -> str | None:
+        """Current terraforming phase name, or None if below first threshold."""
+        phase = None
+        for threshold, name in sorted(TERRAFORM_THRESHOLDS.items()):
+            if self.terraforming_progress >= threshold:
+                phase = name
+        return phase
 
     def dust_opacity(self) -> float:
         """Current dust opacity [0, 1]."""
@@ -109,8 +140,9 @@ class MarsEnvironment:
         """Advance one sol. Returns environment snapshot."""
         self.sol += 1
         ls = sol_to_ls(self.sol)
+        tf = self.terraforming_progress
 
-        # --- Dust storm generation ---
+        # --- Dust storm generation (terraforming dampens frequency) ---
         if self.storm is not None:
             alive = self.storm.tick()
             if not alive:
@@ -119,21 +151,25 @@ class MarsEnvironment:
         if self.storm is None:
             storm_season = 180 <= ls <= 330
             if storm_season:
+                storm_damping = max(0.1, 1.0 - tf * TERRAFORM_STORM_DAMPING)
                 r = self.rng.random()
-                if r < 0.005:  # global storm ~0.5%/sol
+                if r < 0.005 * storm_damping:
                     dur = self.rng.randint(30, 80)
                     self.storm = DustStorm("global", dur, 0.9)
-                elif r < 0.05:  # regional storm ~5%/sol
+                elif r < 0.05 * storm_damping:
                     dur = self.rng.randint(5, 20)
                     self.storm = DustStorm("regional", dur, 0.4)
 
         # --- Solar flare ---
-        self.flare = self.rng.random() < 0.003  # ~1/year
+        self.flare = self.rng.random() < 0.003
 
         dust = self.dust_opacity()
-        temp = surface_temperature_c(ls)
+        temp = surface_temperature_c(ls) + tf * TERRAFORM_TEMP_BONUS_C
         flux = solar_flux_wm2(ls, dust)
-        rad = radiation_msv(dust, self.flare)
+        rad_damping = max(0.3, 1.0 - tf * TERRAFORM_RADIATION_DAMPING)
+        rad = radiation_msv(dust, self.flare) * rad_damping
+        pressure = ATMOSPHERIC_PRESSURE_KPA * (1 + 0.1 * math.sin(math.radians(ls)))
+        pressure += tf * TERRAFORM_PRESSURE_BONUS_KPA
 
         return {
             "sol": self.sol,
@@ -145,5 +181,7 @@ class MarsEnvironment:
             "radiation_msv": round(rad, 3),
             "storm": self.storm.kind if self.storm else None,
             "flare": self.flare,
-            "pressure_kpa": round(ATMOSPHERIC_PRESSURE_KPA * (1 + 0.1 * math.sin(math.radians(ls))), 3),
+            "pressure_kpa": round(pressure, 3),
+            "terraforming_progress": round(tf, 6),
+            "terraform_phase": self.terraform_phase(),
         }

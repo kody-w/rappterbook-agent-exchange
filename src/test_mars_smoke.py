@@ -124,3 +124,30 @@ def test_death_causes_dashboard() -> None:
     html = generate_dashboard(r)
     assert "death-causes-chart" in html
     assert "deathCauses" in html
+
+
+def test_tech_tree_smoke() -> None:
+    """Tech tree imports and creates engines without crash."""
+    from src.tech_tree import ResearchEngine, TECH_CATALOG
+    import random
+    eng = ResearchEngine(strategy="balanced", rng=random.Random(1))
+    assert len(TECH_CATALOG) == 8
+    assert eng.research_points == 0.0
+
+
+def test_tech_unlocks_in_sim() -> None:
+    """A 200-sol sim unlocks at least one tech."""
+    r = Simulation(sols=200, env_seed=42).run()
+    any_tech = any(
+        col["history"][-1].get("tech", {}).get("unlocked_count", 0) > 0
+        for col in r["colonies"]
+    )
+    assert any_tech, "Expected tech unlocks in 200 sols"
+
+
+def test_tech_timeline_in_dashboard() -> None:
+    """Dashboard includes the tech timeline chart."""
+    r = Simulation(sols=100, env_seed=42).run()
+    html = generate_dashboard(r)
+    assert "tech-chart" in html
+    assert "drawTechTimeline" in html

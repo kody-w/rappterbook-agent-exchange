@@ -15,6 +15,8 @@ from __future__ import annotations
 import math
 import random
 
+from src.tech_tree import ResearchEngine, TechUnlock
+
 # Per-person daily consumption
 FOOD_KG_SOL = 1.8
 WATER_L_SOL = 3.0
@@ -31,6 +33,10 @@ ACCIDENT_RATE = 0.0002  # per sol per person — trained crew
 # Supply ships
 SUPPLY_SHIP_INTERVAL = 120  # sols between supply flights
 SUPPLY_SHIP_COLONISTS = {"conservative": 20, "balanced": 25, "aggressive": 35}
+
+# Terraforming output per colonist per sol (industrial greenhouse gas production)
+TERRAFORM_BASE_RATE = 0.00001
+TERRAFORM_STRATEGY_MOD = {"conservative": 0.7, "balanced": 1.0, "aggressive": 1.5}
 
 # Resource production
 GREENHOUSE_KG_SOL_M2 = 0.08  # food yield per m² greenhouse per sol (vertical Mars farms)
@@ -136,12 +142,15 @@ class Colony:
             "power_failure": 0, "radiation": 0, "storm": 0,
             "epidemic": 0, "accident": 0,
         }
+        self.research_engine: ResearchEngine | None = None
+        self.terraforming_output = 0.0  # cumulative contribution
 
     def carrying_capacity(self) -> float:
         """Compute carrying capacity K from bottleneck resources.
 
         K = min(habitat_K, food_K, water_K, power_K).
         The binding constraint determines the population ceiling.
+        Tech unlocks (aquaponics, construction bots) add bonus K.
         """
         habitat_k = self.habitat_m2 / HABITAT_M2_MIN
         food_daily = self.greenhouse_m2 * GREENHOUSE_KG_SOL_M2
@@ -151,7 +160,20 @@ class Colony:
         water_k = water_daily / net_water_per_person if net_water_per_person > 0 else 999
         power_daily = self.solar_m2 * SOLAR_PANEL_KWH_M2 * 0.7 + NUCLEAR_POWER_KWH
         power_k = power_daily / POWER_KWH_SOL if POWER_KWH_SOL > 0 else 999
-        return max(2.0, min(habitat_k, food_k, water_k, power_k))
+        base_k = max(2.0, min(habitat_k, food_k, water_k, power_k))
+        tech_k_bonus = self._tech_k_bonus()
+        return base_k + tech_k_bonus
+
+    def _tech_k_bonus(self) -> float:
+        """Bonus carrying capacity from unlocked techs."""
+        if self.research_engine is None:
+            return 0.0
+        bonus = 0.0
+        if self.research_engine.has_tech("Aquaponics Integration"):
+            bonus += 10.0
+        if self.research_engine.has_tech("Autonomous Construction Bots"):
+            bonus += 20.0
+        return bonus
 
     def _consume_resources(self) -> dict:
         """Consume food, water, power. Returns shortage ratios."""
@@ -173,20 +195,41 @@ class Colony:
 
         return {"food": food_ratio, "water": water_ratio, "power": power_ratio}
 
-    def _produce_resources(self, solar_flux: float, base_flux: float) -> None:
-        """Produce food from greenhouse, power from solar + nuclear."""
+    def _produce_resources(self, solar_flux: float, base_flux: float,
+                          terraforming_progress: float = 0.0) -> None:
+        """Produce food from greenhouse, power from solar + nuclear.
+
+        Terraforming boosts greenhouse yield (warmer, thicker air).
+        Tech modifiers: solar, greenhouse, nuclear, aquaponics, water.
+        """
         flux_ratio = solar_flux / base_flux if base_flux > 0 else 0.5
 
-        food_produced = self.greenhouse_m2 * GREENHOUSE_KG_SOL_M2 * max(0.2, flux_ratio)
+        # Tech multipliers
+        solar_mult = 1.0
+        greenhouse_mult = 1.0
+        nuclear_extra = 0.0
+        food_extra_mult = 0.0
+        water_mult = 1.0
+        if self.research_engine is not None:
+            solar_mult += self.research_engine.get_modifier("solar_boost")
+            greenhouse_mult += self.research_engine.get_modifier("greenhouse_boost")
+            nuclear_extra = self.research_engine.get_modifier("nuclear_boost")
+            food_extra_mult = self.research_engine.get_modifier("aquaponics")
+            water_mult += self.research_engine.get_modifier("water_efficiency")
+
+        terraform_boost = 1.0 + terraforming_progress * 0.3
+        food_produced = (self.greenhouse_m2 * GREENHOUSE_KG_SOL_M2
+                         * max(0.2, flux_ratio) * terraform_boost
+                         * greenhouse_mult * (1.0 + food_extra_mult))
         self.food_kg += food_produced
 
         # Solar + nuclear baseline (nuclear provides storm-proof minimum)
-        power_solar = self.solar_m2 * SOLAR_PANEL_KWH_M2 * flux_ratio
-        power_nuclear = NUCLEAR_POWER_KWH
+        power_solar = self.solar_m2 * SOLAR_PANEL_KWH_M2 * flux_ratio * solar_mult
+        power_nuclear = NUCLEAR_POWER_KWH + nuclear_extra
         self.power_kwh += power_solar + power_nuclear
 
-        # Water mining (ice extraction from regolith) — boosted by discoveries
-        water_mined = 5.0 + self.population * 0.1 + self.water_mining_bonus
+        # Water mining (ice extraction from regolith) — boosted by discoveries + tech
+        water_mined = (5.0 + self.population * 0.1 + self.water_mining_bonus) * water_mult
         self.water_l += water_mined
 
     def _compute_births(self, ratios: dict) -> int:
@@ -263,6 +306,10 @@ class Colony:
         # Build per-cause rates
         effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
         med_factor = 1.0 - 0.4 * effective_medical
+        # AI Diagnostics tech reduces all death rates further
+        if self.research_engine is not None:
+            tech_mort_reduction = self.research_engine.get_modifier("mortality_reduction")
+            med_factor *= (1.0 - tech_mort_reduction)
 
         rates: list[tuple[str, float]] = []
         rates.append(("baseline", BASE_DEATH_RATE * med_factor))
@@ -342,13 +389,18 @@ class Colony:
         self.morale = max(0.0, min(1.0, self.morale))
 
     def _expand_infrastructure(self) -> None:
-        """Strategy-driven expansion (simplified)."""
+        """Strategy-driven expansion. Construction bots tech doubles speed."""
         if self.population == 0:
             return
 
         expand_rate = {"conservative": 1.5, "balanced": 3.0, "aggressive": 5.0}.get(
             self.strategy, 1.0
         )
+        # Construction bots multiply expansion speed
+        if self.research_engine is not None:
+            bot_mult = self.research_engine.get_modifier("construction_bots")
+            if bot_mult > 0:
+                expand_rate *= bot_mult
         # Expand habitat when crowded
         density = self.population / max(1, self.habitat_m2 / HABITAT_M2_MIN)
         if density > 0.8:
@@ -400,6 +452,40 @@ class Colony:
                 "sol": self.sol, "type": "discovery",
                 "kind": "crop_strain", "boost_m2": round(boost, 1),
             })
+
+    def _tick_research(self) -> object:
+        """Advance one sol of tech research. Returns unlock if one occurred."""
+        if self.research_engine is None:
+            return None
+        unlock = self.research_engine.tick(self.population, self.morale, self.sol)
+        if unlock is not None:
+            # Aquaponics gives a morale boost on unlock
+            if unlock.effect == "aquaponics":
+                self.morale = min(1.0, self.morale + 0.05)
+            self.events.append({
+                "sol": self.sol, "type": "tech_unlock",
+                "name": unlock.name, "branch": unlock.branch,
+            })
+        return unlock
+
+    def _compute_terraforming(self) -> float:
+        """Industrial greenhouse gas output for terraforming.
+
+        Returns delta contribution for this sol (not cumulative).
+        Scales with population, strategy, and industrial surplus.
+        """
+        if self.population == 0:
+            return 0.0
+        strategy_mod = TERRAFORM_STRATEGY_MOD.get(self.strategy, 1.0)
+        base = self.population * TERRAFORM_BASE_RATE * strategy_mod
+        # Power surplus bonus — spare energy goes to gas factories
+        power_per_cap = self.power_kwh / max(1, self.population)
+        if power_per_cap > POWER_KWH_SOL * 2:
+            base *= 1.3
+        # Greenhouse gas byproduct from farming
+        base += self.greenhouse_m2 * 0.0000001
+        self.terraforming_output += base
+        return base
 
     def _tick_epidemic(self) -> None:
         """Advance epidemic state. May start, progress, or end outbreaks."""
@@ -456,10 +542,14 @@ class Colony:
 
         # Radiation accumulation (habitat shielding reduces by 80%)
         shielding = 0.8
+        if self.research_engine is not None:
+            shielding += self.research_engine.get_modifier("rad_shielding")
+            shielding = min(0.95, shielding)
         self.cumulative_radiation_msv += env["radiation_msv"] * (1 - shielding)
 
-        # Production
-        self._produce_resources(env["solar_flux_wm2"], 590.0)
+        # Production (terraforming boosts greenhouse yield)
+        tf_progress = env.get("terraforming_progress", 0.0)
+        self._produce_resources(env["solar_flux_wm2"], 590.0, tf_progress)
 
         # Consumption
         ratios = self._consume_resources()
@@ -492,6 +582,12 @@ class Colony:
 
         # Rare discoveries
         self._roll_discoveries()
+
+        # Technology research
+        tech_unlock = self._tick_research()
+
+        # Terraforming contribution
+        terraform_delta = self._compute_terraforming()
 
         # Epidemics
         self._tick_epidemic()
@@ -526,6 +622,8 @@ class Colony:
             "carrying_capacity": round(self.carrying_capacity(), 1),
             "genetic_diversity": round(self.genetic_diversity, 4),
             "net_migration": 0,  # updated by Simulation after migration phase
+            "terraforming_contribution": round(terraform_delta, 8),
+            "tech": self.research_engine.snapshot() if self.research_engine else None,
         }
         self.history.append(snapshot)
         return snapshot

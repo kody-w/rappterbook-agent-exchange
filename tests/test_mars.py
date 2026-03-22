@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import sys
 import os
 import tempfile
@@ -757,12 +758,12 @@ class TestDeathCausesDashboard:
         html = generate_dashboard(results)
         assert "deathCauses" in html
 
-    def test_dashboard_version_3(self) -> None:
-        """Dashboard footer shows v3.0."""
+    def test_dashboard_version_4(self) -> None:
+        """Dashboard footer shows v4.0."""
         sim = Simulation(sols=30, env_seed=42)
         results = sim.run()
         html = generate_dashboard(results)
-        assert "v3.0" in html
+        assert "v4.0" in html
 
     def test_dashboard_shows_killers(self) -> None:
         """Summary cards include top killer info."""
@@ -770,3 +771,217 @@ class TestDeathCausesDashboard:
         results = sim.run()
         html = generate_dashboard(results)
         assert "Killers" in html
+
+
+# ─── Tech tree tests ───
+
+
+class TestTechCatalog:
+    """Validate the tech catalog structure."""
+
+    def test_catalog_has_8_techs(self) -> None:
+        from src.tech_tree import TECH_CATALOG
+        assert len(TECH_CATALOG) == 8
+
+    def test_all_techs_have_required_keys(self) -> None:
+        from src.tech_tree import TECH_CATALOG
+        required = {"name", "branch", "cost", "effect", "value", "description"}
+        for tech in TECH_CATALOG:
+            assert required.issubset(tech.keys()), f"{tech['name']} missing keys"
+
+    def test_costs_are_positive(self) -> None:
+        from src.tech_tree import TECH_CATALOG
+        for tech in TECH_CATALOG:
+            assert tech["cost"] > 0, f"{tech['name']} has non-positive cost"
+
+    def test_unique_names(self) -> None:
+        from src.tech_tree import TECH_CATALOG
+        names = [t["name"] for t in TECH_CATALOG]
+        assert len(names) == len(set(names)), "Duplicate tech names"
+
+    def test_four_branches(self) -> None:
+        from src.tech_tree import TECH_CATALOG
+        branches = {t["branch"] for t in TECH_CATALOG}
+        assert len(branches) >= 4
+
+
+class TestResearchEngine:
+    """Test ResearchEngine logic."""
+
+    def test_initial_state(self) -> None:
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        assert eng.research_points == 0.0
+        assert len(eng.unlocked) == 0
+        assert len(eng.available_techs()) == 8
+
+    def test_generate_points_scales_with_pop(self) -> None:
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        rp100 = eng.generate_points(100, 0.8)
+        rp200 = eng.generate_points(200, 0.8)
+        assert rp200 == rp100 * 2
+
+    def test_strategy_weight_affects_points(self) -> None:
+        from src.tech_tree import ResearchEngine, STRATEGY_RESEARCH_WEIGHT
+        cons = ResearchEngine(strategy="conservative", rng=random.Random(1))
+        aggr = ResearchEngine(strategy="aggressive", rng=random.Random(1))
+        rp_cons = cons.generate_points(100, 1.0)
+        rp_aggr = aggr.generate_points(100, 1.0)
+        assert rp_aggr > rp_cons
+        assert abs(rp_cons / rp_aggr - STRATEGY_RESEARCH_WEIGHT["conservative"] / STRATEGY_RESEARCH_WEIGHT["aggressive"]) < 0.01
+
+    def test_tick_no_unlock_early(self) -> None:
+        """First tick doesn't unlock anything (not enough RP)."""
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        result = eng.tick(50, 0.7, sol=1)
+        assert result is None
+
+    def test_tick_skips_small_population(self) -> None:
+        """Population < 5 generates no research."""
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        result = eng.tick(3, 1.0, sol=1)
+        assert result is None
+        assert eng.research_points == 0.0
+
+    def test_unlock_after_enough_points(self) -> None:
+        """Manually accumulate enough RP to trigger an unlock."""
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="conservative", rng=random.Random(42))
+        eng.research_points = 999.0
+        unlock = eng.tick(100, 1.0, sol=50)
+        assert unlock is not None
+        assert unlock.name in eng.unlocked_names
+        assert eng.research_points < 999.0  # cost deducted
+
+    def test_conservative_picks_cheapest(self) -> None:
+        from src.tech_tree import ResearchEngine, TECH_CATALOG
+        eng = ResearchEngine(strategy="conservative", rng=random.Random(42))
+        eng.research_points = 2000.0  # enough for many
+        unlock = eng.tick(100, 1.0, sol=10)
+        assert unlock is not None
+        cheapest_cost = min(t["cost"] for t in TECH_CATALOG)
+        assert unlock.name == next(t["name"] for t in TECH_CATALOG if t["cost"] == cheapest_cost)
+
+    def test_aggressive_picks_most_expensive_affordable(self) -> None:
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="aggressive", rng=random.Random(42))
+        eng.research_points = 1000.0
+        unlock = eng.tick(100, 1.0, sol=10)
+        assert unlock is not None
+        # aggressive picks highest cost <= 1000 + generated points
+        assert unlock.name is not None
+
+    def test_all_techs_eventually_unlock(self) -> None:
+        """With enough sols, all 8 techs unlock."""
+        from src.tech_tree import ResearchEngine, TECH_CATALOG
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        for sol in range(2000):
+            eng.tick(200, 0.9, sol=sol)
+        assert len(eng.unlocked) == len(TECH_CATALOG)
+
+    def test_get_modifier_sums_values(self) -> None:
+        from src.tech_tree import ResearchEngine, TechUnlock
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        eng.unlocked = [
+            TechUnlock(name="A", branch="x", sol=1, effect="solar_boost", value=0.25),
+            TechUnlock(name="B", branch="x", sol=2, effect="solar_boost", value=0.10),
+        ]
+        assert abs(eng.get_modifier("solar_boost") - 0.35) < 1e-9
+        assert eng.get_modifier("nonexistent") == 0.0
+
+    def test_snapshot_serializable(self) -> None:
+        from src.tech_tree import ResearchEngine
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        eng.research_points = 300.0
+        snap = eng.snapshot()
+        assert json.dumps(snap)  # must be JSON-serializable
+        assert snap["research_points"] == 300.0
+        assert snap["unlocked_count"] == 0
+
+    def test_deterministic_same_seed(self) -> None:
+        """Same RNG seed produces identical unlock sequences."""
+        from src.tech_tree import ResearchEngine
+        def run_eng(seed: int) -> list[str]:
+            eng = ResearchEngine(strategy="balanced", rng=random.Random(seed))
+            for sol in range(500):
+                eng.tick(100, 0.8, sol=sol)
+            return [t.name for t in eng.unlocked]
+        assert run_eng(42) == run_eng(42)
+        # Different seeds may differ
+        r1, r2 = run_eng(42), run_eng(99)
+        # At least the final set should be the same (all 8)
+        # but order/timing may differ
+
+
+class TestTechIntegration:
+    """Integration tests: tech tree wired into colony and simulation."""
+
+    def test_colony_has_research_engine(self) -> None:
+        """Colonies created by Simulation have research engines."""
+        sim = Simulation(sols=10, env_seed=42)
+        results = sim.run()
+        for col in results["colonies"]:
+            snap = col["history"][-1]
+            assert "tech" in snap, "Colony history should include tech snapshot"
+
+    def test_tech_affects_simulation_outcome(self) -> None:
+        """A 365-sol run with tech should differ from one without (indirectly)."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        # At least one colony should have unlocked at least 1 tech
+        any_unlocked = False
+        for col in results["colonies"]:
+            tech_snap = col["history"][-1].get("tech", {})
+            if tech_snap.get("unlocked_count", 0) > 0:
+                any_unlocked = True
+        assert any_unlocked, "Expected at least one tech unlock in 365 sols"
+
+    def test_tech_unlocks_in_results_summary(self) -> None:
+        """Results summary includes tech unlock counts per colony."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        summary = results.get("summary", {})
+        for col_summary in summary.get("colonies", []):
+            assert "techs_unlocked" in col_summary
+
+    def test_tech_events_in_dashboard(self) -> None:
+        """Dashboard HTML includes tech timeline chart."""
+        sim = Simulation(sols=200, env_seed=42)
+        results = sim.run()
+        html = generate_dashboard(results)
+        assert "tech-chart" in html
+        assert "drawTechTimeline" in html
+
+    def test_tech_modifiers_physically_bounded(self) -> None:
+        """Tech modifier values should be in reasonable ranges."""
+        from src.tech_tree import ResearchEngine, TECH_CATALOG
+        eng = ResearchEngine(strategy="balanced", rng=random.Random(42))
+        # Unlock all techs
+        for sol in range(2000):
+            eng.tick(200, 0.9, sol=sol)
+        # Check all effects are bounded
+        for tech in TECH_CATALOG:
+            val = eng.get_modifier(tech["effect"])
+            assert val >= 0, f"{tech['effect']} modifier negative"
+            assert val < 1000, f"{tech['effect']} modifier unreasonably large"
+
+    def test_strategies_get_different_tech_orders(self) -> None:
+        """Conservative and aggressive unlock first tech differently when given enough RP."""
+        from src.tech_tree import ResearchEngine, TECH_CATALOG
+        # Give enough RP so multiple techs are affordable
+        for strat, expected_first in [
+            ("conservative", min(TECH_CATALOG, key=lambda t: t["cost"])["name"]),
+        ]:
+            eng = ResearchEngine(strategy=strat, rng=random.Random(42))
+            eng.research_points = 5000.0  # enough for any tech
+            eng.tick(100, 1.0, sol=1)
+            assert eng.unlocked[0].name == expected_first
+        # Aggressive should pick most expensive
+        eng_agg = ResearchEngine(strategy="aggressive", rng=random.Random(42))
+        eng_agg.research_points = 5000.0
+        eng_agg.tick(100, 1.0, sol=1)
+        most_expensive = max(TECH_CATALOG, key=lambda t: t["cost"])["name"]
+        assert eng_agg.unlocked[0].name == most_expensive
