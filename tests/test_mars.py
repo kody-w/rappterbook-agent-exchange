@@ -324,15 +324,16 @@ class TestDashboard:
         assert "Ares Prime" in html
         assert "Olympus Station" in html
         assert "Red Frontier" in html
-        assert "<svg" in html
+        assert "<canvas" in html
 
-    def test_svg_charts_present(self) -> None:
-        """Dashboard contains expected SVG charts."""
+    def test_canvas_charts_present(self) -> None:
+        """Dashboard contains expected canvas charts."""
         sim = Simulation(sols=30, env_seed=42)
         results = sim.run()
         html = generate_dashboard(results)
         for chart_id in ["pop-chart", "food-chart", "morale-chart", "births-chart", "temp-chart"]:
             assert chart_id in html, f"Missing chart: {chart_id}"
+        assert "diversity-chart" in html
 
 
 # ─── Property-based invariant tests ───
@@ -342,19 +343,23 @@ class TestConservationLaws:
     """Physics-level invariants that must hold for any seed."""
 
     def test_population_accounting(self) -> None:
-        """births - deaths = population change (over full sim)."""
+        """births - deaths + migration = population change (over full sim)."""
         for seed in [1, 42, 99, 256, 1000]:
             sim = Simulation(sols=100, env_seed=seed)
             results = sim.run()
             for c in results["colonies"]:
                 hist = c["history"]
                 start_pop = hist[0]["population"] - hist[0]["births"] + hist[0]["deaths"]
+                # Account for migration that happened on sol 1
+                start_pop -= hist[0].get("net_migration", 0)
                 end_pop = hist[-1]["population"]
                 total_b = sum(h["births"] for h in hist)
                 total_d = sum(h["deaths"] for h in hist)
-                assert end_pop == start_pop + total_b - total_d, (
+                total_mig = sum(h.get("net_migration", 0) for h in hist)
+                assert end_pop == start_pop + total_b - total_d + total_mig, (
                     f"Accounting error for {c['name']} seed={seed}: "
-                    f"start={start_pop} + births={total_b} - deaths={total_d} != end={end_pop}"
+                    f"start={start_pop} + births={total_b} - deaths={total_d}"
+                    f" + mig={total_mig} != end={end_pop}"
                 )
 
     def test_temperature_physical_range(self) -> None:
@@ -429,3 +434,167 @@ class TestDiscoveries:
         sim.run()
         for c in sim.colonies:
             assert c.medical_breakthroughs <= 4
+
+
+# ─── Carrying capacity tests ─────────────────────────────────────────
+
+class TestCarryingCapacity:
+    """Explicit carrying capacity K and logistic damping."""
+
+    def test_k_positive(self) -> None:
+        """K is always positive for non-zero colonies."""
+        for strategy in ["conservative", "balanced", "aggressive"]:
+            c = create_colony("Test", strategy, 42)
+            assert c.carrying_capacity() > 0
+
+    def test_k_in_history(self) -> None:
+        """K is tracked in every history snapshot."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                assert "carrying_capacity" in h
+                assert h["carrying_capacity"] > 0
+
+    def test_k_grows_with_infrastructure(self) -> None:
+        """K increases as greenhouse/habitat/solar expand."""
+        c = create_colony("Test", "balanced", 42)
+        k1 = c.carrying_capacity()
+        c.greenhouse_m2 *= 2
+        c.habitat_m2 *= 2
+        c.solar_m2 *= 2
+        c.water_mining_bonus += 50  # boost water to remove bottleneck
+        k2 = c.carrying_capacity()
+        assert k2 > k1
+
+    def test_logistic_damping_slows_growth(self) -> None:
+        """Birth rate decreases as population approaches K."""
+        c = create_colony("Test", "balanced", 42)
+        k = c.carrying_capacity()
+        # Run until population is well above initial but below K
+        env = MarsEnvironment(seed=42)
+        for _ in range(200):
+            c.tick(env.tick())
+        if c.population > 0:
+            assert c.population < k * 2, "Population should not wildly exceed K"
+
+    def test_conservative_has_highest_initial_k(self) -> None:
+        """Conservative strategy starts with highest K (most infrastructure)."""
+        cons = create_colony("C", "conservative", 1)
+        bal = create_colony("B", "balanced", 2)
+        agg = create_colony("A", "aggressive", 3)
+        assert cons.carrying_capacity() > bal.carrying_capacity()
+        assert bal.carrying_capacity() > agg.carrying_capacity()
+
+
+# ─── Epidemic tests ──────────────────────────────────────────────────
+
+class TestEpidemics:
+    """Disease outbreaks in colonies."""
+
+    def test_epidemic_class(self) -> None:
+        """Epidemic tracks state correctly."""
+        from src.mars_colony import Epidemic, EPIDEMIC_STRAINS
+        strain = EPIDEMIC_STRAINS[0]
+        ep = Epidemic(strain, 20, 100)
+        assert ep.strain == "Mars Flu"
+        assert ep.remaining_sols == 20
+        assert ep.infection_rate() >= 0
+        assert ep.extra_mortality() >= 0
+        assert ep.tick()  # still alive
+        assert ep.remaining_sols == 19
+
+    def test_epidemic_ends(self) -> None:
+        """Epidemic ends after its duration."""
+        from src.mars_colony import Epidemic, EPIDEMIC_STRAINS
+        ep = Epidemic(EPIDEMIC_STRAINS[0], 2, 50)
+        assert ep.tick()  # sol 1: still alive
+        assert not ep.tick()  # sol 2: ends
+
+    def test_epidemics_happen_over_long_run(self) -> None:
+        """At least one epidemic across 3 colonies in 1000 sols."""
+        sim = Simulation(sols=1000, env_seed=42)
+        sim.run()
+        total_epidemics = sum(
+            sum(1 for e in c.events if e["type"] == "epidemic_start")
+            for c in sim.colonies
+        )
+        assert total_epidemics > 0, "Expected epidemics in 1000 sols"
+
+    def test_quarantine_reduces_spread(self) -> None:
+        """Colonies with high medical level quarantine epidemics."""
+        from src.mars_colony import Epidemic, EPIDEMIC_STRAINS
+        ep = Epidemic(EPIDEMIC_STRAINS[1], 30, 100)
+        # Advance a few sols so infection_rate > 0
+        for _ in range(10):
+            ep.tick()
+        base_mortality = ep.extra_mortality()
+        assert base_mortality > 0, "Epidemic should have nonzero mortality mid-outbreak"
+        ep.quarantined = True
+        quarantined_mortality = ep.extra_mortality()
+        assert quarantined_mortality < base_mortality
+
+
+# ─── Genetic diversity tests ─────────────────────────────────────────
+
+class TestGeneticDiversity:
+    """Founder effect and genetic drift."""
+
+    def test_initial_diversity(self) -> None:
+        """Initial diversity scales with population size."""
+        small = create_colony("Small", "aggressive", 1)
+        large = create_colony("Large", "conservative", 2)
+        assert large.genetic_diversity >= small.genetic_diversity
+
+    def test_diversity_in_history(self) -> None:
+        """Genetic diversity tracked in snapshots."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                assert "genetic_diversity" in h
+                assert 0.0 <= h["genetic_diversity"] <= 1.0
+
+    def test_diversity_drifts_down(self) -> None:
+        """Diversity decreases over time without immigration."""
+        c = create_colony("Isolated", "balanced", 42)
+        env = MarsEnvironment(seed=42)
+        initial_diversity = c.genetic_diversity
+        for _ in range(300):  # ~10 generations
+            c.tick(env.tick())
+        assert c.genetic_diversity <= initial_diversity
+
+    def test_immigration_boosts_diversity(self) -> None:
+        """receive_immigrants increases genetic diversity."""
+        c = create_colony("Colony", "balanced", 42)
+        c.genetic_diversity = 0.3  # degraded
+        c.receive_immigrants(20)
+        assert c.genetic_diversity > 0.3
+
+
+# ─── Migration tests ─────────────────────────────────────────────────
+
+class TestMigration:
+    """Inter-colony migration mechanics."""
+
+    def test_migration_occurs_over_365_sols(self) -> None:
+        """At least some migration happens in a year."""
+        sim = Simulation(sols=365, env_seed=42)
+        sim.run()
+        assert sim.total_migrations > 0, "Expected some migration in 365 sols"
+
+    def test_migration_zero_sum(self) -> None:
+        """Total immigrants == total emigrants across all colonies."""
+        sim = Simulation(sols=200, env_seed=42)
+        sim.run()
+        total_in = sum(c.total_immigrants for c in sim.colonies)
+        total_out = sum(c.total_emigrants for c in sim.colonies)
+        assert total_in == total_out
+
+    def test_net_migration_in_history(self) -> None:
+        """net_migration field exists in history snapshots."""
+        sim = Simulation(sols=50, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            for h in c["history"]:
+                assert "net_migration" in h

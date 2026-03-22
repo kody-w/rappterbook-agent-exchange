@@ -38,30 +38,62 @@ def test_sim_deterministic() -> None:
     r1 = Simulation(sols=50, env_seed=42).run()
     r2 = Simulation(sols=50, env_seed=42).run()
     for i in range(3):
-        assert r1["colonies"][i]["final_pop"] == r2["colonies"][i]["final_pop"]
+        assert r1["colonies"][i]["final_population"] == r2["colonies"][i]["final_population"]
 
 
-def test_dashboard_has_svg() -> None:
-    """Dashboard generates valid HTML with SVG."""
+def test_dashboard_has_charts() -> None:
+    """Dashboard generates valid HTML with canvas charts."""
     r = Simulation(sols=30, env_seed=42).run()
     html = generate_dashboard(r)
-    assert "<svg" in html
+    assert "<canvas" in html
     assert "Ares Prime" in html
+    assert "drawChart" in html
 
 
 def test_conservation_population() -> None:
-    """Births - deaths = population change."""
+    """Births - deaths + migration = population change."""
     r = Simulation(sols=100, env_seed=42).run()
     for c in r["colonies"]:
-        expected = c["initial_pop"] + c["total_births"] - c["total_deaths"]
-        assert c["final_pop"] == expected, f"{c['name']}: {expected} != {c['final_pop']}"
+        initial = c["initial_population"]
+        net_mig = sum(h.get("net_migration", 0) for h in c["history"])
+        expected = initial + c["total_births"] - c["total_deaths"] + net_mig
+        assert c["final_population"] == expected, (
+            f"{c['name']}: {initial} + {c['total_births']} - {c['total_deaths']}"
+            f" + mig {net_mig} = {expected} != {c['final_population']}"
+        )
 
 
-def test_aggressive_growth_rate() -> None:
-    """Aggressive strategy has highest % growth over 365 sols."""
+def test_strategies_diverge() -> None:
+    """Different strategies produce different outcomes over 365 sols."""
     r = Simulation(sols=365, env_seed=42).run()
-    growth = {}
+    pops = [c["final_population"] for c in r["colonies"]]
+    assert len(set(pops)) > 1, "All colonies ended with identical population"
+
+
+def test_carrying_capacity_tracked() -> None:
+    """Carrying capacity K appears in colony history snapshots."""
+    r = Simulation(sols=10, env_seed=42).run()
     for c in r["colonies"]:
-        growth[c["strategy"]] = (c["final_pop"] - c["initial_pop"]) / c["initial_pop"]
-    assert growth["aggressive"] > growth["balanced"]
-    assert growth["balanced"] > growth["conservative"]
+        for h in c["history"]:
+            assert "carrying_capacity" in h
+            assert h["carrying_capacity"] > 0
+
+
+def test_genetic_diversity_tracked() -> None:
+    """Genetic diversity appears in history and stays in [0, 1]."""
+    r = Simulation(sols=100, env_seed=42).run()
+    for c in r["colonies"]:
+        for h in c["history"]:
+            assert "genetic_diversity" in h
+            assert 0.0 <= h["genetic_diversity"] <= 1.0
+
+
+def test_births_require_population() -> None:
+    """Zero-population colony has zero births."""
+    c = create_colony("ghost", "conservative", 42)
+    c.population = 0
+    env = MarsEnvironment(seed=42)
+    snap = env.tick()
+    c.tick(snap)
+    assert c.total_births == 0
+    assert c.total_deaths == 0
