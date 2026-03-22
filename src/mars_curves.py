@@ -1,177 +1,83 @@
 """
-mars_curves.py — Generate self-contained HTML dashboard with population curves.
+mars_curves.py — Generate interactive HTML dashboard with population curves.
 
-Pure SVG charts embedded in a single HTML file. Zero dependencies.
-Designed for GitHub Pages deployment at docs/mars/index.html.
+Canvas-based charts with JavaScript interactivity.
+Reads data from co-located data.json. Zero server dependencies.
+Designed for GitHub Pages at docs/mars/index.html.
 """
 from __future__ import annotations
 
-import math
 
 COLORS = {
-    "Ares Prime": "#e74c3c",       # red — conservative
-    "Olympus Station": "#3498db",  # blue — balanced
-    "Red Frontier": "#2ecc71",     # green — aggressive
+    "Ares Prime": "#e74c3c",
+    "Olympus Station": "#3498db",
+    "Red Frontier": "#2ecc71",
 }
-
-CHART_W = 800
-CHART_H = 300
-MARGIN = {"top": 30, "right": 20, "bottom": 40, "left": 60}
-PLOT_W = CHART_W - MARGIN["left"] - MARGIN["right"]
-PLOT_H = CHART_H - MARGIN["top"] - MARGIN["bottom"]
-
-
-def _svg_line_chart(
-    series: dict[str, list[float]],
-    title: str,
-    y_label: str,
-    chart_id: str,
-    env_overlay: list[float] | None = None,
-    overlay_label: str = "",
-) -> str:
-    """Generate an SVG line chart with multiple series.
-
-    series: {name: [values...]}
-    env_overlay: optional background series (plotted as filled area)
-    """
-    all_vals = []
-    for vals in series.values():
-        all_vals.extend(vals)
-    if env_overlay:
-        all_vals.extend(env_overlay)
-
-    if not all_vals:
-        return f'<div class="chart"><h3>{title}</h3><p>No data</p></div>'
-
-    y_min = min(all_vals)
-    y_max = max(all_vals)
-    y_range = y_max - y_min or 1
-    y_min -= y_range * 0.05
-    y_max += y_range * 0.05
-    y_range = y_max - y_min
-
-    n = max(len(v) for v in series.values())
-    x_scale = PLOT_W / max(1, n - 1) if n > 1 else PLOT_W
-
-    def px(i: int, val: float) -> tuple[float, float]:
-        x = MARGIN["left"] + i * x_scale
-        y = MARGIN["top"] + PLOT_H - (val - y_min) / y_range * PLOT_H
-        return round(x, 1), round(y, 1)
-
-    lines = []
-    lines.append(f'<svg viewBox="0 0 {CHART_W} {CHART_H}" class="chart-svg" id="{chart_id}">')
-
-    # Grid lines
-    for frac in [0, 0.25, 0.5, 0.75, 1.0]:
-        gy = MARGIN["top"] + PLOT_H * (1 - frac)
-        gv = y_min + y_range * frac
-        lines.append(f'  <line x1="{MARGIN["left"]}" y1="{gy:.0f}" x2="{CHART_W - MARGIN["right"]}" y2="{gy:.0f}" stroke="#333" stroke-dasharray="2,4"/>')
-        lines.append(f'  <text x="{MARGIN["left"] - 5}" y="{gy:.0f}" text-anchor="end" fill="#888" font-size="10">{gv:.0f}</text>')
-
-    # X-axis labels
-    for sol_mark in range(0, n, max(1, n // 6)):
-        gx = MARGIN["left"] + sol_mark * x_scale
-        lines.append(f'  <text x="{gx:.0f}" y="{CHART_H - 5}" text-anchor="middle" fill="#888" font-size="10">Sol {sol_mark}</text>')
-
-    # Env overlay (dust opacity as orange fill)
-    if env_overlay:
-        overlay_points = []
-        for i, v in enumerate(env_overlay[:n]):
-            x, y = px(i, v)
-            overlay_points.append(f"{x},{y}")
-        baseline_y = MARGIN["top"] + PLOT_H
-        start_x = MARGIN["left"]
-        end_x = MARGIN["left"] + (len(env_overlay[:n]) - 1) * x_scale
-        path = f"M{start_x},{baseline_y} L" + " L".join(overlay_points) + f" L{end_x:.1f},{baseline_y} Z"
-        lines.append(f'  <path d="{path}" fill="rgba(255,165,0,0.12)" stroke="none"/>')
-
-    # Data lines
-    for name, vals in series.items():
-        color = COLORS.get(name, "#888")
-        points = []
-        for i, v in enumerate(vals):
-            x, y = px(i, v)
-            points.append(f"{x},{y}")
-        if points:
-            lines.append(f'  <polyline points="{" ".join(points)}" fill="none" stroke="{color}" stroke-width="2"/>')
-
-    # Title
-    lines.append(f'  <text x="{CHART_W // 2}" y="18" text-anchor="middle" fill="#eee" font-size="14" font-weight="bold">{title}</text>')
-    # Y-label
-    lines.append(f'  <text x="12" y="{CHART_H // 2}" text-anchor="middle" fill="#888" font-size="10" transform="rotate(-90,12,{CHART_H // 2})">{y_label}</text>')
-
-    lines.append('</svg>')
-    return "\n".join(lines)
-
-
-def _extract_series(colonies: list, env: dict) -> tuple:
-    """Extract chart series from either format (flat arrays or list-of-dicts)."""
-    c0 = colonies[0]
-    if "history" in c0 and isinstance(c0["history"], list) and c0["history"]:
-        # sim.run() format: colonies[i]["history"] = [{"population": ..., ...}, ...]
-        pop = {c["name"]: [h["population"] for h in c["history"]] for c in colonies}
-        food = {c["name"]: [h["food_kg"] for h in c["history"]] for c in colonies}
-        morale = {c["name"]: [h["morale"] for h in c["history"]] for c in colonies}
-        births = {c["name"]: _cumsum([h["births"] for h in c["history"]]) for c in colonies}
-    else:
-        # saved JSON format: colonies[i]["population"] = [int, ...]
-        pop = {c["name"]: c["population"] for c in colonies}
-        food = {c["name"]: c["food_kg"] for c in colonies}
-        morale = {c["name"]: c["morale"] for c in colonies}
-        births = {c["name"]: _cumsum(c["births"]) for c in colonies}
-
-    if "history" in env and isinstance(env["history"], list) and env["history"]:
-        dust = [e["dust_opacity"] for e in env["history"]]
-        temp = [e["temperature_c"] for e in env["history"]]
-    else:
-        dust = env["dust_opacity"]
-        temp = env["temperature_c"]
-
-    return pop, food, morale, births, dust, temp
 
 
 def generate_dashboard(results: dict) -> str:
-    """Generate a complete HTML page with population curves.
-
-    Handles both sim.run() output (list-of-dicts) and saved JSON (flat arrays).
-    """
+    """Generate interactive HTML dashboard with Canvas charts."""
     colonies = results["colonies"]
     env = results["environment"]
-    summary = results["summary"]["colonies"]
+    summary = results.get("summary", {}).get("colonies", [])
     meta = results["_meta"]
 
-    pop_series, food_series, morale_series, births_series, dust_raw, temp_vals = (
-        _extract_series(colonies, env)
-    )
-
-    peak_pop = max(max(v) for v in pop_series.values())
-    dust_vals = [d * peak_pop for d in dust_raw]
-
-    pop_chart = _svg_line_chart(pop_series, "Population Over Time", "People", "pop-chart", dust_vals, "Dust storms")
-    food_chart = _svg_line_chart(food_series, "Food Reserves (kg)", "kg", "food-chart")
-    morale_chart = _svg_line_chart(morale_series, "Colony Morale", "Morale", "morale-chart")
-    births_chart = _svg_line_chart(births_series, "Cumulative Births", "Total Births", "births-chart")
-    temp_chart = _svg_line_chart({"Temperature": temp_vals}, "Mars Surface Temperature (°C)", "°C", "temp-chart")
-
-    # Summary cards
-    cards = []
+    # Build summary cards HTML
+    cards_html = ""
     for s in summary:
         color = COLORS.get(s["name"], "#888")
-        arrow = "↑" if s["growth_pct"] > 0 else "↓" if s["growth_pct"] < 0 else "→"
-        cards.append(f'''
+        arrow = "↑" if s.get("growth_pct", 0) > 0 else "↓" if s.get("growth_pct", 0) < 0 else "→"
+        net_mig = s.get("net_migration", 0)
+        mig_str = f" · Migration: {net_mig:+d}" if net_mig != 0 else ""
+        cards_html += f'''
         <div class="card" style="border-color: {color}">
             <h3 style="color: {color}">{s["name"]}</h3>
             <div class="strategy">{s["strategy"].upper()}</div>
-            <div class="stat">{s["start_pop"]} → {s["end_pop"]} <span class="arrow">{arrow} {s["growth_pct"]:+.1f}%</span></div>
+            <div class="stat">{s["start_pop"]} → {s["end_pop"]} <span class="arrow">{arrow} {s.get("growth_pct", 0):+.1f}%</span></div>
             <div class="detail">Peak: {s["peak_pop"]} · Trough: {s["min_pop"]}</div>
-            <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}</div>
-        </div>''')
+            <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}{mig_str}</div>
+        </div>'''
 
-    # Legend
-    legend = " ".join(
-        f'<span class="legend-item"><span class="swatch" style="background:{COLORS.get(c["name"],"#888")}"></span>{c["name"]}</span>'
-        for c in colonies
-    )
+    # Build colony data arrays for JavaScript
+    colony_js_data = "const COLONIES = [\n"
+    for c in colonies:
+        name = c["name"]
+        color = COLORS.get(name, "#888")
+        if "history" in c and isinstance(c["history"], list) and c["history"]:
+            pops = [h["population"] for h in c["history"]]
+            food = [h["food_kg"] for h in c["history"]]
+            morale = [h["morale"] for h in c["history"]]
+            births = [h["births"] for h in c["history"]]
+            deaths = [h["deaths"] for h in c["history"]]
+            k_vals = [h.get("carrying_capacity", 0) for h in c["history"]]
+            diversity = [h.get("genetic_diversity", 1.0) for h in c["history"]]
+            migration = [h.get("net_migration", 0) for h in c["history"]]
+        else:
+            pops = c.get("population", [])
+            food = c.get("food_kg", [])
+            morale = c.get("morale", [])
+            births = c.get("births", [])
+            deaths = c.get("deaths", [])
+            k_vals = c.get("carrying_capacity", [])
+            diversity = c.get("genetic_diversity", [])
+            migration = c.get("net_migration", [])
+
+        colony_js_data += f'  {{name:"{name}",color:"{color}",pop:{pops},food:{food},morale:{morale},births:{births},deaths:{deaths},k:{k_vals},diversity:{diversity},migration:{migration}}},\n'
+    colony_js_data += "];\n"
+
+    # Environment data for JS
+    if "history" in env and isinstance(env["history"], list):
+        temps = [e["temperature_c"] for e in env["history"]]
+        dust = [e["dust_opacity"] for e in env["history"]]
+        radiation = [e["radiation_msv"] for e in env["history"]]
+    else:
+        temps = env.get("temperature_c", [])
+        dust = env.get("dust_opacity", [])
+        radiation = env.get("radiation_msv", [])
+
+    env_js_data = f"const ENV = {{temp:{temps},dust:{dust},radiation:{radiation}}};\n"
+
+    total_mig = results.get("summary", {}).get("total_migrations", results.get("migration", {}).get("total_transfers", 0))
 
     html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -186,102 +92,268 @@ body {{
     color: #ccc;
     font-family: 'Courier New', monospace;
     padding: 20px;
-    max-width: 900px;
+    max-width: 960px;
     margin: 0 auto;
 }}
-h1 {{
-    color: #e74c3c;
-    font-size: 1.8em;
-    margin-bottom: 4px;
-}}
-.subtitle {{
-    color: #666;
-    font-size: 0.85em;
-    margin-bottom: 20px;
-}}
-.cards {{
-    display: flex;
-    gap: 12px;
-    margin-bottom: 24px;
-    flex-wrap: wrap;
-}}
+h1 {{ color: #e74c3c; font-size: 1.8em; margin-bottom: 4px; }}
+.subtitle {{ color: #666; font-size: 0.85em; margin-bottom: 20px; }}
+.cards {{ display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }}
 .card {{
-    flex: 1;
-    min-width: 200px;
-    background: #111;
-    border: 2px solid #333;
-    border-radius: 8px;
-    padding: 14px;
+    flex: 1; min-width: 200px; background: #111;
+    border: 2px solid #333; border-radius: 8px; padding: 14px;
 }}
 .card h3 {{ font-size: 1.1em; margin-bottom: 4px; }}
 .card .strategy {{ color: #666; font-size: 0.75em; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }}
 .card .stat {{ font-size: 1.3em; color: #eee; }}
 .card .arrow {{ font-size: 0.9em; }}
 .card .detail {{ color: #888; font-size: 0.8em; margin-top: 4px; }}
-.chart-container {{
-    background: #111;
-    border-radius: 8px;
-    padding: 12px;
-    margin-bottom: 16px;
+.chart-box {{
+    background: #111; border-radius: 8px; padding: 16px; margin-bottom: 16px;
+    position: relative;
 }}
-.chart-svg {{ width: 100%; height: auto; }}
+.chart-box h3 {{ color: #aaa; font-size: 0.95em; margin-bottom: 8px; }}
+canvas {{ width: 100%; height: 260px; display: block; }}
+.tooltip {{
+    position: absolute; background: #222; color: #eee; padding: 8px 12px;
+    border-radius: 6px; font-size: 0.8em; pointer-events: none;
+    display: none; z-index: 10; border: 1px solid #444;
+    white-space: nowrap;
+}}
 .legend {{
-    text-align: center;
-    margin-bottom: 16px;
-    font-size: 0.85em;
+    text-align: center; margin-bottom: 16px; font-size: 0.85em;
 }}
-.legend-item {{
-    margin: 0 12px;
-    color: #aaa;
-}}
+.legend-item {{ margin: 0 12px; color: #aaa; cursor: pointer; }}
+.legend-item.hidden {{ opacity: 0.3; text-decoration: line-through; }}
 .swatch {{
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    margin-right: 4px;
-    vertical-align: middle;
+    display: inline-block; width: 12px; height: 12px;
+    border-radius: 2px; margin-right: 4px; vertical-align: middle;
 }}
+.stats-bar {{
+    display: flex; gap: 20px; justify-content: center;
+    margin-bottom: 20px; font-size: 0.85em; color: #888;
+}}
+.stats-bar span {{ color: #aaa; }}
 footer {{
-    color: #444;
-    font-size: 0.75em;
-    text-align: center;
-    margin-top: 30px;
-    padding-top: 16px;
-    border-top: 1px solid #1a1a1a;
+    color: #444; font-size: 0.75em; text-align: center;
+    margin-top: 30px; padding-top: 16px; border-top: 1px solid #1a1a1a;
 }}
 footer a {{ color: #555; }}
 </style>
 </head>
 <body>
 <h1>🔴 Mars Barn</h1>
-<p class="subtitle">{meta["sols"]} sols · 3 colonies · deterministic simulation (seed 42) · generated {meta["generated"][:10]}</p>
+<p class="subtitle">{meta["sols"]} sols · 3 colonies · seed 42 · generated {meta["generated"][:10]}</p>
 
-<div class="legend">{legend}</div>
-
-<div class="cards">
-{"".join(cards)}
+<div class="stats-bar">
+    <div>Total migrations: <span>{total_mig}</span></div>
 </div>
 
-<div class="chart-container">{pop_chart}</div>
-<div class="chart-container">{food_chart}</div>
-<div class="chart-container">{morale_chart}</div>
-<div class="chart-container">{births_chart}</div>
-<div class="chart-container">{temp_chart}</div>
+<div class="legend" id="legend"></div>
+
+<div class="cards">{cards_html}</div>
+
+<div class="chart-box">
+    <h3>Population + Carrying Capacity (K)</h3>
+    <canvas id="pop-chart"></canvas>
+    <div class="tooltip" id="pop-tip"></div>
+</div>
+<div class="chart-box">
+    <h3>Genetic Diversity</h3>
+    <canvas id="diversity-chart"></canvas>
+    <div class="tooltip" id="diversity-tip"></div>
+</div>
+<div class="chart-box">
+    <h3>Food Reserves (kg)</h3>
+    <canvas id="food-chart"></canvas>
+    <div class="tooltip" id="food-tip"></div>
+</div>
+<div class="chart-box">
+    <h3>Colony Morale</h3>
+    <canvas id="morale-chart"></canvas>
+    <div class="tooltip" id="morale-tip"></div>
+</div>
+<div class="chart-box">
+    <h3>Cumulative Births</h3>
+    <canvas id="births-chart"></canvas>
+    <div class="tooltip" id="births-tip"></div>
+</div>
+<div class="chart-box">
+    <h3>Mars Surface Temperature (°C)</h3>
+    <canvas id="temp-chart"></canvas>
+    <div class="tooltip" id="temp-tip"></div>
+</div>
 
 <footer>
-    Mars Barn Terrarium · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
+    Mars Barn Terrarium v2.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
 </footer>
+
+<script>
+"use strict";
+{colony_js_data}
+{env_js_data}
+
+// Visibility toggles
+const visible = COLONIES.map(() => true);
+
+// Build legend
+const legendEl = document.getElementById("legend");
+COLONIES.forEach((c, i) => {{
+    const span = document.createElement("span");
+    span.className = "legend-item";
+    span.innerHTML = `<span class="swatch" style="background:${{c.color}}"></span>${{c.name}}`;
+    span.onclick = () => {{
+        visible[i] = !visible[i];
+        span.classList.toggle("hidden");
+        drawAll();
+    }};
+    legendEl.appendChild(span);
+}});
+
+function cumsum(arr) {{
+    let s = 0;
+    return arr.map(v => (s += v, s));
+}}
+
+function drawChart(canvasId, tipId, series, opts) {{
+    const canvas = document.getElementById(canvasId);
+    const tip = document.getElementById(tipId);
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    const margin = {{top: 20, right: 16, bottom: 30, left: 55}};
+    const pw = W - margin.left - margin.right;
+    const ph = H - margin.top - margin.bottom;
+
+    // Compute bounds
+    let allVals = [];
+    series.forEach(s => {{ if (s.show !== false) allVals.push(...s.data); }});
+    if (allVals.length === 0) return;
+    let yMin = opts.yMin !== undefined ? opts.yMin : Math.min(...allVals);
+    let yMax = opts.yMax !== undefined ? opts.yMax : Math.max(...allVals);
+    const pad = (yMax - yMin) * 0.08 || 1;
+    yMin -= pad; yMax += pad;
+    const n = Math.max(...series.map(s => s.data.length));
+
+    function toX(i) {{ return margin.left + i / Math.max(1, n - 1) * pw; }}
+    function toY(v) {{ return margin.top + ph - (v - yMin) / (yMax - yMin) * ph; }}
+
+    // Background
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, W, H);
+
+    // Grid
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+    for (let f = 0; f <= 1; f += 0.25) {{
+        const y = margin.top + ph * (1 - f);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(W - margin.right, y); ctx.stroke();
+        ctx.fillStyle = "#666"; ctx.font = "10px monospace"; ctx.textAlign = "right";
+        ctx.fillText((yMin + (yMax - yMin) * f).toFixed(0), margin.left - 4, y + 3);
+    }}
+    // X labels
+    ctx.textAlign = "center"; ctx.fillStyle = "#666";
+    for (let s = 0; s <= n; s += Math.max(1, Math.floor(n / 6))) {{
+        ctx.fillText("Sol " + s, toX(s), H - 5);
+    }}
+
+    // Dust overlay (orange fill) if provided
+    if (opts.dustOverlay) {{
+        const d = opts.dustOverlay;
+        ctx.beginPath();
+        ctx.moveTo(toX(0), toY(yMin));
+        for (let i = 0; i < d.length; i++) {{
+            const scaledDust = yMin + d[i] * (yMax - yMin);
+            ctx.lineTo(toX(i), toY(scaledDust));
+        }}
+        ctx.lineTo(toX(d.length - 1), toY(yMin));
+        ctx.closePath();
+        ctx.fillStyle = "rgba(255,165,0,0.08)";
+        ctx.fill();
+    }}
+
+    // Lines
+    series.forEach(s => {{
+        if (s.show === false) return;
+        ctx.beginPath();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.dashed ? 1 : 2;
+        if (s.dashed) ctx.setLineDash([4, 4]); else ctx.setLineDash([]);
+        for (let i = 0; i < s.data.length; i++) {{
+            const x = toX(i), y = toY(s.data[i]);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }}
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }});
+
+    // Tooltip on hover
+    canvas.onmousemove = (e) => {{
+        const bnd = canvas.getBoundingClientRect();
+        const mx = e.clientX - bnd.left;
+        const sol = Math.round((mx - margin.left) / pw * (n - 1));
+        if (sol < 0 || sol >= n) {{ tip.style.display = "none"; return; }}
+        let html = `<b>Sol ${{sol}}</b><br>`;
+        series.forEach(s => {{
+            if (s.show === false || sol >= s.data.length) return;
+            const v = s.data[sol];
+            html += `<span style="color:${{s.color}}">■</span> ${{s.name}}: ${{typeof v === "number" ? v.toFixed(1) : v}}<br>`;
+        }});
+        tip.innerHTML = html;
+        tip.style.display = "block";
+        tip.style.left = Math.min(mx + 12, bnd.width - 180) + "px";
+        tip.style.top = "10px";
+    }};
+    canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
+}}
+
+function drawAll() {{
+    // Population + K chart
+    const popSeries = COLONIES.map((c, i) => ({{
+        name: c.name, color: c.color, data: c.pop, show: visible[i]
+    }}));
+    COLONIES.forEach((c, i) => {{
+        if (c.k && c.k.some(v => v > 0)) {{
+            popSeries.push({{name: c.name + " (K)", color: c.color, data: c.k, dashed: true, show: visible[i]}});
+        }}
+    }});
+    drawChart("pop-chart", "pop-tip", popSeries, {{dustOverlay: ENV.dust}});
+
+    // Diversity
+    const divSeries = COLONIES.map((c, i) => ({{
+        name: c.name, color: c.color, data: c.diversity, show: visible[i]
+    }}));
+    drawChart("diversity-chart", "diversity-tip", divSeries, {{yMin: 0, yMax: 1.1}});
+
+    // Food
+    const foodSeries = COLONIES.map((c, i) => ({{
+        name: c.name, color: c.color, data: c.food, show: visible[i]
+    }}));
+    drawChart("food-chart", "food-tip", foodSeries, {{}});
+
+    // Morale
+    const moraleSeries = COLONIES.map((c, i) => ({{
+        name: c.name, color: c.color, data: c.morale, show: visible[i]
+    }}));
+    drawChart("morale-chart", "morale-tip", moraleSeries, {{yMin: 0, yMax: 1.1}});
+
+    // Cumulative births
+    const birthSeries = COLONIES.map((c, i) => ({{
+        name: c.name, color: c.color, data: cumsum(c.births), show: visible[i]
+    }}));
+    drawChart("births-chart", "births-tip", birthSeries, {{}});
+
+    // Temperature
+    drawChart("temp-chart", "temp-tip", [
+        {{name: "Temperature", color: "#f39c12", data: ENV.temp}}
+    ], {{}});
+}}
+
+drawAll();
+window.addEventListener("resize", drawAll);
+</script>
 </body>
 </html>'''
     return html
-
-
-def _cumsum(vals: list[int]) -> list[int]:
-    """Running cumulative sum."""
-    out = []
-    total = 0
-    for v in vals:
-        total += v
-        out.append(total)
-    return out

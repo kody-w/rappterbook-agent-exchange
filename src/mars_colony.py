@@ -43,6 +43,48 @@ RADIATION_CONCERN = 200   # increased cancer risk
 RADIATION_DANGER = 500    # acute symptoms
 RADIATION_LETHAL = 1000   # acute radiation syndrome
 
+# Epidemic parameters
+EPIDEMIC_CHANCE_PER_SOL = 0.003  # ~1 epidemic per Mars year per colony
+EPIDEMIC_MIN_POP = 20  # epidemics need enough hosts
+EPIDEMIC_STRAINS = [
+    {"name": "Mars Flu",       "severity": 0.3, "duration": (10, 25), "mortality": 0.002},
+    {"name": "Regolith Lung",  "severity": 0.6, "duration": (15, 40), "mortality": 0.005},
+    {"name": "Rad Fever",      "severity": 0.8, "duration": (20, 50), "mortality": 0.008},
+]
+
+
+class Epidemic:
+    """Active disease outbreak in a colony."""
+    __slots__ = ("strain", "severity", "remaining_sols", "total_duration",
+                 "infected_count", "quarantined")
+
+    def __init__(self, strain: dict, duration: int, population: int) -> None:
+        self.strain = strain["name"]
+        self.severity = strain["severity"]
+        self.remaining_sols = duration
+        self.total_duration = duration
+        self.infected_count = max(1, int(population * 0.05))
+        self.quarantined = False
+
+    def infection_rate(self) -> float:
+        """Current infection pressure (SIR-like curve)."""
+        progress = 1.0 - (self.remaining_sols / self.total_duration)
+        if progress < 0.3:
+            return self.severity * progress / 0.3
+        return self.severity * max(0.0, 1.0 - (progress - 0.3) / 0.7)
+
+    def extra_mortality(self) -> float:
+        """Additional death rate from the epidemic."""
+        rate = self.severity * 0.005 * self.infection_rate()
+        if self.quarantined:
+            rate *= 0.4
+        return rate
+
+    def tick(self) -> bool:
+        """Advance one sol. Returns True if epidemic still active."""
+        self.remaining_sols -= 1
+        return self.remaining_sols > 0
+
 
 class Colony:
     """A Mars settlement. Advance one sol at a time."""
@@ -84,6 +126,27 @@ class Colony:
         self.events: list[dict] = []
         self.water_mining_bonus = 0.0
         self.medical_breakthroughs = 0
+        self.initial_population = population
+        self.total_immigrants = 0
+        self.total_emigrants = 0
+        self.epidemic: Epidemic | None = None
+        self.genetic_diversity = min(1.0, population / 200.0)
+
+    def carrying_capacity(self) -> float:
+        """Compute carrying capacity K from bottleneck resources.
+
+        K = min(habitat_K, food_K, water_K, power_K).
+        The binding constraint determines the population ceiling.
+        """
+        habitat_k = self.habitat_m2 / HABITAT_M2_MIN
+        food_daily = self.greenhouse_m2 * GREENHOUSE_KG_SOL_M2
+        food_k = food_daily / FOOD_KG_SOL if FOOD_KG_SOL > 0 else 999
+        water_daily = 5.0 + self.population * 0.1 + self.water_mining_bonus
+        net_water_per_person = WATER_L_SOL * (1 - WATER_RECYCLE_RATE)
+        water_k = water_daily / net_water_per_person if net_water_per_person > 0 else 999
+        power_daily = self.solar_m2 * SOLAR_PANEL_KWH_M2 * 0.7 + NUCLEAR_POWER_KWH
+        power_k = power_daily / POWER_KWH_SOL if POWER_KWH_SOL > 0 else 999
+        return max(2.0, min(habitat_k, food_k, water_k, power_k))
 
     def _consume_resources(self) -> dict:
         """Consume food, water, power. Returns shortage ratios."""
@@ -146,6 +209,17 @@ class Colony:
         if capacity_ratio < 0.8:
             fertility_mod *= 1.3  # pronatalist boost
 
+        # Logistic damping — growth rate decreases as pop approaches K
+        k = self.carrying_capacity()
+        if k > 0:
+            logistic_factor = max(0.0, 1.0 - self.population / k)
+            fertility_mod *= logistic_factor
+
+        # Genetic diversity penalty — inbreeding depression
+        if self.genetic_diversity < 0.5:
+            diversity_factor = 0.3 + 0.7 * (self.genetic_diversity / 0.5) ** 2
+            fertility_mod *= diversity_factor
+
         # Expected births (Poisson-like)
         expected = reproductive_pop * COLONY_BIRTH_RATE * fertility_mod
         births = 0
@@ -201,6 +275,10 @@ class Colony:
         # Medical quality reduces deaths (breakthroughs add up to 0.2 more)
         effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
         death_rate *= (1.0 - 0.4 * effective_medical)
+
+        # Epidemic mortality
+        if self.epidemic is not None:
+            death_rate += self.epidemic.extra_mortality()
 
         # Accidents
         death_rate += ACCIDENT_RATE
@@ -294,6 +372,52 @@ class Colony:
                 "kind": "crop_strain", "boost_m2": round(boost, 1),
             })
 
+    def _tick_epidemic(self) -> None:
+        """Advance epidemic state. May start, progress, or end outbreaks."""
+        if self.epidemic is not None:
+            alive = self.epidemic.tick()
+            if not alive:
+                self.events.append({
+                    "sol": self.sol, "type": "epidemic_end",
+                    "strain": self.epidemic.strain,
+                })
+                self.morale = min(1.0, self.morale + 0.05)
+                self.epidemic = None
+            elif not self.epidemic.quarantined and self.medical_level > 0.6:
+                self.epidemic.quarantined = True
+                self.events.append({
+                    "sol": self.sol, "type": "quarantine",
+                    "strain": self.epidemic.strain,
+                })
+        if (self.epidemic is None and
+                self.population >= EPIDEMIC_MIN_POP and
+                self.rng.random() < EPIDEMIC_CHANCE_PER_SOL):
+            strain = self.rng.choice(EPIDEMIC_STRAINS)
+            dur = self.rng.randint(strain["duration"][0], strain["duration"][1])
+            self.epidemic = Epidemic(strain, dur, self.population)
+            self.morale = max(0.0, self.morale - 0.1 * strain["severity"])
+            self.events.append({
+                "sol": self.sol, "type": "epidemic_start",
+                "strain": strain["name"], "severity": strain["severity"],
+            })
+
+    def _drift_genetic_diversity(self) -> None:
+        """Genetic drift — small populations lose diversity (Wright-Fisher)."""
+        if self.population == 0:
+            return
+        ne = max(1, int(self.population * REPRODUCTIVE_FRACTION * 0.8))
+        if self.sol % 30 == 0 and self.sol > 0:
+            loss_rate = 1.0 / (2.0 * ne)
+            self.genetic_diversity *= (1.0 - loss_rate)
+            self.genetic_diversity = max(0.05, self.genetic_diversity)
+
+    def receive_immigrants(self, count: int) -> None:
+        """Boost genetic diversity when immigrants arrive."""
+        if count <= 0 or self.population == 0:
+            return
+        boost = count / (self.population + count) * 0.3
+        self.genetic_diversity = min(1.0, self.genetic_diversity + boost)
+
     def tick(self, env: dict) -> dict:
         """Advance one sol. env comes from MarsEnvironment.tick().
 
@@ -329,8 +453,11 @@ class Colony:
         # Rare discoveries
         self._roll_discoveries()
 
-        # Discovery events (rare, permanent improvements)
-        self._roll_discoveries()
+        # Epidemics
+        self._tick_epidemic()
+
+        # Genetic diversity drift
+        self._drift_genetic_diversity()
 
         # Log events
         if births > 0:
@@ -355,6 +482,9 @@ class Colony:
             "greenhouse_m2": round(self.greenhouse_m2, 1),
             "solar_m2": round(self.solar_m2, 1),
             "cumulative_radiation_msv": round(self.cumulative_radiation_msv, 2),
+            "carrying_capacity": round(self.carrying_capacity(), 1),
+            "genetic_diversity": round(self.genetic_diversity, 4),
+            "net_migration": 0,  # updated by Simulation after migration phase
         }
         self.history.append(snapshot)
         return snapshot
