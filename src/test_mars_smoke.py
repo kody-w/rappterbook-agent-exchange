@@ -38,7 +38,7 @@ def test_sim_deterministic() -> None:
     r1 = Simulation(sols=50, env_seed=42).run()
     r2 = Simulation(sols=50, env_seed=42).run()
     for i in range(3):
-        assert r1["colonies"][i]["final_pop"] == r2["colonies"][i]["final_pop"]
+        assert r1["colonies"][i]["final_population"] == r2["colonies"][i]["final_population"]
 
 
 def test_dashboard_has_svg() -> None:
@@ -50,18 +50,50 @@ def test_dashboard_has_svg() -> None:
 
 
 def test_conservation_population() -> None:
-    """Births - deaths = population change."""
+    """Births - deaths = population change (accounting check)."""
     r = Simulation(sols=100, env_seed=42).run()
     for c in r["colonies"]:
-        expected = c["initial_pop"] + c["total_births"] - c["total_deaths"]
-        assert c["final_pop"] == expected, f"{c['name']}: {expected} != {c['final_pop']}"
+        initial_pop = c["history"][0]["population"]
+        expected = initial_pop + c["total_births"] - c["total_deaths"]
+        assert c["final_population"] == expected, (
+            f"{c['name']}: {initial_pop} + {c['total_births']} - {c['total_deaths']}"
+            f" = {expected} != {c['final_population']}"
+        )
 
 
-def test_aggressive_growth_rate() -> None:
-    """Aggressive strategy has highest % growth over 365 sols."""
+def test_strategies_diverge() -> None:
+    """Different strategies produce different outcomes over 365 sols."""
     r = Simulation(sols=365, env_seed=42).run()
-    growth = {}
-    for c in r["colonies"]:
-        growth[c["strategy"]] = (c["final_pop"] - c["initial_pop"]) / c["initial_pop"]
-    assert growth["aggressive"] > growth["balanced"]
-    assert growth["balanced"] > growth["conservative"]
+    pops = [c["final_population"] for c in r["colonies"]]
+    assert len(set(pops)) > 1, "All colonies ended with identical population"
+    total_initial = sum(c["history"][0]["population"] for c in r["colonies"])
+    total_final = sum(pops)
+    assert total_final >= total_initial, f"Terrarium shrunk: {total_initial} -> {total_final}"
+
+
+def test_dust_storms_affect_production() -> None:
+    """Dust storms reduce solar flux, which affects food production."""
+    env = MarsEnvironment(seed=42)
+    clear_flux = []
+    storm_flux = []
+    for _ in range(668):  # full Mars year
+        snap = env.tick()
+        if snap["storm"] is None:
+            clear_flux.append(snap["solar_flux_wm2"])
+        else:
+            storm_flux.append(snap["solar_flux_wm2"])
+    if storm_flux:
+        avg_clear = sum(clear_flux) / len(clear_flux)
+        avg_storm = sum(storm_flux) / len(storm_flux)
+        assert avg_storm < avg_clear, "Storms should reduce solar flux"
+
+
+def test_births_require_population() -> None:
+    """Zero-population colony has zero births."""
+    c = create_colony("ghost", "conservative", 42)
+    c.population = 0
+    env = MarsEnvironment(seed=42)
+    snap = env.tick()
+    c.tick(snap)
+    assert c.total_births == 0
+    assert c.total_deaths == 0

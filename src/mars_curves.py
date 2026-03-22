@@ -108,13 +108,11 @@ def _extract_series(colonies: list, env: dict) -> tuple:
     """Extract chart series from either format (flat arrays or list-of-dicts)."""
     c0 = colonies[0]
     if "history" in c0 and isinstance(c0["history"], list) and c0["history"]:
-        # sim.run() format: colonies[i]["history"] = [{"population": ..., ...}, ...]
         pop = {c["name"]: [h["population"] for h in c["history"]] for c in colonies}
         food = {c["name"]: [h["food_kg"] for h in c["history"]] for c in colonies}
         morale = {c["name"]: [h["morale"] for h in c["history"]] for c in colonies}
         births = {c["name"]: _cumsum([h["births"] for h in c["history"]]) for c in colonies}
     else:
-        # saved JSON format: colonies[i]["population"] = [int, ...]
         pop = {c["name"]: c["population"] for c in colonies}
         food = {c["name"]: c["food_kg"] for c in colonies}
         morale = {c["name"]: c["morale"] for c in colonies}
@@ -123,11 +121,13 @@ def _extract_series(colonies: list, env: dict) -> tuple:
     if "history" in env and isinstance(env["history"], list) and env["history"]:
         dust = [e["dust_opacity"] for e in env["history"]]
         temp = [e["temperature_c"] for e in env["history"]]
+        radiation = [e["radiation_msv"] for e in env["history"]]
     else:
-        dust = env["dust_opacity"]
-        temp = env["temperature_c"]
+        dust = env.get("dust_opacity", [])
+        temp = env.get("temperature_c", [])
+        radiation = env.get("radiation_msv", [])
 
-    return pop, food, morale, births, dust, temp
+    return pop, food, morale, births, dust, temp, radiation
 
 
 def generate_dashboard(results: dict) -> str:
@@ -140,7 +140,7 @@ def generate_dashboard(results: dict) -> str:
     summary = results["summary"]["colonies"]
     meta = results["_meta"]
 
-    pop_series, food_series, morale_series, births_series, dust_raw, temp_vals = (
+    pop_series, food_series, morale_series, births_series, dust_raw, temp_vals, rad_vals = (
         _extract_series(colonies, env)
     )
 
@@ -152,6 +152,7 @@ def generate_dashboard(results: dict) -> str:
     morale_chart = _svg_line_chart(morale_series, "Colony Morale", "Morale", "morale-chart")
     births_chart = _svg_line_chart(births_series, "Cumulative Births", "Total Births", "births-chart")
     temp_chart = _svg_line_chart({"Temperature": temp_vals}, "Mars Surface Temperature (°C)", "°C", "temp-chart")
+    rad_chart = _svg_line_chart({"Radiation": rad_vals}, "Daily Radiation Dose (mSv/sol)", "mSv", "rad-chart") if rad_vals else ""
 
     # Summary cards
     cards = []

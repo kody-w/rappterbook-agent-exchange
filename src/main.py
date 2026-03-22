@@ -60,6 +60,11 @@ def main() -> None:
         print(f"    Population: {s['start_pop']} → {s['end_pop']} ({s['growth_pct']:+.1f}%)")
         print(f"    Peak: {s['peak_pop']}  |  Trough: {s['min_pop']}")
         print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}")
+        print(f"    Migration: {s['net_migration']:+d}")
+    mig = results.get("migration", {})
+    epi = results["summary"].get("total_epidemics", 0)
+    print(f"\n  Total migrations: {mig.get('total_transfers', 0)}")
+    print(f"  Total epidemics:  {epi}")
     print()
 
     # Save state
@@ -99,6 +104,8 @@ def _compact_results(results: dict) -> dict:
             "morale": [h["morale"] for h in c["history"]],
             "births": [h["births"] for h in c["history"]],
             "deaths": [h["deaths"] for h in c["history"]],
+            "net_migration": [h.get("net_migration", 0) for h in c["history"]],
+            "epidemics": c.get("epidemics", 0),
         })
     env_temps = [e["temperature_c"] for e in results["environment"]["history"]]
     env_dust = [e["dust_opacity"] for e in results["environment"]["history"]]
@@ -106,6 +113,7 @@ def _compact_results(results: dict) -> dict:
     return {
         "_meta": results["_meta"],
         "summary": results["summary"],
+        "migration": results.get("migration", {}),
         "colonies": colonies,
         "environment": {
             "temperature_c": env_temps,

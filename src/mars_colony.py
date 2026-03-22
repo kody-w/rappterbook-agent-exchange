@@ -43,6 +43,56 @@ RADIATION_CONCERN = 200   # increased cancer risk
 RADIATION_DANGER = 500    # acute symptoms
 RADIATION_LETHAL = 1000   # acute radiation syndrome
 
+# Epidemic parameters
+EPIDEMIC_CHANCE_PER_SOL = 0.003  # ~1 epidemic per Mars year per colony
+EPIDEMIC_MIN_POP = 20  # epidemics need enough hosts
+EPIDEMIC_STRAINS = [
+    {"name": "Mars Flu",       "severity": 0.3, "duration": (10, 25), "mortality": 0.002},
+    {"name": "Regolith Lung",  "severity": 0.6, "duration": (15, 40), "mortality": 0.005},
+    {"name": "Rad Fever",      "severity": 0.8, "duration": (20, 50), "mortality": 0.008},
+]
+
+
+class Epidemic:
+    """Active disease outbreak in a colony."""
+
+    __slots__ = ("strain", "severity", "remaining_sols", "peak_sol",
+                 "total_duration", "infected_count", "quarantined")
+
+    def __init__(self, strain: dict, duration: int, population: int) -> None:
+        self.strain = strain["name"]
+        self.severity = strain["severity"]
+        self.remaining_sols = duration
+        self.total_duration = duration
+        self.peak_sol = duration // 3  # peaks early
+        self.infected_count = max(1, int(population * 0.05))  # starts at 5%
+        self.quarantined = False
+
+    def infection_rate(self) -> float:
+        """Current infection pressure (SIR-like curve)."""
+        progress = 1.0 - (self.remaining_sols / self.total_duration)
+        if progress < 0.3:
+            return self.severity * progress / 0.3  # ramp up
+        return self.severity * max(0.0, 1.0 - (progress - 0.3) / 0.7)  # decay
+
+    def extra_mortality(self) -> float:
+        """Additional death rate from the epidemic."""
+        rate = self.strain_mortality() * self.infection_rate()
+        if self.quarantined:
+            rate *= 0.4  # quarantine cuts spread
+        return rate
+
+    def strain_mortality(self) -> float:
+        """Base mortality for this strain."""
+        for s in EPIDEMIC_STRAINS:
+            if s["name"] == self.strain:
+                return s["mortality"]
+        return 0.003
+
+    def tick(self) -> bool:
+        """Advance one sol. Returns True if epidemic still active."""
+        self.remaining_sols -= 1
+        return self.remaining_sols > 0
 
 class Colony:
     """A Mars settlement. Advance one sol at a time."""
@@ -79,11 +129,30 @@ class Colony:
         self.cumulative_radiation_msv = 0.0
         self.total_births = 0
         self.total_deaths = 0
+        self.total_immigrants = 0
+        self.total_emigrants = 0
+        self.death_causes: dict[str, int] = {}
         self.sol = 0
         self.history: list[dict] = []
         self.events: list[dict] = []
         self.water_mining_bonus = 0.0
         self.medical_breakthroughs = 0
+        self.initial_population = population
+        self.epidemic: Epidemic | None = None
+
+        # Genetic diversity — founder effect / inbreeding
+        # Starts proportional to founding population (larger = more diverse)
+        self.genetic_diversity = min(1.0, population / 200.0)
+        # Effective population for diversity calculations
+        self.effective_pop_history: list[int] = []
+
+        # Equipment degradation — dust on solar panels
+        self.dust_accumulation = 0.0  # [0, 1] — 0 = clean, 1 = fully obscured
+        self.maintenance_crew_fraction = {
+            "conservative": 0.05,
+            "balanced": 0.03,
+            "aggressive": 0.01,
+        }.get(strategy, 0.03)
 
     def _consume_resources(self) -> dict:
         """Consume food, water, power. Returns shortage ratios."""
@@ -167,50 +236,61 @@ class Colony:
 
         return births
 
-    def _compute_deaths(self, ratios: dict, env: dict) -> int:
-        """Probabilistic deaths for this sol."""
+    def _compute_deaths(self, ratios: dict, env: dict) -> tuple[int, dict]:
+        """Probabilistic deaths for this sol. Returns (count, causes_dict)."""
+        causes = {"baseline": 0, "starvation": 0, "dehydration": 0,
+                  "power_failure": 0, "radiation": 0, "storm": 0, "accident": 0}
         if self.population == 0:
-            return 0
+            return 0, causes
 
-        # Base mortality
-        death_rate = BASE_DEATH_RATE
+        # Build per-cause death rates
+        rates = {}
+        rates["baseline"] = BASE_DEATH_RATE
 
-        # Starvation (gradual, colony rations)
         if ratios["food"] < 0.5:
-            death_rate += (1 - ratios["food"]) * 0.003
-
-        # Dehydration
+            rates["starvation"] = (1 - ratios["food"]) * 0.003
         if ratios["water"] < 0.5:
-            death_rate += (1 - ratios["water"]) * 0.005
-
-        # Power loss (life support failure)
+            rates["dehydration"] = (1 - ratios["water"]) * 0.005
         if ratios["power"] < 0.3:
-            death_rate += (1 - ratios["power"]) * 0.002
-
-        # Radiation sickness
+            rates["power_failure"] = (1 - ratios["power"]) * 0.002
         if self.cumulative_radiation_msv > RADIATION_DANGER:
             excess = (self.cumulative_radiation_msv - RADIATION_DANGER) / RADIATION_LETHAL
-            death_rate += excess * 0.003
-
-        # Dust storm stress
+            rates["radiation"] = excess * 0.003
         if env.get("storm") == "global":
-            death_rate += 0.002
+            rates["storm"] = 0.002
         elif env.get("storm") == "regional":
-            death_rate += 0.0005
+            rates["storm"] = 0.0005
 
-        # Medical quality reduces deaths (breakthroughs add up to 0.2 more)
+        # Medical quality reduces non-accident deaths
         effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
-        death_rate *= (1.0 - 0.4 * effective_medical)
+        medical_factor = 1.0 - 0.4 * effective_medical
+        for k in rates:
+            rates[k] *= medical_factor
 
-        # Accidents
-        death_rate += ACCIDENT_RATE
+        rates["accident"] = ACCIDENT_RATE  # accidents unaffected by medicine
+
+        # Epidemic mortality (partially reduced by quarantine, not medicine)
+        if self.epidemic is not None:
+            rates["epidemic"] = self.epidemic.extra_mortality()
+            causes["epidemic"] = 0
+
+        total_rate = sum(rates.values())
 
         deaths = 0
         for _ in range(self.population):
-            if self.rng.random() < death_rate:
+            if self.rng.random() < total_rate:
                 deaths += 1
+                # Attribute cause proportionally
+                r = self.rng.random() * total_rate
+                cumulative = 0.0
+                for cause, rate in rates.items():
+                    cumulative += rate
+                    if r <= cumulative:
+                        causes[cause] += 1
+                        break
 
-        return min(deaths, self.population)
+        deaths = min(deaths, self.population)
+        return deaths, causes
 
     def _update_morale(self, ratios: dict, env: dict) -> None:
         """Morale drifts based on conditions."""
@@ -229,6 +309,10 @@ class Colony:
         # Storms depress morale
         if env.get("storm"):
             target -= 0.1 if env["storm"] == "global" else 0.05
+
+        # Active epidemic depresses morale
+        if self.epidemic is not None:
+            target -= 0.08 * self.epidemic.severity
 
         # Drift toward target (inertia)
         self.morale += (target - self.morale) * 0.1
@@ -256,6 +340,40 @@ class Colony:
         power_per_cap = self.power_kwh / max(1, self.population)
         if power_per_cap < POWER_KWH_SOL * 2:
             self.solar_m2 += expand_rate * 0.5
+
+    def _tick_epidemic(self) -> None:
+        """Advance epidemic state. May start, progress, or end outbreaks."""
+        # Advance existing epidemic
+        if self.epidemic is not None:
+            alive = self.epidemic.tick()
+            if not alive:
+                self.events.append({
+                    "sol": self.sol, "type": "epidemic_end",
+                    "strain": self.epidemic.strain,
+                })
+                self.morale = min(1.0, self.morale + 0.05)  # relief
+                self.epidemic = None
+            else:
+                # Auto-quarantine if medical is good enough
+                if not self.epidemic.quarantined and self.medical_level > 0.6:
+                    self.epidemic.quarantined = True
+                    self.events.append({
+                        "sol": self.sol, "type": "quarantine",
+                        "strain": self.epidemic.strain,
+                    })
+
+        # Roll for new epidemic
+        if (self.epidemic is None and
+                self.population >= EPIDEMIC_MIN_POP and
+                self.rng.random() < EPIDEMIC_CHANCE_PER_SOL):
+            strain = self.rng.choice(EPIDEMIC_STRAINS)
+            duration = self.rng.randint(strain["duration"][0], strain["duration"][1])
+            self.epidemic = Epidemic(strain, duration, self.population)
+            self.morale = max(0.0, self.morale - 0.1 * strain["severity"])
+            self.events.append({
+                "sol": self.sol, "type": "epidemic_start",
+                "strain": strain["name"], "severity": strain["severity"],
+            })
 
     def _roll_discoveries(self) -> None:
         """Rare permanent improvements — ice veins, medical breakthroughs.
@@ -313,30 +431,31 @@ class Colony:
 
         # Demographics
         births = self._compute_births(ratios)
-        deaths = self._compute_deaths(ratios, env)
+        deaths, death_causes = self._compute_deaths(ratios, env)
 
         self.population = self.population + births - deaths
         self.population = max(0, self.population)
         self.total_births += births
         self.total_deaths += deaths
+        for cause, count in death_causes.items():
+            self.death_causes[cause] = self.death_causes.get(cause, 0) + count
 
-        # Morale
+        # Epidemics
+        self._tick_epidemic()
         self._update_morale(ratios, env)
 
         # Infrastructure
         self._expand_infrastructure()
 
-        # Rare discoveries
-        self._roll_discoveries()
-
-        # Discovery events (rare, permanent improvements)
+        # Rare discoveries (ice veins, medical, crop strains)
         self._roll_discoveries()
 
         # Log events
         if births > 0:
             self.events.append({"sol": self.sol, "type": "births", "count": births})
         if deaths > 0:
-            self.events.append({"sol": self.sol, "type": "deaths", "count": deaths})
+            self.events.append({"sol": self.sol, "type": "deaths", "count": deaths,
+                                "causes": {k: v for k, v in death_causes.items() if v > 0}})
         if env.get("storm") and self.sol == env.get("sol"):
             self.events.append({"sol": self.sol, "type": "storm", "kind": env["storm"]})
         if env.get("flare"):
@@ -351,6 +470,7 @@ class Colony:
             "morale": round(self.morale, 3),
             "births": births,
             "deaths": deaths,
+            "net_migration": 0,  # updated by Simulation after migration phase
             "habitat_m2": round(self.habitat_m2, 1),
             "greenhouse_m2": round(self.greenhouse_m2, 1),
             "solar_m2": round(self.solar_m2, 1),
