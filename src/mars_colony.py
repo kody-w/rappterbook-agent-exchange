@@ -182,7 +182,8 @@ class Colony:
         self.food_kg += food_produced
 
         # Solar + nuclear baseline (nuclear provides storm-proof minimum)
-        power_solar = self.solar_m2 * SOLAR_PANEL_KWH_M2 * flux_ratio
+        dust_penalty = 1.0 - self.dust_accumulation * 0.6  # max 60% reduction
+        power_solar = self.solar_m2 * SOLAR_PANEL_KWH_M2 * flux_ratio * dust_penalty
         power_nuclear = NUCLEAR_POWER_KWH
         self.power_kwh += power_solar + power_nuclear
 
@@ -215,6 +216,11 @@ class Colony:
         if capacity_ratio < 0.8:
             fertility_mod *= 1.3  # pronatalist boost
 
+        # Genetic diversity penalty — inbreeding depression reduces fertility
+        if self.genetic_diversity < 0.6:
+            diversity_factor = 0.3 + 0.7 * (self.genetic_diversity / 0.6) ** 2
+            fertility_mod *= diversity_factor
+
         # Expected births (Poisson-like)
         expected = reproductive_pop * COLONY_BIRTH_RATE * fertility_mod
         births = 0
@@ -233,6 +239,7 @@ class Colony:
                 "sol": self.sol, "type": "supply_ship",
                 "count": ship_size,
             })
+            self.receive_immigrants(ship_size)
 
         return births
 
@@ -412,6 +419,63 @@ class Colony:
                 "kind": "crop_strain", "boost_m2": round(boost, 1),
             })
 
+    def _drift_genetic_diversity(self) -> None:
+        """Wright-Fisher genetic drift — diversity decays with small populations.
+
+        A 'generation' is ~30 sols. Each generation, diversity decreases
+        proportional to 1/(2*Ne) where Ne = effective population size.
+        Small colonies lose diversity faster (founder effect / bottleneck).
+        """
+        if self.sol % 30 != 0 or self.sol == 0:
+            return
+
+        ne = int(self.population * REPRODUCTIVE_FRACTION * 0.8)
+        self.effective_pop_history.append(ne)
+
+        # Wright-Fisher drift loss
+        self.genetic_diversity *= (1.0 - 1.0 / (2.0 * max(1, ne)))
+        self.genetic_diversity = max(0.05, self.genetic_diversity)
+
+        # Inbreeding depression event
+        if self.genetic_diversity < 0.3 and self.rng.random() < 0.10:
+            self.morale = max(0.0, self.morale - 0.05)
+            self.events.append({
+                "sol": self.sol, "type": "inbreeding_depression",
+                "diversity": round(self.genetic_diversity, 3),
+            })
+
+    def receive_immigrants(self, count: int) -> None:
+        """Boost genetic diversity when immigrants arrive.
+
+        New arrivals from Earth or other colonies introduce fresh alleles.
+        Boost proportional to immigrant fraction of new total population.
+        """
+        if count <= 0:
+            return
+        boost = count / (self.population + count) * 0.3
+        self.genetic_diversity = min(1.0, self.genetic_diversity + boost)
+
+    def _degrade_equipment(self, env: dict) -> None:
+        """Dust accumulation on solar panels and equipment.
+
+        Base deposition ~0.001/sol, accelerated during dust storms.
+        Maintenance crew cleans panels proportional to crew fraction.
+        """
+        # Dust deposition
+        base_dust = 0.001
+        storm = env.get("storm")
+        if storm == "global":
+            base_dust *= 5.0
+        elif storm == "regional":
+            base_dust *= 2.5
+        self.dust_accumulation += base_dust
+
+        # Maintenance cleaning
+        if self.population > 0:
+            self.dust_accumulation -= self.maintenance_crew_fraction * 0.02
+
+        self.dust_accumulation = max(0.0, min(0.8, self.dust_accumulation))
+
     def tick(self, env: dict) -> dict:
         """Advance one sol. env comes from MarsEnvironment.tick().
 
@@ -450,6 +514,12 @@ class Colony:
         # Rare discoveries (ice veins, medical, crop strains)
         self._roll_discoveries()
 
+        # Genetic diversity drift (founder effect)
+        self._drift_genetic_diversity()
+
+        # Equipment degradation (dust on solar panels)
+        self._degrade_equipment(env)
+
         # Log events
         if births > 0:
             self.events.append({"sol": self.sol, "type": "births", "count": births})
@@ -475,6 +545,8 @@ class Colony:
             "greenhouse_m2": round(self.greenhouse_m2, 1),
             "solar_m2": round(self.solar_m2, 1),
             "cumulative_radiation_msv": round(self.cumulative_radiation_msv, 2),
+            "genetic_diversity": round(self.genetic_diversity, 4),
+            "dust_accumulation": round(self.dust_accumulation, 4),
         }
         self.history.append(snapshot)
         return snapshot

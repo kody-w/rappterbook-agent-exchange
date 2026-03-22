@@ -136,6 +136,7 @@ class Simulation:
             self.colonies[to_idx].population += actual
             self.colonies[from_idx].total_emigrants += actual
             self.colonies[to_idx].total_immigrants += actual
+            self.colonies[to_idx].receive_immigrants(actual)
             self.total_migrations += actual
 
             # Update the current sol's history snapshot
@@ -250,6 +251,69 @@ class Simulation:
                 if shortfall <= 0:
                     break
 
+    def _share_technology(self) -> None:
+        """Technology transfer between trading colonies.
+
+        When colonies trade food, there's a chance of knowledge transfer:
+        - Medical breakthroughs: 2% per sol that a lagging colony gains one
+        - Water mining bonus: 1% per sol that a lagging colony gains +1.0
+        """
+        if len(self.colonies) < 2:
+            return
+
+        for i, a in enumerate(self.colonies):
+            for j, b in enumerate(self.colonies):
+                if i >= j or a.population == 0 or b.population == 0:
+                    continue
+
+                # Medical breakthrough transfer (A → B or B → A)
+                if a.medical_breakthroughs > b.medical_breakthroughs:
+                    if self.migration_rng.random() < 0.02:
+                        b.medical_breakthroughs += 1
+                        a.events.append({
+                            "sol": a.sol, "type": "tech_transfer",
+                            "kind": "medical", "to": b.name,
+                        })
+                        b.events.append({
+                            "sol": b.sol, "type": "tech_transfer",
+                            "kind": "medical", "from": a.name,
+                        })
+                elif b.medical_breakthroughs > a.medical_breakthroughs:
+                    if self.migration_rng.random() < 0.02:
+                        a.medical_breakthroughs += 1
+                        b.events.append({
+                            "sol": b.sol, "type": "tech_transfer",
+                            "kind": "medical", "to": a.name,
+                        })
+                        a.events.append({
+                            "sol": a.sol, "type": "tech_transfer",
+                            "kind": "medical", "from": b.name,
+                        })
+
+                # Water mining bonus transfer
+                if a.water_mining_bonus > b.water_mining_bonus + 1.0:
+                    if self.migration_rng.random() < 0.01:
+                        b.water_mining_bonus += 1.0
+                        a.events.append({
+                            "sol": a.sol, "type": "tech_transfer",
+                            "kind": "water_mining", "to": b.name,
+                        })
+                        b.events.append({
+                            "sol": b.sol, "type": "tech_transfer",
+                            "kind": "water_mining", "from": a.name,
+                        })
+                elif b.water_mining_bonus > a.water_mining_bonus + 1.0:
+                    if self.migration_rng.random() < 0.01:
+                        a.water_mining_bonus += 1.0
+                        b.events.append({
+                            "sol": b.sol, "type": "tech_transfer",
+                            "kind": "water_mining", "to": a.name,
+                        })
+                        a.events.append({
+                            "sol": a.sol, "type": "tech_transfer",
+                            "kind": "water_mining", "from": b.name,
+                        })
+
     def tick(self) -> dict:
         """Advance all colonies by one sol. Returns env snapshot."""
         env_snap = self.env.tick()
@@ -259,6 +323,7 @@ class Simulation:
         self._process_migration(env_snap)
         self._spread_epidemics()
         self._process_food_trade()
+        self._share_technology()
         return env_snap
 
     def run(self, callback: object = None) -> dict:
@@ -279,7 +344,7 @@ class Simulation:
         return {
             "_meta": {
                 "engine": "mars-barn",
-                "version": "2.0",
+                "version": "1.2",
                 "sols": self.total_sols,
                 "generated": now,
             },
@@ -292,6 +357,7 @@ class Simulation:
                     "strategy": c.strategy,
                     "initial_population": self.initial_populations[i],
                     "final_population": c.population,
+                    "genetic_diversity": round(c.genetic_diversity, 4),
                     "total_births": c.total_births,
                     "total_deaths": c.total_deaths,
                     "total_immigrants": c.total_immigrants,

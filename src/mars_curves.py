@@ -112,11 +112,15 @@ def _extract_series(colonies: list, env: dict) -> tuple:
         food = {c["name"]: [h["food_kg"] for h in c["history"]] for c in colonies}
         morale = {c["name"]: [h["morale"] for h in c["history"]] for c in colonies}
         births = {c["name"]: _cumsum([h["births"] for h in c["history"]]) for c in colonies}
+        genetic_div = {c["name"]: [h.get("genetic_diversity", 0) for h in c["history"]] for c in colonies}
+        dust_acc = {c["name"]: [h.get("dust_accumulation", 0) for h in c["history"]] for c in colonies}
     else:
         pop = {c["name"]: c["population"] for c in colonies}
         food = {c["name"]: c["food_kg"] for c in colonies}
         morale = {c["name"]: c["morale"] for c in colonies}
         births = {c["name"]: _cumsum(c["births"]) for c in colonies}
+        genetic_div = {c["name"]: c.get("genetic_diversity", []) for c in colonies}
+        dust_acc = {c["name"]: c.get("dust_accumulation", []) for c in colonies}
 
     if "history" in env and isinstance(env["history"], list) and env["history"]:
         dust = [e["dust_opacity"] for e in env["history"]]
@@ -127,7 +131,7 @@ def _extract_series(colonies: list, env: dict) -> tuple:
         temp = env.get("temperature_c", [])
         radiation = env.get("radiation_msv", [])
 
-    return pop, food, morale, births, dust, temp, radiation
+    return pop, food, morale, births, dust, temp, radiation, genetic_div, dust_acc
 
 
 def generate_dashboard(results: dict) -> str:
@@ -140,7 +144,7 @@ def generate_dashboard(results: dict) -> str:
     summary = results["summary"]["colonies"]
     meta = results["_meta"]
 
-    pop_series, food_series, morale_series, births_series, dust_raw, temp_vals, rad_vals = (
+    pop_series, food_series, morale_series, births_series, dust_raw, temp_vals, rad_vals, genetic_div_series, dust_acc_series = (
         _extract_series(colonies, env)
     )
 
@@ -150,6 +154,7 @@ def generate_dashboard(results: dict) -> str:
     pop_chart = _svg_line_chart(pop_series, "Population Over Time", "People", "pop-chart", dust_vals, "Dust storms")
     food_chart = _svg_line_chart(food_series, "Food Reserves (kg)", "kg", "food-chart")
     morale_chart = _svg_line_chart(morale_series, "Colony Morale", "Morale", "morale-chart")
+    genetic_chart = _svg_line_chart(genetic_div_series, "Genetic Diversity", "Diversity", "genetic-chart")
     births_chart = _svg_line_chart(births_series, "Cumulative Births", "Total Births", "births-chart")
     temp_chart = _svg_line_chart({"Temperature": temp_vals}, "Mars Surface Temperature (°C)", "°C", "temp-chart")
     rad_chart = _svg_line_chart({"Radiation": rad_vals}, "Daily Radiation Dose (mSv/sol)", "mSv", "rad-chart") if rad_vals else ""
@@ -267,6 +272,7 @@ footer a {{ color: #555; }}
 <div class="chart-container">{pop_chart}</div>
 <div class="chart-container">{food_chart}</div>
 <div class="chart-container">{morale_chart}</div>
+<div class="chart-container">{genetic_chart}</div>
 <div class="chart-container">{births_chart}</div>
 <div class="chart-container">{temp_chart}</div>
 

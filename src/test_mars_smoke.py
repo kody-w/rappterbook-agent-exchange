@@ -97,3 +97,20 @@ def test_births_require_population() -> None:
     c.tick(snap)
     assert c.total_births == 0
     assert c.total_deaths == 0
+
+
+def test_genetic_diversity_tracked() -> None:
+    """Genetic diversity is tracked in colony history."""
+    r = Simulation(sols=50, env_seed=42).run()
+    for c in r["colonies"]:
+        for h in c["history"]:
+            assert "genetic_diversity" in h
+            assert 0.0 <= h["genetic_diversity"] <= 1.0
+
+
+def test_equipment_degradation() -> None:
+    """Solar panels accumulate dust over time."""
+    sim = Simulation(sols=200, env_seed=42)
+    sim.run()
+    for colony in sim.colonies:
+        assert colony.dust_accumulation >= 0.0

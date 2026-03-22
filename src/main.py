@@ -105,6 +105,8 @@ def _compact_results(results: dict) -> dict:
             "births": [h["births"] for h in c["history"]],
             "deaths": [h["deaths"] for h in c["history"]],
             "net_migration": [h.get("net_migration", 0) for h in c["history"]],
+            "genetic_diversity": [h.get("genetic_diversity", 0) for h in c["history"]],
+            "dust_accumulation": [h.get("dust_accumulation", 0) for h in c["history"]],
             "epidemics": c.get("epidemics", 0),
         })
     env_temps = [e["temperature_c"] for e in results["environment"]["history"]]
