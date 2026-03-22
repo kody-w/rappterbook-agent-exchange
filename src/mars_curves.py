@@ -229,13 +229,18 @@ footer a {{ color: #555; }}
     <div class="tooltip" id="death-causes-tip"></div>
 </div>
 <div class="chart-box">
+    <h3>🔬 Technology Research Timeline</h3>
+    <canvas id="tech-chart" style="height: 180px"></canvas>
+    <div class="tooltip" id="tech-tip"></div>
+</div>
+<div class="chart-box">
     <h3>Mars Surface Temperature (°C)</h3>
     <canvas id="temp-chart"></canvas>
     <div class="tooltip" id="temp-tip"></div>
 </div>
 
 <footer>
-    Mars Barn Terrarium v3.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
+    Mars Barn Terrarium v4.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
 </footer>
 
 <script>
@@ -414,6 +419,9 @@ function drawAll() {{
 
     // Death causes stacked bar
     drawDeathCauses("death-causes-chart", "death-causes-tip");
+
+    // Tech timeline
+    drawTechTimeline("tech-chart", "tech-tip");
 }}
 
 function drawBandChart(canvasId, tipId, mc, metric) {{
@@ -595,6 +603,88 @@ function drawDeathCauses(canvasId, tipId) {{
     canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
 }}
 
+function drawTechTimeline(canvasId, tipId) {{
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const tip = document.getElementById(tipId);
+    const dpr = window.devicePixelRatio || 1;
+    const bnd = canvas.parentElement.getBoundingClientRect();
+    canvas.width = bnd.width * dpr; canvas.height = 180 * dpr;
+    canvas.style.width = bnd.width + "px"; canvas.style.height = "180px";
+    ctx.scale(dpr, dpr);
+    const W = bnd.width, H = 180, pad = {{l: 60, r: 20, t: 30, b: 30}};
+    const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+    ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
+
+    // Collect tech events from EVENTS
+    const techs = EVENTS.filter(e => e.type === "tech_unlock");
+    const nSols = COLONIES[0] ? COLONIES[0].pop.length : 365;
+    const colonyNames = COLONIES.map(c => c.name);
+    const rowH = cH / Math.max(1, colonyNames.length);
+
+    // Grid
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+    for (let i = 0; i <= colonyNames.length; i++) {{
+        const y = pad.t + i * rowH;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cW, y); ctx.stroke();
+    }}
+
+    // Row labels
+    ctx.font = "11px Courier New"; ctx.textAlign = "right";
+    colonyNames.forEach((name, i) => {{
+        const color = COLONIES[i] ? COLONIES[i].color : "#888";
+        ctx.fillStyle = color;
+        ctx.fillText(name.split(" ")[0], pad.l - 6, pad.t + i * rowH + rowH / 2 + 4);
+    }});
+
+    // Sol axis
+    ctx.textAlign = "center"; ctx.fillStyle = "#555";
+    for (let s = 0; s <= nSols; s += Math.max(50, Math.floor(nSols / 6))) {{
+        const x = pad.l + (s / nSols) * cW;
+        ctx.fillText(s, x, H - 8);
+        ctx.strokeStyle = "#1a1a1a"; ctx.beginPath();
+        ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + cH); ctx.stroke();
+    }}
+
+    // Draw tech markers
+    const markers = [];
+    techs.forEach(t => {{
+        const ci = colonyNames.indexOf(t.colony);
+        const row = ci >= 0 ? ci : 0;
+        const x = pad.l + (t.sol / nSols) * cW;
+        const y = pad.t + row * rowH + rowH / 2;
+        const color = COLONIES[row] ? COLONIES[row].color : "#888";
+        ctx.fillStyle = color; ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#fff"; ctx.font = "bold 9px Courier New";
+        ctx.textAlign = "center"; ctx.fillText("⚡", x, y + 3);
+        markers.push({{x, y, r: 7, label: t.label, sol: t.sol, colony: t.colony}});
+    }});
+
+    if (techs.length === 0) {{
+        ctx.fillStyle = "#444"; ctx.font = "13px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText("No tech unlocks in this run (short sim?)", W / 2, H / 2);
+    }}
+
+    canvas.onmousemove = (e) => {{
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const hit = markers.find(m => Math.hypot(mx - m.x, my - m.y) < m.r + 4);
+        if (hit) {{
+            tip.innerHTML = `<b>${{hit.label}}</b><br>Sol ${{hit.sol}} — ${{hit.colony}}`;
+            tip.style.display = "block";
+            tip.style.left = Math.min(hit.x + 14, bnd.width - 180) + "px";
+            tip.style.top = (hit.y - 10) + "px";
+        }} else {{
+            tip.style.display = "none";
+        }}
+    }};
+    canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
+}}
+
 drawAll();
 window.addEventListener("resize", drawAll);
 </script>
@@ -628,8 +718,13 @@ def _build_events_js(colonies: list[dict]) -> str:
             elif etype == "discovery":
                 events.append({"sol": sol, "type": "discovery",
                                "label": ev.get("kind", "discovery")})
-    priority = {"epidemic_start": 0, "global_storm": 1, "supply_ship": 2,
-                "epidemic_end": 3, "regional_storm": 4, "discovery": 5}
+            elif etype == "tech_unlock":
+                events.append({"sol": sol, "type": "tech_unlock",
+                               "label": ev.get("name", "tech"),
+                               "colony": col.get("name", "")})
+    priority = {"epidemic_start": 0, "global_storm": 1, "tech_unlock": 2,
+                "supply_ship": 3, "epidemic_end": 4, "regional_storm": 5,
+                "discovery": 6}
     events.sort(key=lambda e: priority.get(e["type"], 99))
     events = events[:40]
     events.sort(key=lambda e: e["sol"])

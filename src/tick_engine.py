@@ -23,6 +23,7 @@ from src.mars_colony import (
     FOOD_KG_SOL, HABITAT_M2_MIN,
     EPIDEMIC_MIN_POP, EPIDEMIC_STRAINS,
 )
+from src.tech_tree import ResearchEngine
 
 
 DEFAULT_COLONIES = [
@@ -54,6 +55,12 @@ class Simulation:
             create_colony(name, strategy, seed)
             for name, strategy, seed in colony_specs
         ]
+        # Initialize tech research engines per colony
+        for i, colony in enumerate(self.colonies):
+            colony.research_engine = ResearchEngine(
+                strategy=colony.strategy,
+                rng=random.Random(colony_specs[i][2] + 9999),
+            )
         self.migration_rng = random.Random(env_seed + 7777)
         self.initial_populations = [c.population for c in self.colonies]
         self.total_migrations = 0
@@ -205,7 +212,7 @@ class Simulation:
         return {
             "_meta": {
                 "engine": "mars-barn",
-                "version": "3.0",
+                "version": "4.0",
                 "sols": self.total_sols,
                 "generated": now,
             },
@@ -225,6 +232,7 @@ class Simulation:
                     "final_morale": round(c.morale, 3),
                     "cumulative_radiation_msv": round(c.cumulative_radiation_msv, 2),
                     "death_causes": c.cumulative_death_causes,
+                    "tech": c.research_engine.snapshot() if c.research_engine else None,
                     "history": c.history,
                     "events": c.events[-150:],
                 }
@@ -249,6 +257,9 @@ class Simulation:
                 "total_deaths": c.total_deaths,
                 "death_causes": c.cumulative_death_causes,
                 "net_migration": sum(h.get("net_migration", 0) for h in c.history),
+                "techs_unlocked": (
+                    len(c.research_engine.unlocked) if c.research_engine else 0
+                ),
                 "growth_pct": round(
                     (pops[-1] - pops[0]) / max(1, pops[0]) * 100, 1
                 ) if pops else 0,

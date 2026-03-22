@@ -90,6 +90,15 @@ def main() -> None:
             if active:
                 parts = [f"{k}: {v}" for k, v in sorted(active.items(), key=lambda x: -x[1])]
                 print(f"    Death causes: {', '.join(parts)}")
+            techs = s.get("techs_unlocked", 0)
+            print(f"    Techs: {techs}")
+        # Print tech details per colony
+        for c in results["colonies"]:
+            tech_data = c.get("tech")
+            if tech_data and tech_data.get("unlocked"):
+                print(f"\n  🔬 {c['name']} tech timeline:")
+                for t in tech_data["unlocked"]:
+                    print(f"    Sol {t['sol']:>4}: {t['name']} [{t['branch']}]")
         total_mig = results["summary"].get("total_migrations", 0)
         total_epidemics = sum(
             sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
@@ -142,6 +151,7 @@ def _compact_results(results: dict) -> dict:
             "carrying_capacity": [h.get("carrying_capacity", 0) for h in c["history"]],
             "genetic_diversity": [h.get("genetic_diversity", 1.0) for h in c["history"]],
             "net_migration": [h.get("net_migration", 0) for h in c["history"]],
+            "tech": c.get("tech"),
         })
     env_temps = [e["temperature_c"] for e in results["environment"]["history"]]
     env_dust = [e["dust_opacity"] for e in results["environment"]["history"]]
