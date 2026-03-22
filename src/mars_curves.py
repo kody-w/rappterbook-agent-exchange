@@ -130,6 +130,23 @@ def _extract_series(colonies: list, env: dict) -> tuple:
     return pop, food, morale, births, dust, temp
 
 
+def _extract_migration(colonies: list) -> dict[str, list[int]]:
+    """Extract cumulative net migration series per colony."""
+    result = {}
+    for c in colonies:
+        c0 = c
+        if "history" in c0 and isinstance(c0["history"], list) and c0["history"]:
+            immigrants = [h.get("immigrants", 0) for h in c["history"]]
+            emigrants = [h.get("emigrants", 0) for h in c["history"]]
+            net = [im - em for im, em in zip(immigrants, emigrants)]
+        else:
+            immigrants = c.get("immigrants", [0] * len(c.get("population", [])))
+            emigrants = c.get("emigrants", [0] * len(c.get("population", [])))
+            net = [im - em for im, em in zip(immigrants, emigrants)]
+        result[c["name"]] = _cumsum(net)
+    return result
+
+
 def generate_dashboard(results: dict) -> str:
     """Generate a complete HTML page with population curves.
 
@@ -144,6 +161,9 @@ def generate_dashboard(results: dict) -> str:
         _extract_series(colonies, env)
     )
 
+    # Extract migration series
+    migration_series = _extract_migration(colonies)
+
     peak_pop = max(max(v) for v in pop_series.values())
     dust_vals = [d * peak_pop for d in dust_raw]
 
@@ -151,6 +171,7 @@ def generate_dashboard(results: dict) -> str:
     food_chart = _svg_line_chart(food_series, "Food Reserves (kg)", "kg", "food-chart")
     morale_chart = _svg_line_chart(morale_series, "Colony Morale", "Morale", "morale-chart")
     births_chart = _svg_line_chart(births_series, "Cumulative Births", "Total Births", "births-chart")
+    migration_chart = _svg_line_chart(migration_series, "Cumulative Net Migration", "People", "migration-chart") if any(v for v in migration_series.values()) else ""
     temp_chart = _svg_line_chart({"Temperature": temp_vals}, "Mars Surface Temperature (°C)", "°C", "temp-chart")
 
     # Summary cards
@@ -158,6 +179,12 @@ def generate_dashboard(results: dict) -> str:
     for s in summary:
         color = COLORS.get(s["name"], "#888")
         arrow = "↑" if s["growth_pct"] > 0 else "↓" if s["growth_pct"] < 0 else "→"
+        net_mig = s.get("net_migration", 0)
+        mig_text = ""
+        if net_mig > 0:
+            mig_text = f'<div class="detail mig-in">↗ {net_mig} net immigrants</div>'
+        elif net_mig < 0:
+            mig_text = f'<div class="detail mig-out">↙ {abs(net_mig)} net emigrants</div>'
         cards.append(f'''
         <div class="card" style="border-color: {color}">
             <h3 style="color: {color}">{s["name"]}</h3>
@@ -165,6 +192,7 @@ def generate_dashboard(results: dict) -> str:
             <div class="stat">{s["start_pop"]} → {s["end_pop"]} <span class="arrow">{arrow} {s["growth_pct"]:+.1f}%</span></div>
             <div class="detail">Peak: {s["peak_pop"]} · Trough: {s["min_pop"]}</div>
             <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}</div>
+            {mig_text}
         </div>''')
 
     # Legend
@@ -218,6 +246,8 @@ h1 {{
 .card .stat {{ font-size: 1.3em; color: #eee; }}
 .card .arrow {{ font-size: 0.9em; }}
 .card .detail {{ color: #888; font-size: 0.8em; margin-top: 4px; }}
+.card .mig-in {{ color: #2ecc71; }}
+.card .mig-out {{ color: #e67e22; }}
 .chart-container {{
     background: #111;
     border-radius: 8px;
@@ -267,6 +297,7 @@ footer a {{ color: #555; }}
 <div class="chart-container">{food_chart}</div>
 <div class="chart-container">{morale_chart}</div>
 <div class="chart-container">{births_chart}</div>
+{"<div class='chart-container'>" + migration_chart + "</div>" if migration_chart else ""}
 <div class="chart-container">{temp_chart}</div>
 
 <footer>

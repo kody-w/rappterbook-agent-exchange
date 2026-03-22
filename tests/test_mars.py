@@ -342,19 +342,22 @@ class TestConservationLaws:
     """Physics-level invariants that must hold for any seed."""
 
     def test_population_accounting(self) -> None:
-        """births - deaths = population change (over full sim)."""
+        """births - deaths + immigration - emigration = population change."""
         for seed in [1, 42, 99, 256, 1000]:
             sim = Simulation(sols=100, env_seed=seed)
             results = sim.run()
             for c in results["colonies"]:
                 hist = c["history"]
-                start_pop = hist[0]["population"] - hist[0]["births"] + hist[0]["deaths"]
+                start_pop = hist[0]["population"] - hist[0]["births"] + hist[0]["deaths"] - hist[0].get("immigrants", 0) + hist[0].get("emigrants", 0)
                 end_pop = hist[-1]["population"]
                 total_b = sum(h["births"] for h in hist)
                 total_d = sum(h["deaths"] for h in hist)
-                assert end_pop == start_pop + total_b - total_d, (
+                total_imm = sum(h.get("immigrants", 0) for h in hist)
+                total_emi = sum(h.get("emigrants", 0) for h in hist)
+                assert end_pop == start_pop + total_b - total_d + total_imm - total_emi, (
                     f"Accounting error for {c['name']} seed={seed}: "
-                    f"start={start_pop} + births={total_b} - deaths={total_d} != end={end_pop}"
+                    f"start={start_pop} + births={total_b} - deaths={total_d} "
+                    f"+ immigrants={total_imm} - emigrants={total_emi} != end={end_pop}"
                 )
 
     def test_temperature_physical_range(self) -> None:
@@ -429,3 +432,82 @@ class TestDiscoveries:
         sim.run()
         for c in sim.colonies:
             assert c.medical_breakthroughs <= 4
+
+
+# ─── Migration tests ─────────────────────────────────────────────────
+
+
+class TestMigration:
+    """Inter-colony migration dynamics."""
+
+    def test_migration_zero_sum(self) -> None:
+        """Total immigrants == total emigrants across all colonies."""
+        for seed in [1, 42, 99, 256]:
+            sim = Simulation(sols=200, env_seed=seed)
+            results = sim.run()
+            total_in = sum(c["total_immigrants"] for c in results["colonies"])
+            total_out = sum(c["total_emigrants"] for c in results["colonies"])
+            assert total_in == total_out, (
+                f"Migration not zero-sum (seed={seed}): in={total_in} out={total_out}"
+            )
+
+    def test_migration_occurs(self) -> None:
+        """Some migration happens over 365 sols."""
+        sim = Simulation(sols=365, env_seed=42)
+        results = sim.run()
+        total_moved = sum(c["total_immigrants"] for c in results["colonies"])
+        assert total_moved > 0, "Expected some migration in 365 sols"
+
+    def test_migration_deterministic(self) -> None:
+        """Same seed = same migration results."""
+        r1 = Simulation(sols=100, env_seed=42).run()
+        r2 = Simulation(sols=100, env_seed=42).run()
+        for i in range(3):
+            assert r1["colonies"][i]["total_immigrants"] == r2["colonies"][i]["total_immigrants"]
+            assert r1["colonies"][i]["total_emigrants"] == r2["colonies"][i]["total_emigrants"]
+
+    def test_attractiveness_bounded(self) -> None:
+        """Colony attractiveness stays in [0, 1]."""
+        for strategy in ["conservative", "balanced", "aggressive"]:
+            c = create_colony("Test", strategy, 42)
+            score = c.attractiveness()
+            assert 0.0 <= score <= 1.0, f"Attractiveness {score} out of bounds"
+
+    def test_empty_colony_no_attraction(self) -> None:
+        """Colony with 0 population has 0 attractiveness."""
+        c = create_colony("Ghost", "balanced", 42)
+        c.population = 0
+        assert c.attractiveness() == 0.0
+
+    def test_population_conservation_with_migration(self) -> None:
+        """initial + births - deaths + immigrants - emigrants = final."""
+        sim = Simulation(sols=200, env_seed=42)
+        results = sim.run()
+        for c in results["colonies"]:
+            expected = (
+                c["initial_population"]
+                + c["total_births"]
+                - c["total_deaths"]
+                + c["total_immigrants"]
+                - c["total_emigrants"]
+            )
+            assert c["final_population"] == expected, (
+                f"{c['name']}: expected {expected} != actual {c['final_population']}"
+            )
+
+    def test_results_include_migration_log(self) -> None:
+        """Results dict includes migration section."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        assert "migration" in results
+        assert "total_events" in results["migration"]
+        assert "log" in results["migration"]
+
+    def test_summary_includes_migration(self) -> None:
+        """Summary includes net_migration field."""
+        sim = Simulation(sols=100, env_seed=42)
+        results = sim.run()
+        for s in results["summary"]["colonies"]:
+            assert "net_migration" in s
+            assert "total_immigrants" in s
+            assert "total_emigrants" in s

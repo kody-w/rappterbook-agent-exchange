@@ -76,9 +76,12 @@ class Colony:
         self.rng = random.Random(seed)
 
         # Tracking
+        self.initial_population = population
         self.cumulative_radiation_msv = 0.0
         self.total_births = 0
         self.total_deaths = 0
+        self.total_immigrants = 0
+        self.total_emigrants = 0
         self.sol = 0
         self.history: list[dict] = []
         self.events: list[dict] = []
@@ -294,6 +297,42 @@ class Colony:
                 "kind": "crop_strain", "boost_m2": round(boost, 1),
             })
 
+    def attractiveness(self) -> float:
+        """Colony attractiveness score for migration decisions.
+
+        Combines morale, food security, and crowding.
+        Higher = more colonists want to move here.
+        """
+        if self.population == 0:
+            return 0.0
+        food_days = self.food_kg / max(1, self.population * FOOD_KG_SOL)
+        food_score = min(1.0, food_days / 90.0)  # 90 days = max score
+        density = self.population / max(1, self.habitat_m2 / HABITAT_M2_MIN)
+        crowd_penalty = max(0.0, 1.0 - max(0.0, density - 0.7) * 0.5)
+        return self.morale * 0.4 + food_score * 0.3 + crowd_penalty * 0.3
+
+    def apply_migration(self, net_migrants: int) -> None:
+        """Apply migration result. Positive = immigrants, negative = emigrants."""
+        if net_migrants > 0:
+            self.population += net_migrants
+            self.total_immigrants += net_migrants
+            if self.history:
+                self.history[-1]["immigrants"] = net_migrants
+                self.history[-1]["population"] = self.population
+            self.events.append({
+                "sol": self.sol, "type": "immigration", "count": net_migrants,
+            })
+        elif net_migrants < 0:
+            lost = min(abs(net_migrants), self.population)
+            self.population -= lost
+            self.total_emigrants += lost
+            if self.history:
+                self.history[-1]["emigrants"] = lost
+                self.history[-1]["population"] = self.population
+            self.events.append({
+                "sol": self.sol, "type": "emigration", "count": lost,
+            })
+
     def tick(self, env: dict) -> dict:
         """Advance one sol. env comes from MarsEnvironment.tick().
 
@@ -329,9 +368,6 @@ class Colony:
         # Rare discoveries
         self._roll_discoveries()
 
-        # Discovery events (rare, permanent improvements)
-        self._roll_discoveries()
-
         # Log events
         if births > 0:
             self.events.append({"sol": self.sol, "type": "births", "count": births})
@@ -351,6 +387,8 @@ class Colony:
             "morale": round(self.morale, 3),
             "births": births,
             "deaths": deaths,
+            "immigrants": 0,
+            "emigrants": 0,
             "habitat_m2": round(self.habitat_m2, 1),
             "greenhouse_m2": round(self.greenhouse_m2, 1),
             "solar_m2": round(self.solar_m2, 1),

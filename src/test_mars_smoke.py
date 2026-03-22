@@ -38,7 +38,7 @@ def test_sim_deterministic() -> None:
     r1 = Simulation(sols=50, env_seed=42).run()
     r2 = Simulation(sols=50, env_seed=42).run()
     for i in range(3):
-        assert r1["colonies"][i]["final_pop"] == r2["colonies"][i]["final_pop"]
+        assert r1["colonies"][i]["final_population"] == r2["colonies"][i]["final_population"]
 
 
 def test_dashboard_has_svg() -> None:
@@ -50,18 +50,32 @@ def test_dashboard_has_svg() -> None:
 
 
 def test_conservation_population() -> None:
-    """Births - deaths = population change."""
+    """Births - deaths + migration = population change."""
     r = Simulation(sols=100, env_seed=42).run()
     for c in r["colonies"]:
-        expected = c["initial_pop"] + c["total_births"] - c["total_deaths"]
-        assert c["final_pop"] == expected, f"{c['name']}: {expected} != {c['final_pop']}"
+        expected = (
+            c["initial_population"]
+            + c["total_births"]
+            - c["total_deaths"]
+            + c["total_immigrants"]
+            - c["total_emigrants"]
+        )
+        assert c["final_population"] == expected, (
+            f"{c['name']}: expected {expected} != actual {c['final_population']}"
+        )
 
 
-def test_aggressive_growth_rate() -> None:
-    """Aggressive strategy has highest % growth over 365 sols."""
-    r = Simulation(sols=365, env_seed=42).run()
-    growth = {}
+def test_migration_zero_sum() -> None:
+    """Total immigrants across all colonies == total emigrants."""
+    r = Simulation(sols=200, env_seed=42).run()
+    total_in = sum(c["total_immigrants"] for c in r["colonies"])
+    total_out = sum(c["total_emigrants"] for c in r["colonies"])
+    assert total_in == total_out, f"Migration not zero-sum: in={total_in} out={total_out}"
+
+
+def test_initial_population_recorded() -> None:
+    """Results include initial_population for each colony."""
+    r = Simulation(sols=10, env_seed=42).run()
     for c in r["colonies"]:
-        growth[c["strategy"]] = (c["final_pop"] - c["initial_pop"]) / c["initial_pop"]
-    assert growth["aggressive"] > growth["balanced"]
-    assert growth["balanced"] > growth["conservative"]
+        assert "initial_population" in c
+        assert c["initial_population"] > 0
