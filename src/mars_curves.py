@@ -39,8 +39,15 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
             <div class="strategy">{s["strategy"].upper()}</div>
             <div class="stat">{s["start_pop"]} → {s["end_pop"]} <span class="arrow">{arrow} {s.get("growth_pct", 0):+.1f}%</span></div>
             <div class="detail">Peak: {s["peak_pop"]} · Trough: {s["min_pop"]}</div>
-            <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}{mig_str}</div>
-        </div>'''
+            <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}{mig_str}</div>'''
+        # Death cause breakdown
+        dc = s.get("death_causes_total", {})
+        active = {k: v for k, v in dc.items() if v > 0}
+        if active:
+            top3 = sorted(active.items(), key=lambda x: -x[1])[:3]
+            dc_str = " · ".join(f"{k}: {v}" for k, v in top3)
+            cards_html += f'\n            <div class="detail" style="color:#e67e22">☠ {dc_str}</div>'
+        cards_html += '\n        </div>'
 
     # Build colony data arrays for JavaScript
     colony_js_data = "const COLONIES = [\n"
@@ -80,6 +87,9 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
         radiation = env.get("radiation_msv", [])
 
     env_js_data = f"const ENV = {{temp:{temps},dust:{dust},radiation:{radiation}}};\n"
+
+    # Build death causes data for JS
+    death_causes_js = _build_death_causes_js(colonies)
 
     events_js = _build_events_js(colonies)
     mc_js = _build_mc_js(mc_data) if mc_data else "const MC = null;\n"
@@ -215,13 +225,18 @@ footer a {{ color: #555; }}
     <div class="tooltip" id="births-tip"></div>
 </div>
 <div class="chart-box">
+    <h3>Death Causes — Who Killed Your Colonists</h3>
+    <canvas id="death-chart"></canvas>
+    <div class="tooltip" id="death-tip"></div>
+</div>
+<div class="chart-box">
     <h3>Mars Surface Temperature (°C)</h3>
     <canvas id="temp-chart"></canvas>
     <div class="tooltip" id="temp-tip"></div>
 </div>
 
 <footer>
-    Mars Barn Terrarium v2.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
+    Mars Barn Terrarium v3.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
 </footer>
 
 <script>
@@ -229,6 +244,7 @@ footer a {{ color: #555; }}
 {colony_js_data}
 {env_js_data}
 {events_js}
+{death_causes_js}
 {mc_js}
 
 // Visibility toggles
@@ -389,6 +405,11 @@ function drawAll() {{
         {{name: "Temperature", color: "#f39c12", data: ENV.temp}}
     ], {{}});
 
+    // Death causes stacked bar
+    if (DEATH_CAUSES && DEATH_CAUSES.length > 0) {{
+        drawDeathCauses("death-chart", "death-tip", DEATH_CAUSES);
+    }}
+
     // Monte Carlo population bands
     if (MC) {{
         document.getElementById("mc-pop-box").style.display = "block";
@@ -468,6 +489,106 @@ function drawBandChart(canvasId, tipId, mc, metric) {{
     canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
 }}
 
+const CAUSE_COLORS = {{
+    "baseline": "#7f8c8d", "starvation": "#e67e22", "dehydration": "#3498db",
+    "power_failure": "#9b59b6", "radiation": "#f1c40f", "storm": "#e74c3c",
+    "epidemic": "#1abc9c", "accident": "#95a5a6"
+}};
+
+function drawDeathCauses(canvasId, tipId, deathData) {{
+    const canvas = document.getElementById(canvasId);
+    const tip = document.getElementById(tipId);
+    if (!canvas || !deathData || deathData.length === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    const margin = {{top: 20, right: 16, bottom: 40, left: 55}};
+    const pw = W - margin.left - margin.right;
+    const ph = H - margin.top - margin.bottom;
+
+    // deathData = [{{name, color, causes: {{cause: total_count}}}}]
+    const causes = Object.keys(CAUSE_COLORS);
+    const activeCauses = causes.filter(c => deathData.some(d => (d.causes[c] || 0) > 0));
+    if (activeCauses.length === 0) return;
+
+    let maxTotal = 0;
+    deathData.forEach(d => {{
+        const t = activeCauses.reduce((s, c) => s + (d.causes[c] || 0), 0);
+        if (t > maxTotal) maxTotal = t;
+    }});
+    if (maxTotal === 0) return;
+
+    ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
+
+    const n = deathData.length;
+    const barW = Math.min(80, pw / n * 0.6);
+    const gap = (pw - barW * n) / (n + 1);
+
+    // Y axis
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+    for (let f = 0; f <= 1; f += 0.25) {{
+        const y = margin.top + ph * (1 - f);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(W - margin.right, y); ctx.stroke();
+        ctx.fillStyle = "#666"; ctx.font = "10px monospace"; ctx.textAlign = "right";
+        ctx.fillText((maxTotal * f).toFixed(0), margin.left - 4, y + 3);
+    }}
+
+    // Bars
+    deathData.forEach((d, i) => {{
+        const x = margin.left + gap + i * (barW + gap);
+        let y = margin.top + ph;
+        activeCauses.forEach(cause => {{
+            const val = d.causes[cause] || 0;
+            if (val <= 0) return;
+            const h = (val / maxTotal) * ph;
+            y -= h;
+            ctx.fillStyle = CAUSE_COLORS[cause] || "#666";
+            ctx.fillRect(x, y, barW, h);
+        }});
+        // Colony label
+        ctx.fillStyle = d.color || "#aaa"; ctx.font = "10px monospace"; ctx.textAlign = "center";
+        ctx.fillText(d.name.split(" ")[0], x + barW / 2, H - margin.bottom + 14);
+        ctx.fillStyle = "#666"; ctx.font = "9px monospace";
+        ctx.fillText(d.name.split(" ").slice(1).join(" "), x + barW / 2, H - margin.bottom + 26);
+    }});
+
+    // Legend
+    let lx = margin.left;
+    ctx.font = "10px monospace"; ctx.textAlign = "left";
+    activeCauses.forEach(cause => {{
+        ctx.fillStyle = CAUSE_COLORS[cause] || "#666";
+        ctx.fillRect(lx, margin.top - 14, 10, 10);
+        ctx.fillStyle = "#888";
+        ctx.fillText(cause, lx + 14, margin.top - 5);
+        lx += ctx.measureText(cause).width + 28;
+        if (lx > W - 50) {{ lx = margin.left; }}
+    }});
+
+    // Tooltip
+    canvas.onmousemove = (e) => {{
+        const bnd = canvas.getBoundingClientRect();
+        const mx = e.clientX - bnd.left;
+        let found = null;
+        deathData.forEach((d, i) => {{
+            const x = margin.left + gap + i * (barW + gap);
+            if (mx >= x && mx <= x + barW) found = d;
+        }});
+        if (!found) {{ tip.style.display = "none"; return; }}
+        let html = `<b>${{found.name}}</b><br>`;
+        activeCauses.forEach(cause => {{
+            const v = found.causes[cause] || 0;
+            if (v > 0) html += `<span style="color:${{CAUSE_COLORS[cause]}}">■</span> ${{cause}}: ${{v}}<br>`;
+        }});
+        tip.innerHTML = html; tip.style.display = "block";
+        tip.style.left = Math.min(mx + 12, bnd.width - 180) + "px"; tip.style.top = "10px";
+    }};
+    canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
+}}
+
 function drawEventMarkers(canvasId, events, nSols) {{
     const canvas = document.getElementById(canvasId);
     if (!canvas || !events || events.length === 0) return;
@@ -540,3 +661,23 @@ def _build_mc_js(mc_data: dict) -> str:
     """Serialize MC data for JavaScript consumption."""
     import json as _json
     return f"const MC = {_json.dumps(mc_data, separators=(',', ':'))};\n"
+
+
+def _build_death_causes_js(colonies: list[dict]) -> str:
+    """Build death causes data for the stacked bar chart."""
+    import json as _json
+    entries = []
+    for c in colonies:
+        name = c.get("name", "Unknown")
+        color = COLORS.get(name, "#888")
+        # Try from colony-level death_causes_total first
+        dc = c.get("death_causes_total", {})
+        if not dc:
+            # Aggregate from history snapshots
+            dc = {}
+            history = c.get("history", [])
+            for h in history:
+                for cause, count in h.get("death_causes", {}).items():
+                    dc[cause] = dc.get(cause, 0) + count
+        entries.append({"name": name, "color": color, "causes": dc})
+    return f"const DEATH_CAUSES = {_json.dumps(entries, separators=(',', ':'))};\n"

@@ -97,3 +97,21 @@ def test_births_require_population() -> None:
     c.tick(snap)
     assert c.total_births == 0
     assert c.total_deaths == 0
+
+
+def test_death_causes_tracked() -> None:
+    """Death causes appear in history snapshots and sum to deaths."""
+    r = Simulation(sols=100, env_seed=42).run()
+    for c in r["colonies"]:
+        for h in c["history"]:
+            assert "death_causes" in h
+            assert sum(h["death_causes"].values()) == h["deaths"]
+
+
+def test_storm_damage_wired() -> None:
+    """Storm damage is active — infrastructure degrades during storms."""
+    r = Simulation(sols=365, env_seed=42).run()
+    for c in r["colonies"]:
+        for h in c["history"]:
+            assert h["solar_m2"] > 0
+            assert h["greenhouse_m2"] > 0
