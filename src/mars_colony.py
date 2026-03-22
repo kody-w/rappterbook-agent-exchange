@@ -131,6 +131,11 @@ class Colony:
         self.total_emigrants = 0
         self.epidemic: Epidemic | None = None
         self.genetic_diversity = min(1.0, population / 200.0)
+        self.cumulative_death_causes: dict[str, int] = {
+            "baseline": 0, "starvation": 0, "dehydration": 0,
+            "power_failure": 0, "radiation": 0, "storm": 0,
+            "epidemic": 0, "accident": 0,
+        }
 
     def carrying_capacity(self) -> float:
         """Compute carrying capacity K from bottleneck resources.
@@ -241,54 +246,78 @@ class Colony:
 
         return births
 
-    def _compute_deaths(self, ratios: dict, env: dict) -> int:
-        """Probabilistic deaths for this sol."""
+    def _compute_deaths(self, ratios: dict, env: dict) -> tuple[int, dict[str, int]]:
+        """Probabilistic deaths with cause attribution.
+
+        Each colonist is tested against causes in priority order.
+        The first lethal cause wins. Returns (total_deaths, causes_dict).
+        """
+        causes: dict[str, int] = {
+            "baseline": 0, "starvation": 0, "dehydration": 0,
+            "power_failure": 0, "radiation": 0, "storm": 0,
+            "epidemic": 0, "accident": 0,
+        }
         if self.population == 0:
-            return 0
+            return 0, causes
 
-        # Base mortality
-        death_rate = BASE_DEATH_RATE
+        # Build per-cause rates
+        effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
+        med_factor = 1.0 - 0.4 * effective_medical
 
-        # Starvation (gradual, colony rations)
+        rates: list[tuple[str, float]] = []
+        rates.append(("baseline", BASE_DEATH_RATE * med_factor))
         if ratios["food"] < 0.5:
-            death_rate += (1 - ratios["food"]) * 0.003
-
-        # Dehydration
+            rates.append(("starvation", (1 - ratios["food"]) * 0.003 * med_factor))
         if ratios["water"] < 0.5:
-            death_rate += (1 - ratios["water"]) * 0.005
-
-        # Power loss (life support failure)
+            rates.append(("dehydration", (1 - ratios["water"]) * 0.005 * med_factor))
         if ratios["power"] < 0.3:
-            death_rate += (1 - ratios["power"]) * 0.002
-
-        # Radiation sickness
+            rates.append(("power_failure", (1 - ratios["power"]) * 0.002 * med_factor))
         if self.cumulative_radiation_msv > RADIATION_DANGER:
             excess = (self.cumulative_radiation_msv - RADIATION_DANGER) / RADIATION_LETHAL
-            death_rate += excess * 0.003
-
-        # Dust storm stress
+            rates.append(("radiation", excess * 0.003 * med_factor))
         if env.get("storm") == "global":
-            death_rate += 0.002
+            rates.append(("storm", 0.002 * med_factor))
         elif env.get("storm") == "regional":
-            death_rate += 0.0005
-
-        # Medical quality reduces deaths (breakthroughs add up to 0.2 more)
-        effective_medical = min(1.0, self.medical_level + self.medical_breakthroughs * 0.05)
-        death_rate *= (1.0 - 0.4 * effective_medical)
-
-        # Epidemic mortality
+            rates.append(("storm", 0.0005 * med_factor))
         if self.epidemic is not None:
-            death_rate += self.epidemic.extra_mortality()
-
-        # Accidents
-        death_rate += ACCIDENT_RATE
+            rates.append(("epidemic", self.epidemic.extra_mortality()))
+        rates.append(("accident", ACCIDENT_RATE))
 
         deaths = 0
         for _ in range(self.population):
-            if self.rng.random() < death_rate:
-                deaths += 1
+            for cause, rate in rates:
+                if self.rng.random() < rate:
+                    causes[cause] += 1
+                    deaths += 1
+                    break  # first lethal cause wins
 
-        return min(deaths, self.population)
+        deaths = min(deaths, self.population)
+        return deaths, causes
+
+    def _storm_damage(self, env: dict) -> None:
+        """Dust storms physically degrade solar panels and greenhouses.
+
+        Global storms: 0.8%/sol solar, 0.5%/sol greenhouse.
+        Regional storms: 0.2%/sol solar, 0.1%/sol greenhouse.
+        Floor thresholds prevent total destruction.
+        """
+        storm = env.get("storm")
+        if not storm:
+            return
+        if storm == "global":
+            solar_loss = self.solar_m2 * 0.008
+            greenhouse_loss = self.greenhouse_m2 * 0.005
+        else:  # regional
+            solar_loss = self.solar_m2 * 0.002
+            greenhouse_loss = self.greenhouse_m2 * 0.001
+        self.solar_m2 = max(50.0, self.solar_m2 - solar_loss)
+        self.greenhouse_m2 = max(20.0, self.greenhouse_m2 - greenhouse_loss)
+        if solar_loss > 0.5 or greenhouse_loss > 0.5:
+            self.events.append({
+                "sol": self.sol, "type": "storm_damage",
+                "solar_loss_m2": round(solar_loss, 1),
+                "greenhouse_loss_m2": round(greenhouse_loss, 1),
+            })
 
     def _update_morale(self, ratios: dict, env: dict) -> None:
         """Morale drifts based on conditions."""
@@ -435,14 +464,25 @@ class Colony:
         # Consumption
         ratios = self._consume_resources()
 
+        # Storm infrastructure damage
+        self._storm_damage(env)
+
         # Demographics
         births = self._compute_births(ratios)
-        deaths = self._compute_deaths(ratios, env)
+        deaths, death_causes = self._compute_deaths(ratios, env)
 
         self.population = self.population + births - deaths
         self.population = max(0, self.population)
         self.total_births += births
         self.total_deaths += deaths
+
+        # Accumulate death cause tracking
+        if not hasattr(self, "cumulative_death_causes"):
+            self.cumulative_death_causes: dict[str, int] = {}
+        for cause, count in death_causes.items():
+            self.cumulative_death_causes[cause] = (
+                self.cumulative_death_causes.get(cause, 0) + count
+            )
 
         # Morale
         self._update_morale(ratios, env)
@@ -478,6 +518,7 @@ class Colony:
             "morale": round(self.morale, 3),
             "births": births,
             "deaths": deaths,
+            "death_causes": death_causes,
             "habitat_m2": round(self.habitat_m2, 1),
             "greenhouse_m2": round(self.greenhouse_m2, 1),
             "solar_m2": round(self.solar_m2, 1),

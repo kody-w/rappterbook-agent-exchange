@@ -85,6 +85,11 @@ def main() -> None:
             mig = s.get('net_migration', 0)
             mig_str = f"  |  Migration: {mig:+d}" if mig != 0 else ""
             print(f"    Births: {s['total_births']}  |  Deaths: {s['total_deaths']}{mig_str}")
+            dc = s.get("death_causes", {})
+            active = {k: v for k, v in dc.items() if v > 0}
+            if active:
+                parts = [f"{k}: {v}" for k, v in sorted(active.items(), key=lambda x: -x[1])]
+                print(f"    Death causes: {', '.join(parts)}")
         total_mig = results["summary"].get("total_migrations", 0)
         total_epidemics = sum(
             sum(1 for e in c.get("events", []) if e.get("type") == "epidemic_start")
@@ -123,6 +128,7 @@ def _compact_results(results: dict) -> dict:
     """Strip heavy fields for the frontend data file."""
     colonies = []
     for c in results["colonies"]:
+        death_causes_by_sol = [h.get("death_causes", {}) for h in c["history"]]
         colonies.append({
             "name": c["name"],
             "strategy": c["strategy"],
@@ -131,6 +137,8 @@ def _compact_results(results: dict) -> dict:
             "morale": [h["morale"] for h in c["history"]],
             "births": [h["births"] for h in c["history"]],
             "deaths": [h["deaths"] for h in c["history"]],
+            "death_causes": death_causes_by_sol,
+            "cumulative_death_causes": c.get("death_causes", {}),
             "carrying_capacity": [h.get("carrying_capacity", 0) for h in c["history"]],
             "genetic_diversity": [h.get("genetic_diversity", 1.0) for h in c["history"]],
             "net_migration": [h.get("net_migration", 0) for h in c["history"]],

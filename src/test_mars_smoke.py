@@ -97,3 +97,30 @@ def test_births_require_population() -> None:
     c.tick(snap)
     assert c.total_births == 0
     assert c.total_deaths == 0
+
+
+def test_death_causes_tracked() -> None:
+    """Death causes appear in history snapshots and sum correctly."""
+    r = Simulation(sols=100, env_seed=42).run()
+    for c in r["colonies"]:
+        for h in c["history"]:
+            assert "death_causes" in h
+            assert sum(h["death_causes"].values()) == h["deaths"]
+
+
+def test_storm_damage_reduces_infrastructure() -> None:
+    """Global storms reduce solar and greenhouse area."""
+    c = create_colony("test", "balanced", 42)
+    initial_solar = c.solar_m2
+    env = {"sol": 1, "storm": "global", "radiation_msv": 0.67,
+           "solar_flux_wm2": 100.0, "flare": False}
+    c.tick(env)
+    assert c.solar_m2 < initial_solar
+
+
+def test_death_causes_dashboard() -> None:
+    """Dashboard includes death causes chart."""
+    r = Simulation(sols=30, env_seed=42).run()
+    html = generate_dashboard(r)
+    assert "death-causes-chart" in html
+    assert "deathCauses" in html

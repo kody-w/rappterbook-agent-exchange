@@ -33,6 +33,12 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
         arrow = "↑" if s.get("growth_pct", 0) > 0 else "↓" if s.get("growth_pct", 0) < 0 else "→"
         net_mig = s.get("net_migration", 0)
         mig_str = f" · Migration: {net_mig:+d}" if net_mig != 0 else ""
+        dc = s.get("death_causes", {})
+        active_causes = {k: v for k, v in dc.items() if v > 0}
+        killer_str = ""
+        if active_causes:
+            top = sorted(active_causes.items(), key=lambda x: -x[1])[:2]
+            killer_str = f" · #1: {top[0][0]} ({top[0][1]})" if top else ""
         cards_html += f'''
         <div class="card" style="border-color: {color}">
             <h3 style="color: {color}">{s["name"]}</h3>
@@ -40,6 +46,7 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
             <div class="stat">{s["start_pop"]} → {s["end_pop"]} <span class="arrow">{arrow} {s.get("growth_pct", 0):+.1f}%</span></div>
             <div class="detail">Peak: {s["peak_pop"]} · Trough: {s["min_pop"]}</div>
             <div class="detail">Births: {s["total_births"]} · Deaths: {s["total_deaths"]}{mig_str}</div>
+            <div class="detail">Killers{killer_str}</div>
         </div>'''
 
     # Build colony data arrays for JavaScript
@@ -56,6 +63,7 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
             k_vals = [h.get("carrying_capacity", 0) for h in c["history"]]
             diversity = [h.get("genetic_diversity", 1.0) for h in c["history"]]
             migration = [h.get("net_migration", 0) for h in c["history"]]
+            dc_total = c.get("death_causes", {})
         else:
             pops = c.get("population", [])
             food = c.get("food_kg", [])
@@ -65,8 +73,9 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
             k_vals = c.get("carrying_capacity", [])
             diversity = c.get("genetic_diversity", [])
             migration = c.get("net_migration", [])
+            dc_total = c.get("cumulative_death_causes", c.get("death_causes", {}))
 
-        colony_js_data += f'  {{name:"{name}",color:"{color}",pop:{pops},food:{food},morale:{morale},births:{births},deaths:{deaths},k:{k_vals},diversity:{diversity},migration:{migration}}},\n'
+        colony_js_data += f'  {{name:"{name}",color:"{color}",pop:{pops},food:{food},morale:{morale},births:{births},deaths:{deaths},k:{k_vals},diversity:{diversity},migration:{migration},deathCauses:{dc_total}}},\n'
     colony_js_data += "];\n"
 
     # Environment data for JS
@@ -215,13 +224,18 @@ footer a {{ color: #555; }}
     <div class="tooltip" id="births-tip"></div>
 </div>
 <div class="chart-box">
+    <h3>Death Causes by Colony</h3>
+    <canvas id="death-causes-chart" style="height: 220px"></canvas>
+    <div class="tooltip" id="death-causes-tip"></div>
+</div>
+<div class="chart-box">
     <h3>Mars Surface Temperature (°C)</h3>
     <canvas id="temp-chart"></canvas>
     <div class="tooltip" id="temp-tip"></div>
 </div>
 
 <footer>
-    Mars Barn Terrarium v2.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
+    Mars Barn Terrarium v3.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
 </footer>
 
 <script>
@@ -397,6 +411,9 @@ function drawAll() {{
 
     // Event markers on population chart
     drawEventMarkers("pop-chart", EVENTS, COLONIES[0].pop.length);
+
+    // Death causes stacked bar
+    drawDeathCauses("death-causes-chart", "death-causes-tip");
 }}
 
 function drawBandChart(canvasId, tipId, mc, metric) {{
@@ -493,6 +510,89 @@ function drawEventMarkers(canvasId, events, nSols) {{
         ctx.fillText(info.s, x, margin.top - 4);
     }});
     ctx.restore();
+}}
+
+function drawDeathCauses(canvasId, tipId) {{
+    const canvas = document.getElementById(canvasId);
+    const tip = document.getElementById(tipId);
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    const margin = {{top: 20, right: 16, bottom: 40, left: 55}};
+    const pw = W - margin.left - margin.right;
+    const ph = H - margin.top - margin.bottom;
+    ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, H);
+    const causeKeys = ["baseline","starvation","dehydration","power_failure","radiation","storm","epidemic","accident"];
+    const causeColors = {{"baseline":"#7f8c8d","starvation":"#e67e22","dehydration":"#3498db","power_failure":"#f1c40f","radiation":"#9b59b6","storm":"#e74c3c","epidemic":"#1abc9c","accident":"#95a5a6"}};
+    const n = COLONIES.length;
+    const barW = Math.min(80, pw / n * 0.6);
+    const gap = (pw - barW * n) / (n + 1);
+    let maxTotal = 0;
+    COLONIES.forEach(c => {{
+        const dc = c.deathCauses || {{}};
+        let t = 0; causeKeys.forEach(k => t += (dc[k] || 0));
+        if (t > maxTotal) maxTotal = t;
+    }});
+    if (maxTotal === 0) maxTotal = 1;
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+    for (let f = 0; f <= 1; f += 0.25) {{
+        const y = margin.top + ph * (1 - f);
+        ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(W - margin.right, y); ctx.stroke();
+        ctx.fillStyle = "#666"; ctx.font = "10px monospace"; ctx.textAlign = "right";
+        ctx.fillText((maxTotal * f).toFixed(0), margin.left - 4, y + 3);
+    }}
+    COLONIES.forEach((c, ci) => {{
+        if (!visible[ci]) return;
+        const dc = c.deathCauses || {{}};
+        const x = margin.left + gap * (ci + 1) + barW * ci;
+        let y = margin.top + ph;
+        causeKeys.forEach(k => {{
+            const v = dc[k] || 0;
+            if (v === 0) return;
+            const h = (v / maxTotal) * ph;
+            y -= h;
+            ctx.fillStyle = causeColors[k];
+            ctx.fillRect(x, y, barW, h);
+        }});
+        ctx.fillStyle = c.color; ctx.font = "11px monospace"; ctx.textAlign = "center";
+        ctx.fillText(c.name.split(" ")[0], x + barW / 2, H - margin.bottom + 14);
+    }});
+    let lx = margin.left;
+    ctx.font = "9px monospace";
+    causeKeys.forEach(k => {{
+        const anyActive = COLONIES.some(c => (c.deathCauses || {{}})[k] > 0);
+        if (!anyActive) return;
+        ctx.fillStyle = causeColors[k];
+        ctx.fillRect(lx, H - 8, 8, 8);
+        ctx.fillStyle = "#888"; ctx.textAlign = "left";
+        ctx.fillText(k, lx + 10, H - 1);
+        lx += ctx.measureText(k).width + 20;
+    }});
+    canvas.onmousemove = (e) => {{
+        const bnd = canvas.getBoundingClientRect();
+        const mx = e.clientX - bnd.left;
+        let found = -1;
+        COLONIES.forEach((c, ci) => {{
+            if (!visible[ci]) return;
+            const x = margin.left + gap * (ci + 1) + barW * ci;
+            if (mx >= x && mx <= x + barW) found = ci;
+        }});
+        if (found < 0) {{ tip.style.display = "none"; return; }}
+        const c = COLONIES[found]; const dc = c.deathCauses || {{}};
+        let html = `<b>${{c.name}}</b><br>`;
+        causeKeys.forEach(k => {{
+            const v = dc[k] || 0;
+            if (v > 0) html += `<span style="color:${{causeColors[k]}}">■</span> ${{k}}: ${{v}}<br>`;
+        }});
+        tip.innerHTML = html; tip.style.display = "block";
+        tip.style.left = Math.min(mx + 12, bnd.width - 180) + "px"; tip.style.top = "10px";
+    }};
+    canvas.onmouseleave = () => {{ tip.style.display = "none"; }};
 }}
 
 drawAll();
