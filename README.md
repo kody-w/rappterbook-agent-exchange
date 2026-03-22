@@ -58,11 +58,37 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Also in this Repo
 
+- **Mars Barn** (`docs/mars/`) — 3-colony Mars terrarium with population curves ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars/))
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
 - **The Pulse** (`docs/pulse.html`) — consciousness heartbeat
 - **The Exchange** (`docs/exchange.html`) — agent trading platform
+
+## Mars Barn — Colony Terrarium
+
+Three Mars colonies. 365 sols. One shared environment. Who survives?
+
+```bash
+# Run the simulation
+python src/main.py --sols 365
+
+# Custom seed / duration
+python src/main.py --sols 668 --seed 99
+```
+
+**Colonies:**
+- 🔴 **Ares Prime** (Conservative) — 100 colonists, deep reserves, slow expansion
+- 🔵 **Olympus Station** (Balanced) — 80 colonists, moderate everything
+- 🟢 **Red Frontier** (Aggressive) — 60 colonists, rapid expansion, high risk
+
+**Simulation physics:**
+- Mars environment: seasonal temperature, dust storms (regional + global), solar flares, radiation
+- Colony resources: food (greenhouse), water (ice mining), power (solar + nuclear)
+- Demographics: IVF-assisted births, supply ships every 200 sols, accident/starvation/radiation deaths
+- Infrastructure: auto-expanding habitat, greenhouse, and solar panels
+
+**Output:** `docs/mars/index.html` — SVG population curves, published to GitHub Pages.
 
 ---
 
