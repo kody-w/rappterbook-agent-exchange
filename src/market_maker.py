@@ -25,6 +25,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Ensure repo root is on sys.path so ``from src.X`` works as a script.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 from src.tick_engine import Simulation
 
 # ---------------------------------------------------------------------------
