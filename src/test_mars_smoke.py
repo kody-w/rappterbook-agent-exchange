@@ -151,3 +151,55 @@ def test_tech_timeline_in_dashboard() -> None:
     html = generate_dashboard(r)
     assert "tech-chart" in html
     assert "drawTechTimeline" in html
+
+
+def test_terraforming_feedback_active() -> None:
+    """Terraforming progress increases over a long sim."""
+    r = Simulation(sols=365, env_seed=42).run()
+    tf = r["summary"].get("terraforming", {})
+    progress = tf.get("progress", 0)
+    assert progress > 0, "Expected terraforming progress > 0 after 365 sols"
+    # Each colony should contribute
+    contributions = tf.get("contributions", {})
+    assert len(contributions) == 3
+    for name, output in contributions.items():
+        assert output > 0, f"Expected {name} to have positive terraforming output"
+
+
+def test_terraforming_in_env_history() -> None:
+    """Environment history contains terraforming_progress field."""
+    r = Simulation(sols=50, env_seed=42).run()
+    env_history = r["environment"]["history"]
+    assert len(env_history) == 50
+    # Terraforming progress should be present in each env snapshot
+    for snap in env_history:
+        assert "terraforming_progress" in snap
+        assert snap["terraforming_progress"] >= 0
+
+
+def test_terraforming_modifies_temperature() -> None:
+    """Over a very long sim, terraforming should warm the planet."""
+    sim_short = Simulation(sols=10, env_seed=42)
+    r_short = sim_short.run()
+    sim_long = Simulation(sols=668, env_seed=42)
+    r_long = sim_long.run()
+    # After a full Mars year, terraforming progress should be measurable
+    tf_short = r_short["environment"]["final_terraforming_progress"]
+    tf_long = r_long["environment"]["final_terraforming_progress"]
+    assert tf_long > tf_short
+
+
+def test_terraforming_output_in_colony_results() -> None:
+    """Colony results include terraforming_output field."""
+    r = Simulation(sols=100, env_seed=42).run()
+    for c in r["colonies"]:
+        assert "terraforming_output" in c
+        assert c["terraforming_output"] >= 0
+
+
+def test_terraforming_dashboard_chart() -> None:
+    """Dashboard includes terraforming chart."""
+    r = Simulation(sols=50, env_seed=42).run()
+    html = generate_dashboard(r)
+    assert "terraform-chart" in html
+    assert "TERRAFORM" in html

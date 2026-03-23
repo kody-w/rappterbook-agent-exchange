@@ -35,7 +35,9 @@ SUPPLY_SHIP_INTERVAL = 120  # sols between supply flights
 SUPPLY_SHIP_COLONISTS = {"conservative": 20, "balanced": 25, "aggressive": 35}
 
 # Terraforming output per colonist per sol (industrial greenhouse gas production)
-TERRAFORM_BASE_RATE = 0.00001
+# Rate tuned so 3 colonies (~400 total pop) reach ~10% in 365 sols (~0.1% progress/sol)
+# Full terraforming takes ~5-10 Mars years of sustained effort.
+TERRAFORM_BASE_RATE = 0.0000008
 TERRAFORM_STRATEGY_MOD = {"conservative": 0.7, "balanced": 1.0, "aggressive": 1.5}
 
 # Resource production

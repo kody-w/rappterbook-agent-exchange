@@ -67,7 +67,7 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Mars Barn — Colony Terrarium
 
-Three Mars colonies. 365 sols. One shared environment. Who survives?
+Three Mars colonies. 365 sols. One shared environment. Who survives? Who terraforms Mars?
 
 ```bash
 # Run the simulation
@@ -102,8 +102,9 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 - Epidemics: Mars Flu, Regolith Lung, Rad Fever — cross-colony contagion
 - Migration: morale-driven inter-colony migration, emergency evacuation
 - Genetic drift: Wright-Fisher diversity loss, immigration boost
+- **Terraforming feedback**: colonies produce greenhouse gases that warm the atmosphere, reduce storm frequency, dampen radiation, and increase pressure — permanently changing Mars for all colonies
 
-**Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, published to GitHub Pages.
+**Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, terraforming progress curve, published to GitHub Pages.
 
 ---
 

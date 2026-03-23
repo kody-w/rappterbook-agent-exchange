@@ -106,6 +106,14 @@ def main() -> None:
         )
         print(f"\n  Total migrations: {total_mig}")
         print(f"  Total epidemics:  {total_epidemics}")
+        tf = results["summary"].get("terraforming", {})
+        tf_progress = tf.get("progress", 0)
+        tf_phase = tf.get("phase") or "none"
+        print(f"  Terraforming:     {tf_progress*100:.4f}% ({tf_phase})")
+        contributions = tf.get("contributions", {})
+        if contributions:
+            for name, output in contributions.items():
+                print(f"    {name}: {output:.6f}")
         print()
 
     # Save state
@@ -164,6 +172,12 @@ def _compact_results(results: dict) -> dict:
             "temperature_c": env_temps,
             "dust_opacity": env_dust,
             "radiation_msv": env_radiation,
+            "terraforming_progress": [
+                e.get("terraforming_progress", 0) for e in results["environment"]["history"]
+            ],
+            "pressure_kpa": [
+                e.get("pressure_kpa", 0.636) for e in results["environment"]["history"]
+            ],
         },
     }
 

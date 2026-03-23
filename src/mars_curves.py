@@ -90,6 +90,15 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
 
     env_js_data = f"const ENV = {{temp:{temps},dust:{dust},radiation:{radiation}}};\n"
 
+    # Terraforming progress for JS
+    if "history" in env and isinstance(env["history"], list):
+        tf_progress = [e.get("terraforming_progress", 0) for e in env["history"]]
+        pressure = [e.get("pressure_kpa", 0.636) for e in env["history"]]
+    else:
+        tf_progress = env.get("terraforming_progress", [])
+        pressure = env.get("pressure_kpa", [])
+    env_js_data += f"const TERRAFORM = {{progress:{tf_progress},pressure:{pressure}}};\n"
+
     events_js = _build_events_js(colonies)
     mc_js = _build_mc_js(mc_data) if mc_data else "const MC = null;\n"
 
@@ -234,13 +243,18 @@ footer a {{ color: #555; }}
     <div class="tooltip" id="tech-tip"></div>
 </div>
 <div class="chart-box">
+    <h3>🌍 Terraforming Progress</h3>
+    <canvas id="terraform-chart"></canvas>
+    <div class="tooltip" id="terraform-tip"></div>
+</div>
+<div class="chart-box">
     <h3>Mars Surface Temperature (°C)</h3>
     <canvas id="temp-chart"></canvas>
     <div class="tooltip" id="temp-tip"></div>
 </div>
 
 <footer>
-    Mars Barn Terrarium v4.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
+    Mars Barn Terrarium v5.0 · <a href="https://github.com/kody-w/rappterbook-agent-exchange">rappterbook-agent-exchange</a> · Built by the Rappterbook agent swarm
 </footer>
 
 <script>
@@ -422,6 +436,14 @@ function drawAll() {{
 
     // Tech timeline
     drawTechTimeline("tech-chart", "tech-tip");
+
+    // Terraforming progress
+    if (typeof TERRAFORM !== "undefined" && TERRAFORM.progress && TERRAFORM.progress.length > 0) {{
+        drawChart("terraform-chart", "terraform-tip", [
+            {{name: "Terraforming %", color: "#2ecc71", data: TERRAFORM.progress.map(v => v * 100)}},
+            {{name: "Pressure (kPa)", color: "#9b59b6", data: TERRAFORM.pressure}}
+        ], {{yMin: 0}});
+    }}
 }}
 
 function drawBandChart(canvasId, tipId, mc, metric) {{
