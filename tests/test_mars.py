@@ -758,12 +758,12 @@ class TestDeathCausesDashboard:
         html = generate_dashboard(results)
         assert "deathCauses" in html
 
-    def test_dashboard_version_4(self) -> None:
-        """Dashboard footer shows v4.0."""
+    def test_dashboard_version_5(self) -> None:
+        """Dashboard footer shows v5.0."""
         sim = Simulation(sols=30, env_seed=42)
         results = sim.run()
         html = generate_dashboard(results)
-        assert "v4.0" in html
+        assert "v5.0" in html
 
     def test_dashboard_shows_killers(self) -> None:
         """Summary cards include top killer info."""

@@ -189,6 +189,17 @@ class Simulation:
         self.env_history.append(env_snap)
         for colony in self.colonies:
             colony.tick(env_snap)
+
+        # Terraforming feedback: colony industrial output modifies the
+        # shared environment. The aggregated delta feeds into the next sol.
+        total_terraform_delta = sum(
+            colony.history[-1]["terraforming_contribution"]
+            for colony in self.colonies
+            if colony.history
+        )
+        if total_terraform_delta > 0:
+            self.env.apply_terraforming(total_terraform_delta)
+
         self._process_migration(env_snap)
         self._spread_epidemics()
         self._process_food_trade()
@@ -212,12 +223,14 @@ class Simulation:
         return {
             "_meta": {
                 "engine": "mars-barn",
-                "version": "4.0",
+                "version": "5.0",
                 "sols": self.total_sols,
                 "generated": now,
             },
             "environment": {
                 "history": self.env_history,
+                "final_terraforming_progress": round(self.env.terraforming_progress, 6),
+                "terraform_phase": self.env.terraform_phase(),
             },
             "colonies": [
                 {
@@ -232,6 +245,7 @@ class Simulation:
                     "final_morale": round(c.morale, 3),
                     "cumulative_radiation_msv": round(c.cumulative_radiation_msv, 2),
                     "death_causes": c.cumulative_death_causes,
+                    "terraforming_output": round(c.terraforming_output, 6),
                     "tech": c.research_engine.snapshot() if c.research_engine else None,
                     "history": c.history,
                     "events": c.events[-150:],
@@ -263,8 +277,17 @@ class Simulation:
                 "growth_pct": round(
                     (pops[-1] - pops[0]) / max(1, pops[0]) * 100, 1
                 ) if pops else 0,
+                "terraforming_output": round(c.terraforming_output, 6),
             })
         return {
             "colonies": summaries,
             "total_migrations": self.total_migrations,
+            "terraforming": {
+                "progress": round(self.env.terraforming_progress, 6),
+                "phase": self.env.terraform_phase(),
+                "contributions": {
+                    c.name: round(c.terraforming_output, 6)
+                    for c in self.colonies
+                },
+            },
         }
