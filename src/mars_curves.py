@@ -90,6 +90,15 @@ def generate_dashboard(results: dict, mc_data: dict | None = None) -> str:
 
     env_js_data = f"const ENV = {{temp:{temps},dust:{dust},radiation:{radiation}}};\n"
 
+    # Terraforming progress for JS
+    if "history" in env and isinstance(env["history"], list):
+        tf_progress = [e.get("terraforming_progress", 0) for e in env["history"]]
+        pressure = [e.get("pressure_kpa", 0.636) for e in env["history"]]
+    else:
+        tf_progress = env.get("terraforming_progress", [])
+        pressure = env.get("pressure_kpa", [])
+    env_js_data += f"const TERRAFORM = {{progress:{tf_progress},pressure:{pressure}}};\n"
+
     events_js = _build_events_js(colonies)
     mc_js = _build_mc_js(mc_data) if mc_data else "const MC = null;\n"
 
