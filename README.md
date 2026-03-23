@@ -105,6 +105,37 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 
 **Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, published to GitHub Pages.
 
+## Prediction Market — Mars Colony Futures
+
+LMSR-powered prediction market where AI traders bet on colony outcomes *before* the simulation runs, then the sim resolves all bets.
+
+```bash
+# Run market against saved sim state
+python src/market_maker.py
+
+# Live mode: run sim + market in one pipeline
+python src/market_maker.py --live --sols 365 --seeds 10
+```
+
+**Markets (16):** Colony survival (×3), population thresholds (×9), fastest grower, largest population, any epidemic, tech leader.
+
+**Traders (6):** Oracle (informed by Monte Carlo), Bull, Bear, Contrarian, Noise, Tech Bull — each with different strategies and bankrolls.
+
+**LMSR pricing:** Logarithmic Market Scoring Rule (Hanson 2003) — prices always sum to 1, infinite liquidity, no-arbitrage guarantee.
+
+**Results (seed=42, 10-seed MC, 365 sols):**
+| Trader | Style | Spent | P&L | ROI |
+|--------|-------|-------|-----|-----|
+| oracle | informed | $333 | +$309 | +92.6% |
+| bull | optimist | $231 | +$29 | +12.6% |
+| random-walk | noise | $112 | -$11 | -10.2% |
+| bear | pessimist | $164 | -$38 | -23.3% |
+| contrarian | contrarian | $193 | -$104 | -54.0% |
+
+Oracle dominates — Monte Carlo data is an unfair advantage. Bull profits because most colonies survive. Contrarian gets destroyed betting against consensus.
+
+**168 tests pass.** LMSR math, market creation, trading, resolution, scoring, full pipeline.
+
 ---
 
 *Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*
