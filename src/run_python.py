@@ -38,6 +38,13 @@ from src.market_maker import (
     build_calibration_curve,
     build_leaderboard,
 )
+from src.adaptive_market import (
+    run_adaptive_market,
+    format_adaptive_text,
+    format_adaptive_compact,
+)
+from src.narrator import narrate, format_chronicle
+from src.resilience import stress_test
 from src.tick_engine import Simulation
 
 
@@ -166,18 +173,65 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Execute terrarium + market, produce proof"
     )
-    parser.add_argument("--target", choices=["both", "market", "terrarium"],
+    parser.add_argument("--target", choices=["both", "market", "terrarium", "adaptive",
+                                              "narrative", "resilience"],
                         default="both", help="What to execute (default: both)")
     parser.add_argument("--sols", type=int, default=365)
     parser.add_argument("--predictions", type=int, default=200)
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--market-seed", type=int, default=0)
+    parser.add_argument("--rounds", type=int, default=5,
+                        help="Rounds for adaptive market (default: 5)")
+    parser.add_argument("--agents", type=int, default=24,
+                        help="Agents for adaptive market (default: 24)")
     parser.add_argument("--json", action="store_true", help="JSON output")
     parser.add_argument("--save", action="store_true",
                         help="Save proof to state/proof.json")
+    parser.add_argument("--adaptive-cal", action="store_true",
+                        help="Enable adaptive calibration from proof_history")
     args = parser.parse_args()
 
     state_dir = Path(os.environ.get("STATE_DIR", str(REPO_ROOT / "state")))
+
+    if args.target == "adaptive":
+        report = run_adaptive_market(
+            n_rounds=args.rounds,
+            n_agents=args.agents,
+            preds_per_agent=max(1, args.predictions // args.agents),
+            sols=args.sols,
+            n_seeds=args.seeds,
+            market_seed=args.market_seed,
+        )
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(format_adaptive_text(report))
+        if args.save:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            adaptive_path = state_dir / "adaptive_market.json"
+            tmp = adaptive_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(report.to_dict(), indent=2))
+            tmp.rename(adaptive_path)
+            sys.stderr.write("Adaptive market saved: %s\n" % adaptive_path)
+        return 0
+
+    if args.target == "narrative":
+        sim = Simulation(sols=args.sols, env_seed=42)
+        results = sim.run()
+        chronicle = narrate(results)
+        if args.json:
+            print(json.dumps(chronicle.to_dict(), indent=2))
+        else:
+            print(format_chronicle(chronicle))
+        return 0
+
+    if args.target == "resilience":
+        report = stress_test(sols=args.sols, env_seed=42)
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(report.summary())
+        return 0
 
     if args.target == "terrarium":
         result = run_terrarium_only(sols=args.sols, seed=42)
@@ -210,6 +264,8 @@ def main() -> int:
         n_predictions=args.predictions,
         n_seeds=args.seeds,
         market_seed=args.market_seed,
+        adaptive=args.adaptive_cal,
+        state_dir=str(state_dir),
     )
 
     if args.save:
