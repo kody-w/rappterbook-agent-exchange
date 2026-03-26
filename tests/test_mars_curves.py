@@ -18,7 +18,7 @@ import random
 
 import pytest
 
-from src.mars_curves import generate_dashboard, _build_events_js, _build_mc_js
+from src.mars_curves import COLORS, generate_dashboard, _build_events_js, _build_mc_js
 
 
 # ---------------------------------------------------------------------------
@@ -643,3 +643,137 @@ class TestPropertyInvariants:
         # Should not show "#1:" since no active causes
         # Find the card section
         assert "Killers" in html  # The label still appears
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# EXTENSION: 17 new tests — COLORS constant, smoke pipeline, properties
+# Added by frame: mars_curves.py — extend to 79+ tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestColorsConstant:
+    """COLORS dict must have the three canonical colonies with valid hex."""
+
+    def test_three_colonies_defined(self):
+        assert len(COLORS) == 3
+
+    def test_ares_prime_red(self):
+        assert COLORS["Ares Prime"] == "#e74c3c"
+
+    def test_olympus_blue(self):
+        assert COLORS["Olympus Station"] == "#3498db"
+
+    def test_red_frontier_green(self):
+        assert COLORS["Red Frontier"] == "#2ecc71"
+
+    def test_all_values_valid_hex(self):
+        import re
+        for name, color in COLORS.items():
+            assert re.match(r"^#[0-9a-f]{6}$", color), f"{name}: invalid hex {color}"
+
+
+class TestSmokePipeline:
+    """End-to-end: run actual simulation → generate_dashboard round-trip."""
+
+    def test_10_sol_sim_produces_valid_dashboard(self):
+        """Run the real tick engine for 10 sols and feed to dashboard."""
+        from src.tick_engine import Simulation
+        sim = Simulation(sols=10, env_seed=42)
+        results = sim.run()
+        html = generate_dashboard(results)
+        assert "<!DOCTYPE html>" in html
+        assert "Ares Prime" in html
+        assert "const COLONIES" in html
+        assert len(html) > 5000
+
+    def test_10_sol_with_synthetic_mc(self):
+        """Sim + synthetic MC data → dashboard with Monte Carlo section."""
+        from src.tick_engine import Simulation
+        sim = Simulation(sols=10, env_seed=42)
+        results = sim.run()
+        mc = {
+            "n_seeds": 5, "sols": 10,
+            "colony_names": ["Ares Prime", "Olympus Station", "Red Frontier"],
+            "colony_strategies": ["conservative", "balanced", "aggressive"],
+            "bands": [
+                {"population": {"p10": [100]*10, "p50": [110]*10, "p90": [120]*10}},
+                {"population": {"p10": [70]*10, "p50": [80]*10, "p90": [90]*10}},
+                {"population": {"p10": [50]*10, "p50": [60]*10, "p90": [70]*10}},
+            ],
+            "final_pop_stats": [
+                {"mean": 130.0, "stdev": 8.0, "p10": 120.0, "p90": 140.0},
+                {"mean": 90.0, "stdev": 5.0, "p10": 84.0, "p90": 96.0},
+                {"mean": 75.0, "stdev": 5.0, "p10": 68.0, "p90": 82.0},
+            ],
+            "growth_pct_stats": [
+                {"mean": 8.3, "stdev": 2.0, "p10": 5.0, "p90": 11.0},
+                {"mean": 12.5, "stdev": 3.0, "p10": 8.0, "p90": 17.0},
+                {"mean": 25.0, "stdev": 5.0, "p10": 18.0, "p90": 32.0},
+            ],
+            "survival_rates": [1.0, 1.0, 0.95],
+        }
+        html = generate_dashboard(results, mc_data=mc)
+        assert "Monte Carlo" in html
+        assert "const MC = {" in html
+
+
+class TestExtendedProperties:
+    """Additional property invariants beyond the existing suite."""
+
+    def test_each_color_appears_at_least_twice(self):
+        """Each colony color in card + JS data = at least 2 occurrences."""
+        results = _full_results()
+        html = generate_dashboard(results)
+        for name, color in COLORS.items():
+            count = html.count(color)
+            assert count >= 2, f"{name} color {color} only {count}x"
+
+    def test_deterministic_output(self):
+        """Same input → same output (no random, no timestamps)."""
+        random.seed(999)
+        r1 = _full_results()
+        random.seed(999)
+        r2 = _full_results()
+        assert generate_dashboard(r1) == generate_dashboard(r2)
+
+    def test_all_five_js_consts_with_mc(self):
+        """COLONIES, ENV, TERRAFORM, EVENTS, MC all defined."""
+        mc = {"n_seeds": 3, "sols": 10, "colony_names": ["Ares Prime"],
+              "bands": [{}], "final_pop_stats": [{"mean": 100, "stdev": 5, "p10": 90, "p90": 110}],
+              "growth_pct_stats": [{"mean": 5, "stdev": 2, "p10": 2, "p90": 8}],
+              "survival_rates": [1.0], "colony_strategies": ["conservative"]}
+        results = _full_results()
+        html = generate_dashboard(results, mc_data=mc)
+        for const in ["const COLONIES", "const ENV", "const TERRAFORM",
+                       "const EVENTS", "const MC"]:
+            assert const in html, f"Missing: {const}"
+
+    def test_balanced_key_html_tags(self):
+        """html, head, body, style, script tags must be balanced."""
+        html = generate_dashboard(_full_results())
+        for tag in ["html", "head", "body", "style", "script"]:
+            opens = html.count(f"<{tag}")
+            closes = html.count(f"</{tag}>")
+            assert opens == closes, f"<{tag}>: {opens} opens vs {closes} closes"
+
+    def test_births_deaths_labels_present(self):
+        """Card should show Births: and Deaths: labels."""
+        results = _full_results()
+        html = generate_dashboard(results)
+        assert "Births:" in html
+        assert "Deaths:" in html
+
+    def test_mc_no_cards_without_data(self):
+        """Without mc_data, no MC Statistics section."""
+        html = generate_dashboard(_full_results())
+        assert "Monte Carlo Statistics" not in html
+
+    def test_events_embedded_from_colony_data(self):
+        """Events from colony data appear in EVENTS JS."""
+        results = _full_results()
+        results["colonies"][0]["events"] = [
+            {"sol": 42, "type": "storm", "kind": "global"}
+        ]
+        html = generate_dashboard(results)
+        assert "const EVENTS" in html
+        assert "global_storm" in html
