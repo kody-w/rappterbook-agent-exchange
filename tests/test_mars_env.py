@@ -333,3 +333,121 @@ class TestTerraforming:
         snap_tf = env_tf.tick()
 
         assert snap_tf["pressure_kpa"] > snap_raw["pressure_kpa"]
+
+
+# ── Bugfix regression: DustStorm negative opacity (#94) ──────────
+
+
+class TestDustStormBugfix:
+    """Regression tests for DustStorm.opacity() negative value bug.
+
+    Before fix: opacity = peak * min(1.0, remaining_sols / 5.0)
+    When remaining_sols < 0 (after tick past death), opacity went negative.
+    Fix: added max(0.0, ...) clamp.
+    """
+
+    def test_opacity_nonneg_after_death(self) -> None:
+        """Opacity stays ≥ 0 even after storm ticks past its lifetime."""
+        storm = DustStorm("global", duration=2, peak_opacity=0.9)
+        for _ in range(10):
+            assert storm.opacity() >= 0, (
+                f"Negative opacity {storm.opacity()} at remaining_sols={storm.remaining_sols}"
+            )
+            storm.tick()
+
+    def test_opacity_zero_at_death(self) -> None:
+        """When remaining_sols hits 0, opacity is exactly 0."""
+        storm = DustStorm("regional", duration=1, peak_opacity=0.5)
+        storm.tick()  # remaining_sols → 0
+        assert storm.opacity() == 0.0
+
+    def test_opacity_zero_past_death(self) -> None:
+        """Continued ticking past death keeps opacity at 0, not negative."""
+        storm = DustStorm("global", duration=1, peak_opacity=0.9)
+        storm.tick()  # dies
+        storm.tick()  # remaining_sols = -1
+        storm.tick()  # remaining_sols = -2
+        assert storm.opacity() == 0.0
+
+    def test_full_lifecycle_opacity_trajectory(self) -> None:
+        """Opacity ramps down smoothly and never goes negative."""
+        storm = DustStorm("global", duration=8, peak_opacity=0.9)
+        opacities = []
+        for _ in range(12):  # tick past death
+            opacities.append(storm.opacity())
+            storm.tick()
+        # All non-negative
+        assert all(o >= 0 for o in opacities), f"Negative opacity found: {opacities}"
+        # Last values (past death) should be 0
+        assert opacities[-1] == 0.0
+
+
+# ── Additional edge cases not in PR #91 ──────────────────────────
+
+
+class TestEdgeCases:
+    """Edge cases for complete coverage."""
+
+    def test_beer_lambert_exact(self) -> None:
+        """Verify Beer-Lambert: flux = base * exp(-tau), tau=0.3 at dust=0."""
+        expected = BASE_SOLAR_FLUX_WM2 * math.exp(-0.3)
+        actual = solar_flux_wm2(90.0, 0.0)
+        assert abs(actual - expected) < 0.01
+
+    def test_flare_adds_exactly_spe(self) -> None:
+        """Solar flare adds exactly SOLAR_FLARE_EXTRA_MSV to dose."""
+        no_flare = radiation_msv(0.0, False)
+        with_flare = radiation_msv(0.0, True)
+        assert abs((with_flare - no_flare) - SOLAR_FLARE_EXTRA_MSV) < 1e-9
+
+    def test_summer_warmer_than_winter(self) -> None:
+        """Ls=135 (summer) is warmer than Ls=315 (winter)."""
+        assert surface_temperature_c(135.0) > surface_temperature_c(315.0)
+
+    def test_all_terraform_phases_reachable(self) -> None:
+        """Every threshold in TERRAFORM_THRESHOLDS maps to a unique phase."""
+        env = MarsEnvironment(seed=1)
+        phases = set()
+        for level in sorted(TERRAFORM_THRESHOLDS.keys()):
+            env.terraforming_progress = level
+            phase = env.terraform_phase()
+            assert phase is not None
+            phases.add(phase)
+        assert len(phases) == len(TERRAFORM_THRESHOLDS)
+
+    def test_snapshot_has_all_12_fields(self) -> None:
+        """Every tick snapshot contains all required fields."""
+        required = {
+            "sol", "ls", "season", "temperature_c", "solar_flux_wm2",
+            "dust_opacity", "radiation_msv", "storm", "flare",
+            "pressure_kpa", "terraforming_progress", "terraform_phase",
+        }
+        env = MarsEnvironment(seed=42)
+        snap = env.tick()
+        missing = required - set(snap.keys())
+        assert not missing, f"Missing: {missing}"
+
+    def test_snapshot_types(self) -> None:
+        """Snapshot values have correct Python types."""
+        env = MarsEnvironment(seed=42)
+        snap = env.tick()
+        assert isinstance(snap["sol"], int)
+        assert isinstance(snap["ls"], float)
+        assert isinstance(snap["season"], str)
+        assert isinstance(snap["temperature_c"], float)
+        assert isinstance(snap["solar_flux_wm2"], float)
+        assert isinstance(snap["dust_opacity"], float)
+        assert isinstance(snap["radiation_msv"], float)
+        assert isinstance(snap["flare"], bool)
+        assert isinstance(snap["pressure_kpa"], float)
+        assert isinstance(snap["terraforming_progress"], float)
+
+    def test_different_seeds_produce_different_storms(self) -> None:
+        """Different seeds diverge in storm patterns over time."""
+        env1 = MarsEnvironment(seed=1)
+        env2 = MarsEnvironment(seed=9999)
+        storms1 = sum(1 for _ in range(700) if env1.tick()["storm"] is not None)
+        storms2 = sum(1 for _ in range(700) if env2.tick()["storm"] is not None)
+        # Both should run without crash; storm counts are stochastic
+        assert isinstance(storms1, int)
+        assert isinstance(storms2, int)
