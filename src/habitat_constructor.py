@@ -135,14 +135,14 @@ TOTAL_MIN_SOLS = (
 )
 
 # Leak and seal parameters
-ACCEPTABLE_LEAK_RATE = 0.0005  # 0.05% per sol
+ACCEPTABLE_LEAK_RATE = 0.002  # 0.2% per sol (ISS-class, achievable at seal_quality=1.0)
 SEAL_QUALITY_GAIN_PER_SOL = 0.08  # seal curing
 SEAL_DUST_PENALTY_THRESHOLD = 0.5  # optical depth
 WELD_THERMAL_FATIGUE_PER_SOL = 0.0001
 
 # Radiation shielding effectiveness
 GCR_BLOCK_PER_M = 0.475  # fraction blocked per metre regolith
-SPE_BLOCK_PER_M = 0.9975  # fraction blocked per metre regolith (much softer)
+SPE_BLOCK_PER_M = 1.5  # attenuation coefficient per metre (softer spectrum, 2m -> ~95%)
 
 
 # ---------------------------------------------------------------------------
