@@ -1,508 +1,454 @@
-"""perchlorate_scrubber.py — Mars Regolith Perchlorate Remediation System.
+"""perchlorate_scrubber.py — Mars Perchlorate Remediation System.
 
 Models three complementary perchlorate (ClO₄⁻) removal pathways for
-making Mars regolith safe for agriculture, habitat air, and water supply.
+making Mars regolith safe for agriculture and habitat use.
 
 Pathways modelled
 -----------------
-* **Ion-exchange column** — Regolith slurry passes through a selective
-  anion-exchange resin (Type-I strong-base, quaternary ammonium).
-  ClO₄⁻ is captured; clean effluent contains < 15 µg/L perchlorate.
-  Resin capacity: ~1.4 eq/L → ~140 g ClO₄⁻ per liter of resin before
-  regeneration with NaCl brine.
+* **Thermal decomposition** (primary) — Heat regolith above 400 °C.
+  NaClO₄ → NaCl + 2 O₂.  Energy-intensive but liberates useful oxygen
+  as a byproduct.  At 450–500 °C achieves > 95 % removal.
 
-* **Catalytic reduction reactor** — Captured perchlorate is destroyed
-  by catalytic hydrogenation:  ClO₄⁻ + 4H₂ → Cl⁻ + 4H₂O.
-  Re/Pd bimetallic catalyst on activated carbon.  Needs H₂ feed
-  (from water electrolysis) and 80-120 °C.  Converts toxic perchlorate
-  into harmless chloride salt + water.
+* **Iron reduction** (chemical) — Zero-valent iron (ZVI) reduces ClO₄⁻
+  to Cl⁻ in aqueous solution.  Lower energy than thermal, but consumes
+  iron feedstock and water.  Mars regolith is ~18 % Fe₂O₃ so iron can
+  be sourced locally.
 
-* **Bioremediation tank** — Perchlorate-reducing bacteria (PRB) such as
-  *Dechloromonas* and *Azospira* use ClO₄⁻ as a terminal electron
-  acceptor under anaerobic conditions.  Slow but self-renewing.
-  Rate: ~50 mg ClO₄⁻ / L / day at 30 °C, halves for every 10 °C drop.
+* **UV photocatalysis** (supplementary) — TiO₂ catalyst + Mars UV
+  radiation breaks perchlorates in solution.  Slow but uses free
+  sunlight.  Mars receives 2–3× Earth UV flux (no ozone layer).
 
-Physical references:
-  - Phoenix lander (2008): 0.4–0.6 wt% perchlorate in soil
-  - Curiosity SAM: 0.5–1.0 wt% in Gale Crater soil
-  - Human toxicity: thyroid disruption at > 15 µg/L in drinking water
-  - EPA MCL for perchlorate: 56 µg/L (proposed); CA: 6 µg/L
-  - Ion-exchange capacity: Type-I resin ~1.4 eq/L (Purolite A-520E)
-  - Catalytic reduction: Re-Pd/C at 95 °C, τ½ ≈ 30 min
-  - PRB doubling time: ~6 h at 30 °C (Dechloromonas aromatica RCB)
+Physical references
+-------------------
+- Phoenix lander (2008): 0.4–0.6 wt % perchlorate in soil
+- Curiosity SAM: 0.5–1.0 wt % in Gale Crater
+- NaClO₄ (122.44 g/mol) → NaCl (58.44 g/mol) + 2 O₂ (64.0 g/mol)
+- Human toxicity: thyroid disruption > 15 µg/L in drinking water
+- Plant growth inhibition: > 100 ppm perchlorate in soil
+- ZVI reaction: ~0.5 kg Fe consumed per kg ClO₄⁻ reduced
 
-One tick = one sol.  Mass in kg, volume in liters, energy in kWh.
+Conservation laws
+-----------------
+Thermal decomposition mass balance per mol NaClO₄ destroyed::
+
+    122.44 g → 58.44 g NaCl + 2 × 32.0 g O₂   (mass conserved)
+
+The only mass leaving the solid phase is O₂ gas from thermal
+decomposition.  Therefore::
+
+    regolith_in = clean_soil_out + o2_released
+
+One tick = one sol.  Mass in kg, energy in kWh, concentration in ppm.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 
-# ---------------------------------------------------------------------------
-# Physical constants
-# ---------------------------------------------------------------------------
+# ── Physical constants ────────────────────────────────────────────────
 
-# Mars regolith perchlorate content (mass fraction)
-PERCHLORATE_FRACTION_LOW = 0.004   # 0.4 wt% (Phoenix low end)
-PERCHLORATE_FRACTION_HIGH = 0.010  # 1.0 wt% (Curiosity high end)
-PERCHLORATE_FRACTION_MEAN = 0.007  # 0.7 wt% typical
+# Molar masses (g/mol)
+PERCHLORATE_MOLAR_MASS = 99.45       # ClO₄⁻ ion
+NACLO4_MOLAR_MASS = 122.44           # NaClO₄
+NACL_MOLAR_MASS = 58.44              # NaCl
+O2_MOLAR_MASS = 32.0                 # O₂
+
+# Thermal decomposition parameters
+THERMAL_DECOMP_TEMP_C = 450.0        # target operating temperature (°C)
+THERMAL_DECOMP_MIN_C = 400.0         # minimum for any decomposition (°C)
+MARS_AMBIENT_TEMP_C = -60.0          # Mars surface average (°C)
+REGOLITH_SPECIFIC_HEAT = 0.84        # kJ/(kg·°C), Mars basalt
+HEATING_EFFICIENCY = 0.75            # thermal system efficiency
+
+# Sigmoid parameters for decomposition curve
+SIGMOID_K = 0.07                     # steepness
+MAX_DECOMP_FRACTION = 0.99           # asymptotic maximum
 
 # Safety thresholds
-SAFE_SOIL_PERCHLORATE_PPM = 500.0     # ppm in treated soil (for crops; conservative)
-SAFE_WATER_PERCHLORATE_UG_L = 15.0    # µg/L in water (drinking standard)
+SAFE_SOIL_PERCHLORATE_PPM = 100.0    # maximum for agriculture
+SAFE_WATER_PERCHLORATE_UG_L = 15.0   # maximum for drinking water
 
-# Ion-exchange column
-RESIN_CAPACITY_G_CLO4_PER_L = 140.0   # grams ClO₄⁻ per liter resin
-RESIN_FLOW_RATE_L_PER_H = 10.0        # slurry throughput per hour
-COLUMN_ENERGY_KWH_PER_M3 = 0.3        # pump energy per m³ slurry
-REGEN_NACL_KG_PER_L_RESIN = 0.3       # NaCl needed for regeneration
-REGEN_WATER_L_PER_L_RESIN = 5.0       # water needed for regen rinse
-COLUMN_EFFICIENCY_NEW = 0.97           # fresh resin removal efficiency
-RESIN_DEGRADATION_PER_CYCLE = 0.002    # efficiency loss per regen cycle
+# Regolith properties
+MARS_REGOLITH_PERCHLORATE_FRACTION = 0.007  # mass fraction (Phoenix avg)
 
-# Catalytic reduction reactor
-CATALYST_RATE_G_PER_H = 50.0          # g ClO₄⁻ destroyed per hour per kg catalyst
-H2_STOICH_KG_PER_KG_CLO4 = 0.081      # 4 mol H₂ per mol ClO₄⁻ (4×2.016/99.45)
-REACTOR_TEMP_C = 95.0                  # operating temperature
-REACTOR_ENERGY_KWH_PER_KG_CLO4 = 8.0  # heating + pumping per kg destroyed
-CATALYST_LIFE_KG_CLO4 = 500.0         # kg perchlorate destroyed before replacement
-CATALYST_MIN_EFFICIENCY = 0.50
-CATALYST_DEGRADATION_PER_KG = 0.001    # efficiency loss per kg processed
+# Iron reduction (chemical path)
+IRON_PER_KG_PERCHLORATE = 0.5        # kg Fe consumed per kg ClO₄⁻ reduced
+WATER_PER_KG_REGOLITH = 2.0          # L water for washing / treatment
+IRON_MAX_EFFICIENCY = 0.85           # maximum removal efficiency via iron
 
-# Bioremediation tank
-BIO_RATE_MG_L_DAY_30C = 50.0          # mg ClO₄⁻ reduced per liter per day at 30 °C
-BIO_Q10 = 2.0                         # rate halves per 10 °C drop
-BIO_OPTIMAL_TEMP_C = 30.0
-BIO_MIN_TEMP_C = 5.0                  # bacteria dormant below this
-BIO_TANK_ENERGY_KWH_PER_M3 = 0.1      # aeration + mixing per m³ per sol
-BIO_CULTURE_DOUBLING_H = 6.0          # population doubling time at optimal
-BIO_MAX_POPULATION = 1.0              # normalized 0-1 carrying capacity
-BIO_DEATH_RATE_PER_SOL = 0.02         # natural die-off fraction per sol
+# Processing capacity
+MAX_BATCH_KG = 500.0                 # kg regolith per sol
 
-# Regolith processing
-SLURRY_WATER_RATIO = 2.0              # liters water per kg regolith
-REGOLITH_DENSITY_KG_M3 = 1500.0
+# UV photocatalysis (supplementary)
+UV_EFFICIENCY_FACTOR = 0.15          # fraction of remaining removed by UV
 
-# General
-MAINTENANCE_RESTORE_FRACTION = 0.80    # how much maintenance recovers
+# Equipment degradation
+EQUIPMENT_DEGRADATION_PER_SOL = 0.0003   # health loss per sol
+CRITICAL_HEALTH = 0.1                    # CRITICAL alert threshold
+WARNING_HEALTH = 0.3                     # WARNING / quality-degradation threshold
+CRITICAL_THROUGHPUT_FACTOR = 0.3         # throughput multiplier when CRITICAL
+
+# Chemical path energy (kWh per kg regolith for pumping / mixing)
+CHEMICAL_ENERGY_PER_KG = 0.0003          # 0.3 kWh per tonne
 
 
-# ---------------------------------------------------------------------------
-# Ion-exchange column
-# ---------------------------------------------------------------------------
+# ── State ─────────────────────────────────────────────────────────────
 
 @dataclass
-class IonExchangeColumn:
-    """Selective anion-exchange resin column for ClO₄⁻ capture."""
+class PerchlorateState:
+    """Mutable state of the perchlorate scrubber across sols.
 
-    resin_volume_l: float = 50.0
-    efficiency: float = COLUMN_EFFICIENCY_NEW
-    total_clo4_captured_g: float = 0.0
-    cycles: int = 0
-    loaded_g: float = 0.0              # current ClO₄⁻ load on resin
-
-    @property
-    def capacity_g(self) -> float:
-        """Total ClO₄⁻ the resin can hold before regeneration."""
-        return self.resin_volume_l * RESIN_CAPACITY_G_CLO4_PER_L
-
-    @property
-    def load_fraction(self) -> float:
-        """How full the resin is (0 = fresh, 1 = exhausted)."""
-        cap = self.capacity_g
-        if cap <= 0:
-            return 1.0
-        return min(1.0, self.loaded_g / cap)
-
-    @property
-    def needs_regeneration(self) -> bool:
-        """True when resin is > 85% loaded."""
-        return self.load_fraction > 0.85
-
-    def treat_regolith(self, regolith_kg: float, perchlorate_fraction: float
-                       ) -> dict:
-        """Pass regolith slurry through column.
-
-        Args:
-            regolith_kg: mass of regolith to treat
-            perchlorate_fraction: ClO₄⁻ mass fraction in regolith
-
-        Returns:
-            dict with treated_kg, clo4_removed_g, clo4_remaining_ppm,
-            water_used_l, energy_kwh, safe_for_crops
-        """
-        regolith_kg = max(0.0, regolith_kg)
-        perchlorate_fraction = max(0.0, min(1.0, perchlorate_fraction))
-
-        incoming_clo4_g = regolith_kg * perchlorate_fraction * 1000.0
-        available_capacity = max(0.0, self.capacity_g - self.loaded_g)
-
-        # Effective removal limited by resin load and efficiency
-        load_penalty = max(0.3, 1.0 - self.load_fraction * 0.5)
-        effective_eff = self.efficiency * load_penalty
-
-        removable = min(incoming_clo4_g * effective_eff, available_capacity)
-        remaining_g = incoming_clo4_g - removable
-
-        # Convert remaining to ppm in treated regolith
-        remaining_ppm = (remaining_g / max(0.001, regolith_kg)) * 1000.0
-
-        # Slurry water
-        water_l = regolith_kg * SLURRY_WATER_RATIO
-        slurry_m3 = water_l / 1000.0
-        energy = slurry_m3 * COLUMN_ENERGY_KWH_PER_M3
-
-        self.loaded_g += removable
-        self.total_clo4_captured_g += removable
-
-        return {
-            "treated_kg": round(regolith_kg, 3),
-            "clo4_removed_g": round(removable, 3),
-            "clo4_remaining_ppm": round(remaining_ppm, 3),
-            "water_used_l": round(water_l, 3),
-            "energy_kwh": round(energy, 4),
-            "safe_for_crops": remaining_ppm <= SAFE_SOIL_PERCHLORATE_PPM,
-            "resin_load_fraction": round(self.load_fraction, 4),
-        }
-
-    def regenerate(self) -> dict:
-        """Regenerate resin with NaCl brine flush.
-
-        Returns:
-            dict with nacl_kg, water_l, clo4_released_g, efficiency_after
-        """
-        released = self.loaded_g
-        self.loaded_g = 0.0
-        self.cycles += 1
-        self.efficiency = max(
-            0.50,
-            self.efficiency - RESIN_DEGRADATION_PER_CYCLE
-        )
-
-        nacl = self.resin_volume_l * REGEN_NACL_KG_PER_L_RESIN
-        water = self.resin_volume_l * REGEN_WATER_L_PER_L_RESIN
-
-        return {
-            "nacl_kg": round(nacl, 3),
-            "water_l": round(water, 3),
-            "clo4_released_g": round(released, 3),
-            "efficiency_after": round(self.efficiency, 4),
-            "total_cycles": self.cycles,
-        }
-
-
-# ---------------------------------------------------------------------------
-# Catalytic reduction reactor
-# ---------------------------------------------------------------------------
-
-@dataclass
-class CatalyticReactor:
-    """Re/Pd bimetallic catalyst reactor: ClO₄⁻ + 4H₂ → Cl⁻ + 4H₂O."""
-
-    catalyst_kg: float = 5.0
-    efficiency: float = 1.0
-    total_destroyed_g: float = 0.0
-    catalyst_age_kg: float = 0.0       # cumulative kg ClO₄⁻ processed
-
-    @property
-    def remaining_life_fraction(self) -> float:
-        """Fraction of catalyst life remaining."""
-        return max(0.0, 1.0 - self.catalyst_age_kg / CATALYST_LIFE_KG_CLO4)
-
-    def destroy_perchlorate(self, clo4_g: float, h2_available_g: float,
-                            power_available_kwh: float) -> dict:
-        """Catalytically reduce perchlorate to chloride + water.
-
-        Args:
-            clo4_g: grams of ClO₄⁻ in brine/solution
-            h2_available_g: grams H₂ available
-            power_available_kwh: power budget
-
-        Returns:
-            dict with destroyed_g, h2_consumed_g, energy_kwh,
-            chloride_produced_g, water_produced_g
-        """
-        clo4_g = max(0.0, clo4_g)
-        h2_available_g = max(0.0, h2_available_g)
-        power_available_kwh = max(0.0, power_available_kwh)
-
-        # Rate limit: catalyst capacity per sol (24.6 h)
-        max_rate = (self.catalyst_kg * CATALYST_RATE_G_PER_H * 24.6
-                    * self.efficiency)
-
-        # H₂ limit: stoichiometric requirement (kg/kg ratio = g/g ratio)
-        h2_needed_per_g = H2_STOICH_KG_PER_KG_CLO4  # g H₂ per g ClO₄⁻
-        h2_limited = h2_available_g / max(0.001, h2_needed_per_g)
-
-        # Power limit
-        energy_per_g = REACTOR_ENERGY_KWH_PER_KG_CLO4 / 1000.0
-        power_limited = power_available_kwh / max(0.001, energy_per_g)
-
-        destroyed = min(clo4_g, max_rate, h2_limited, power_limited)
-
-        h2_consumed = destroyed * h2_needed_per_g
-        energy = destroyed * energy_per_g
-
-        # Products: ClO₄⁻ → Cl⁻ + 4H₂O
-        # Molar masses: ClO₄⁻=99.45, Cl⁻=35.45, H₂O=18.015
-        chloride_g = destroyed * (35.45 / 99.45)
-        water_g = destroyed * (4 * 18.015 / 99.45)
-
-        # Catalyst aging
-        self.catalyst_age_kg += destroyed / 1000.0
-        self.efficiency = max(
-            CATALYST_MIN_EFFICIENCY,
-            self.efficiency - (destroyed / 1000.0) * CATALYST_DEGRADATION_PER_KG
-        )
-        self.total_destroyed_g += destroyed
-
-        return {
-            "destroyed_g": round(destroyed, 3),
-            "h2_consumed_g": round(h2_consumed, 3),
-            "energy_kwh": round(energy, 4),
-            "chloride_produced_g": round(chloride_g, 3),
-            "water_produced_g": round(water_g, 3),
-            "catalyst_life_remaining": round(self.remaining_life_fraction, 4),
-        }
-
-
-# ---------------------------------------------------------------------------
-# Bioremediation tank
-# ---------------------------------------------------------------------------
-
-@dataclass
-class BioremediationTank:
-    """Anaerobic perchlorate-reducing bacteria (PRB) culture tank."""
-
-    volume_l: float = 500.0
-    population: float = 0.5            # normalized 0-1
-    temperature_c: float = 25.0
-    total_reduced_g: float = 0.0
-
-    @property
-    def reduction_rate_mg_l_sol(self) -> float:
-        """Current perchlorate reduction rate in mg/L/sol.
-
-        Q10 model: rate doubles per 10 °C increase from reference.
-        """
-        if self.temperature_c < BIO_MIN_TEMP_C:
-            return 0.0
-        temp_factor = BIO_Q10 ** ((self.temperature_c - BIO_OPTIMAL_TEMP_C) / 10.0)
-        return BIO_RATE_MG_L_DAY_30C * temp_factor * self.population
-
-    def tick(self, clo4_concentration_mg_l: float,
-             temperature_c: float | None = None) -> dict:
-        """Advance one sol of bioremediation.
-
-        Args:
-            clo4_concentration_mg_l: perchlorate in tank solution
-            temperature_c: tank temperature (if None, use stored)
-
-        Returns:
-            dict with reduced_mg, remaining_mg_l, population,
-            energy_kwh
-        """
-        if temperature_c is not None:
-            self.temperature_c = temperature_c
-
-        rate = self.reduction_rate_mg_l_sol
-        total_clo4_mg = clo4_concentration_mg_l * self.volume_l
-
-        reduced_mg = min(rate * self.volume_l, total_clo4_mg)
-        remaining_mg = total_clo4_mg - reduced_mg
-        remaining_mg_l = remaining_mg / max(0.001, self.volume_l)
-
-        self.total_reduced_g += reduced_mg / 1000.0
-
-        # Population dynamics: growth when food available, die-off otherwise
-        if clo4_concentration_mg_l > 1.0 and self.temperature_c >= BIO_MIN_TEMP_C:
-            growth = min(
-                0.1,  # max 10% growth per sol
-                (self.population * 0.15)
-                * (self.temperature_c / BIO_OPTIMAL_TEMP_C)
-            )
-        else:
-            growth = 0.0
-        death = self.population * BIO_DEATH_RATE_PER_SOL
-        self.population = max(0.01, min(BIO_MAX_POPULATION,
-                                        self.population + growth - death))
-
-        energy = (self.volume_l / 1000.0) * BIO_TANK_ENERGY_KWH_PER_M3
-
-        return {
-            "reduced_mg": round(reduced_mg, 3),
-            "remaining_mg_l": round(remaining_mg_l, 3),
-            "population": round(self.population, 4),
-            "energy_kwh": round(energy, 4),
-            "temperature_c": self.temperature_c,
-        }
-
-
-# ---------------------------------------------------------------------------
-# Integrated scrubber system
-# ---------------------------------------------------------------------------
-
-@dataclass
-class PerchlorateScrubber:
-    """Complete three-stage perchlorate remediation system.
-
-    Stage 1: Ion-exchange capture (fast, bulk removal)
-    Stage 2: Catalytic destruction of captured perchlorate
-    Stage 3: Bioremediation polishing of residual traces
-
-    The system processes regolith to make it safe for greenhouse use
-    and produces clean chloride salt + water as byproducts.
+    Tracks equipment configuration, consumable reserves, and cumulative
+    production totals.  All masses in kg, energy in kWh, volumes in L.
     """
 
-    column: IonExchangeColumn = field(default_factory=IonExchangeColumn)
-    reactor: CatalyticReactor = field(default_factory=CatalyticReactor)
-    bio_tank: BioremediationTank = field(default_factory=BioremediationTank)
-
-    sol: int = 0
-    total_regolith_treated_kg: float = 0.0
-    total_perchlorate_removed_g: float = 0.0
+    batch_capacity_kg: float = 200.0
+    thermal_unit_count: int = 1
+    iron_reserve_kg: float = 50.0
+    water_budget_L: float = 100.0
+    regolith_processed_kg: float = 0.0
+    perchlorate_destroyed_kg: float = 0.0
+    o2_liberated_kg: float = 0.0
+    clean_soil_produced_kg: float = 0.0
+    salt_byproduct_kg: float = 0.0
     total_energy_kwh: float = 0.0
-    history: list[dict] = field(default_factory=list)
+    sols_running: int = 0
+    equipment_health: float = 1.0
+    alert: str = "NOMINAL"
 
-    def tick(
-        self,
-        regolith_kg: float,
-        perchlorate_fraction: float = PERCHLORATE_FRACTION_MEAN,
-        h2_available_g: float = 500.0,
-        power_available_kwh: float = 50.0,
-        bio_temp_c: float = 25.0,
-    ) -> dict:
-        """Process one sol of regolith through the three-stage scrubber.
+    def __post_init__(self) -> None:
+        """Clamp fields to physically valid ranges."""
+        self.batch_capacity_kg = max(0.0, self.batch_capacity_kg)
+        self.thermal_unit_count = max(0, self.thermal_unit_count)
+        self.iron_reserve_kg = max(0.0, self.iron_reserve_kg)
+        self.water_budget_L = max(0.0, self.water_budget_L)
+        self.regolith_processed_kg = max(0.0, self.regolith_processed_kg)
+        self.perchlorate_destroyed_kg = max(0.0, self.perchlorate_destroyed_kg)
+        self.o2_liberated_kg = max(0.0, self.o2_liberated_kg)
+        self.clean_soil_produced_kg = max(0.0, self.clean_soil_produced_kg)
+        self.salt_byproduct_kg = max(0.0, self.salt_byproduct_kg)
+        self.total_energy_kwh = max(0.0, self.total_energy_kwh)
+        self.sols_running = max(0, self.sols_running)
+        self.equipment_health = max(0.0, min(1.0, self.equipment_health))
 
-        Args:
-            regolith_kg: raw regolith to process
-            perchlorate_fraction: ClO₄⁻ mass fraction in regolith
-            h2_available_g: hydrogen gas available for catalysis
-            power_available_kwh: total power budget
-            bio_temp_c: bioremediation tank temperature
 
-        Returns:
-            dict with per-stage results and overall metrics
-        """
-        self.sol += 1
-        regolith_kg = max(0.0, regolith_kg)
-        perchlorate_fraction = max(0.0, min(1.0, perchlorate_fraction))
+@dataclass
+class ScrubberTickResult:
+    """Result of one sol of perchlorate scrubbing.
 
-        incoming_clo4_g = regolith_kg * perchlorate_fraction * 1000.0
+    Contains per-tick deltas (not cumulative) for every output stream
+    plus diagnostic fields like pathway fractions and alert status.
+    """
 
-        # Stage 1: Ion-exchange — bulk capture
-        if self.column.needs_regeneration:
-            regen = self.column.regenerate()
-            released_g = regen["clo4_released_g"]
+    regolith_in_kg: float = 0.0
+    perchlorate_removed_kg: float = 0.0
+    clean_soil_out_kg: float = 0.0
+    o2_released_kg: float = 0.0
+    salt_produced_kg: float = 0.0
+    energy_used_kwh: float = 0.0
+    thermal_fraction: float = 0.0
+    chemical_fraction: float = 0.0
+    soil_perchlorate_ppm: float = 7000.0
+    water_used_L: float = 0.0
+    iron_consumed_kg: float = 0.0
+    alert: str = "NOMINAL"
+
+
+# ── Pure physics functions ────────────────────────────────────────────
+
+def thermal_energy_kwh(mass_kg: float, start_temp_c: float,
+                       target_temp_c: float) -> float:
+    """Energy required to heat *mass_kg* of regolith, in kWh.
+
+    Uses specific heat of Mars basalt (0.84 kJ/(kg·°C)) and accounts
+    for heating-system efficiency losses.  Returns 0 for non-positive
+    mass or when the target temperature is at or below start.
+    """
+    mass_kg = max(0.0, mass_kg)
+    delta_t = max(0.0, target_temp_c - start_temp_c)
+    if mass_kg == 0.0 or delta_t == 0.0:
+        return 0.0
+    energy_kj = mass_kg * REGOLITH_SPECIFIC_HEAT * delta_t
+    energy_kwh = energy_kj / 3600.0
+    return energy_kwh / HEATING_EFFICIENCY
+
+
+def thermal_decomp_fraction(temp_c: float) -> float:
+    """Fraction of perchlorate thermally decomposed at *temp_c*.
+
+    Returns 0 below 400 °C, ramps via sigmoid to ~0.50 at 450 °C,
+    ~0.96 at 500 °C, and approaches 0.99 at 600 °C+.
+    """
+    if temp_c < THERMAL_DECOMP_MIN_C:
+        return 0.0
+    exponent = -SIGMOID_K * (temp_c - THERMAL_DECOMP_TEMP_C)
+    exponent = max(-50.0, min(50.0, exponent))
+    return MAX_DECOMP_FRACTION / (1.0 + math.exp(exponent))
+
+
+def perchlorate_mass_kg(regolith_kg: float,
+                        concentration: float = MARS_REGOLITH_PERCHLORATE_FRACTION,
+                        ) -> float:
+    """Mass of perchlorate contained in *regolith_kg* at *concentration*."""
+    return max(0.0, regolith_kg) * max(0.0, min(1.0, concentration))
+
+
+def o2_from_perchlorate_kg(perchlorate_kg: float) -> float:
+    """O₂ liberated by thermal decomposition of perchlorate (kg).
+
+    Stoichiometry: NaClO₄ → NaCl + 2 O₂
+    O₂ mass = perchlorate_mass × (2 × 32.0 / 122.44).
+    """
+    return max(0.0, perchlorate_kg) * (2.0 * O2_MOLAR_MASS / NACLO4_MOLAR_MASS)
+
+
+def salt_from_perchlorate_kg(perchlorate_kg: float) -> float:
+    """NaCl produced from perchlorate decomposition (kg).
+
+    Stoichiometry: NaClO₄ → NaCl + 2 O₂
+    NaCl mass = perchlorate_mass × (58.44 / 122.44).
+    """
+    return max(0.0, perchlorate_kg) * (NACL_MOLAR_MASS / NACLO4_MOLAR_MASS)
+
+
+def iron_reduction_rate(iron_kg: float, water_L: float,
+                        regolith_kg: float) -> float:
+    """Fraction of perchlorate removable via iron reduction.
+
+    Limited by iron stock, available water for slurry, and the
+    inherent efficiency ceiling of the ZVI process (~85 %).
+    Returns 0 when any input is non-positive.
+    """
+    if iron_kg <= 0.0 or water_L <= 0.0 or regolith_kg <= 0.0:
+        return 0.0
+    perchlorate_kg = regolith_kg * MARS_REGOLITH_PERCHLORATE_FRACTION
+    if perchlorate_kg <= 0.0:
+        return 0.0
+
+    iron_capacity_kg = iron_kg / IRON_PER_KG_PERCHLORATE
+    iron_fraction = min(1.0, iron_capacity_kg / perchlorate_kg)
+
+    water_needed = regolith_kg * WATER_PER_KG_REGOLITH
+    water_fraction = min(1.0, water_L / water_needed)
+
+    return min(iron_fraction, water_fraction) * IRON_MAX_EFFICIENCY
+
+
+def residual_perchlorate_ppm(initial_concentration: float,
+                             fraction_removed: float) -> float:
+    """Residual perchlorate in treated soil (ppm).
+
+    Args:
+        initial_concentration: mass fraction (e.g. 0.007 for 0.7 %).
+        fraction_removed: 0–1 fraction of perchlorate destroyed.
+    """
+    initial_concentration = max(0.0, initial_concentration)
+    fraction_removed = max(0.0, min(1.0, fraction_removed))
+    initial_ppm = initial_concentration * 1_000_000.0
+    return initial_ppm * (1.0 - fraction_removed)
+
+
+def assess_alert(soil_ppm: float, equipment_health: float) -> str:
+    """Classify system alert level.
+
+    Returns ``'CRITICAL'``, ``'WARNING'``, or ``'NOMINAL'`` based on
+    equipment health and output soil quality.
+    """
+    if equipment_health < CRITICAL_HEALTH:
+        return "CRITICAL"
+    if equipment_health < WARNING_HEALTH:
+        return "WARNING"
+    if soil_ppm > SAFE_SOIL_PERCHLORATE_PPM * 50:
+        return "WARNING"
+    return "NOMINAL"
+
+
+# ── Tick function ─────────────────────────────────────────────────────
+
+def tick_perchlorate(
+    state: PerchlorateState,
+    power_available_kwh: float = 50.0,
+    regolith_input_kg: float = 200.0,
+    input_perchlorate_fraction: float = MARS_REGOLITH_PERCHLORATE_FRACTION,
+    ambient_temp_c: float = MARS_AMBIENT_TEMP_C,
+    use_thermal: bool = True,
+    use_chemical: bool = True,
+) -> Tuple[PerchlorateState, ScrubberTickResult]:
+    """Advance the scrubber system by one sol.
+
+    Processes *regolith_input_kg* of Mars regolith through the enabled
+    remediation pathways (thermal, chemical/iron, UV supplementary) and
+    returns the updated state together with a per-sol result snapshot.
+
+    The UV pathway is always active (uses sunlight, no power cost) and
+    operates on whatever perchlorate remains after thermal and chemical
+    treatment.
+
+    Args:
+        state: current scrubber state (mutated in place **and** returned).
+        power_available_kwh: electrical power budget for this sol.
+        regolith_input_kg: raw regolith to process.
+        input_perchlorate_fraction: ClO₄⁻ mass fraction in input.
+        ambient_temp_c: starting temperature of regolith.
+        use_thermal: enable thermal decomposition pathway.
+        use_chemical: enable iron-reduction pathway.
+
+    Returns:
+        Tuple of (updated_state, tick_result).
+    """
+    # ── 0. Clamp inputs ──────────────────────────────────────────────
+    power_available_kwh = max(0.0, power_available_kwh)
+    regolith_input_kg = max(0.0, regolith_input_kg)
+    input_perchlorate_fraction = max(0.0, min(1.0, input_perchlorate_fraction))
+
+    # ── 1. Cap regolith by capacity and equipment health ─────────────
+    effective_capacity = state.batch_capacity_kg * max(1, state.thermal_unit_count)
+    if state.equipment_health < CRITICAL_HEALTH:
+        effective_capacity *= CRITICAL_THROUGHPUT_FACTOR
+    regolith_kg = min(regolith_input_kg, effective_capacity, MAX_BATCH_KG)
+
+    # ── 2. Perchlorate mass in this batch ────────────────────────────
+    perchlorate_kg = perchlorate_mass_kg(regolith_kg, input_perchlorate_fraction)
+
+    # ── 3. Thermal decomposition path ────────────────────────────────
+    thermal_removed_kg = 0.0
+    energy_used = 0.0
+
+    if use_thermal and perchlorate_kg > 0.0 and state.thermal_unit_count > 0:
+        energy_needed = thermal_energy_kwh(
+            regolith_kg, ambient_temp_c, THERMAL_DECOMP_TEMP_C,
+        )
+        if energy_needed > 0.0:
+            energy_scale = min(1.0, power_available_kwh / energy_needed)
         else:
-            regen = None
-            released_g = 0.0
+            energy_scale = 1.0
 
-        ix_result = self.column.treat_regolith(regolith_kg, perchlorate_fraction)
-        stage1_energy = ix_result["energy_kwh"]
-        remaining_power = power_available_kwh - stage1_energy
+        actual_temp = ambient_temp_c + (
+            THERMAL_DECOMP_TEMP_C - ambient_temp_c
+        ) * energy_scale
+        decomp_frac = thermal_decomp_fraction(actual_temp)
 
-        # Stage 2: Catalytic destruction of captured perchlorate
-        # Feed = ClO₄⁻ from current capture + any released during regen
-        catalyst_feed_g = ix_result["clo4_removed_g"] + released_g
-        cat_result = self.reactor.destroy_perchlorate(
-            catalyst_feed_g, h2_available_g, max(0.0, remaining_power)
+        # Degraded equipment reduces output quality
+        if state.equipment_health < WARNING_HEALTH:
+            decomp_frac *= state.equipment_health / WARNING_HEALTH
+
+        thermal_removed_kg = perchlorate_kg * decomp_frac
+        energy_used = energy_needed * energy_scale
+
+    remaining_power = max(0.0, power_available_kwh - energy_used)
+    remaining_perchlorate = perchlorate_kg - thermal_removed_kg
+
+    # ── 4. Chemical / iron-reduction path ────────────────────────────
+    chemical_removed_kg = 0.0
+    iron_consumed = 0.0
+    water_used = 0.0
+
+    if use_chemical and remaining_perchlorate > 0.0:
+        chem_frac = iron_reduction_rate(
+            state.iron_reserve_kg, state.water_budget_L, regolith_kg,
         )
-        stage2_energy = cat_result["energy_kwh"]
-        remaining_power -= stage2_energy
+        if chem_frac > 0.0:
+            chemical_removed_kg = remaining_perchlorate * chem_frac
+            iron_consumed = chemical_removed_kg * IRON_PER_KG_PERCHLORATE
+            water_used = min(
+                state.water_budget_L,
+                regolith_kg * WATER_PER_KG_REGOLITH,
+            )
+            chem_energy = CHEMICAL_ENERGY_PER_KG * regolith_kg
+            energy_used += min(remaining_power, chem_energy)
 
-        # Stage 3: Bioremediation polishing of residual in treated soil
-        # Convert remaining soil ppm to solution concentration for bio tank
-        residual_mg = ix_result["clo4_remaining_ppm"] * regolith_kg
-        bio_concentration = residual_mg / max(0.001, self.bio_tank.volume_l)
-        bio_result = self.bio_tank.tick(bio_concentration, bio_temp_c)
-        stage3_energy = bio_result["energy_kwh"]
+    # ── 5. UV supplementary (always active, uses sunlight) ───────────
+    uv_remaining = perchlorate_kg - thermal_removed_kg - chemical_removed_kg
+    uv_removed_kg = 0.0
+    if uv_remaining > 0.0:
+        uv_removed_kg = uv_remaining * UV_EFFICIENCY_FACTOR
 
-        # Total perchlorate removed across all stages
-        total_removed_g = (ix_result["clo4_removed_g"]
-                           + bio_result["reduced_mg"] / 1000.0)
-        total_energy = stage1_energy + stage2_energy + stage3_energy
+    # ── 6. Total removal — cap at 99 % ──────────────────────────────
+    total_removed_kg = thermal_removed_kg + chemical_removed_kg + uv_removed_kg
 
-        # Final soil quality
-        bio_removed_from_soil_mg = bio_result["reduced_mg"]
-        final_remaining_ppm = max(
-            0.0,
-            ix_result["clo4_remaining_ppm"]
-            - (bio_removed_from_soil_mg / max(0.001, regolith_kg))
-        )
+    if perchlorate_kg > 0.0:
+        total_fraction = total_removed_kg / perchlorate_kg
+        if total_fraction > 0.99:
+            scale = 0.99 / total_fraction
+            thermal_removed_kg *= scale
+            chemical_removed_kg *= scale
+            uv_removed_kg *= scale
+            total_removed_kg = perchlorate_kg * 0.99
+            iron_consumed = chemical_removed_kg * IRON_PER_KG_PERCHLORATE
+            total_fraction = 0.99
+    else:
+        total_fraction = 0.0
 
-        # Overall removal rate
-        removal_rate = (total_removed_g / max(0.001, incoming_clo4_g)
-                        if incoming_clo4_g > 0 else 0.0)
+    # ── 7. Compute outputs ───────────────────────────────────────────
+    # O₂ only from thermally-decomposed perchlorate
+    o2_kg = o2_from_perchlorate_kg(thermal_removed_kg)
+    # Salt from all destroyed perchlorate (all pathways yield Cl⁻)
+    salt_kg = salt_from_perchlorate_kg(total_removed_kg)
+    # Clean soil: input mass minus O₂ that escaped as gas
+    clean_soil_kg = regolith_kg - o2_kg
 
-        self.total_regolith_treated_kg += regolith_kg
-        self.total_perchlorate_removed_g += total_removed_g
-        self.total_energy_kwh += total_energy
+    # Output soil perchlorate level
+    output_ppm = residual_perchlorate_ppm(
+        input_perchlorate_fraction, total_fraction,
+    )
 
-        result = {
-            "sol": self.sol,
-            "regolith_kg": round(regolith_kg, 3),
-            "incoming_clo4_g": round(incoming_clo4_g, 3),
-            "stage1_ion_exchange": ix_result,
-            "stage1_regeneration": regen,
-            "stage2_catalytic": cat_result,
-            "stage3_bioremediation": bio_result,
-            "final_soil_ppm": round(final_remaining_ppm, 3),
-            "safe_for_crops": final_remaining_ppm <= SAFE_SOIL_PERCHLORATE_PPM,
-            "total_removed_g": round(total_removed_g, 3),
-            "removal_rate": round(min(1.0, removal_rate), 4),
-            "total_energy_kwh": round(total_energy, 4),
-            "overall": {
-                "total_regolith_treated_kg": round(
-                    self.total_regolith_treated_kg, 1),
-                "total_perchlorate_removed_g": round(
-                    self.total_perchlorate_removed_g, 1),
-                "lifetime_energy_kwh": round(self.total_energy_kwh, 2),
-            },
-        }
-        self.history.append(result)
-        return result
+    # Pathway contribution fractions
+    if total_removed_kg > 0.0:
+        t_frac = thermal_removed_kg / total_removed_kg
+        c_frac = (chemical_removed_kg + uv_removed_kg) / total_removed_kg
+    else:
+        t_frac = 0.0
+        c_frac = 0.0
 
-    def perform_maintenance(self) -> dict:
-        """Maintain all subsystems: regen column, top up catalyst."""
-        regen = None
-        if self.column.load_fraction > 0.5:
-            regen = self.column.regenerate()
+    # ── 8. Update state ──────────────────────────────────────────────
+    state.regolith_processed_kg += regolith_kg
+    state.perchlorate_destroyed_kg += total_removed_kg
+    state.o2_liberated_kg += o2_kg
+    state.clean_soil_produced_kg += clean_soil_kg
+    state.salt_byproduct_kg += salt_kg
+    state.total_energy_kwh += energy_used
+    state.iron_reserve_kg = max(0.0, state.iron_reserve_kg - iron_consumed)
+    state.water_budget_L = max(0.0, state.water_budget_L - water_used * 0.05)
+    state.sols_running += 1
+    state.equipment_health = max(
+        0.0, state.equipment_health - EQUIPMENT_DEGRADATION_PER_SOL,
+    )
+    state.alert = assess_alert(output_ppm, state.equipment_health)
 
-        old_eff = self.reactor.efficiency
-        self.reactor.efficiency = min(
-            1.0,
-            old_eff + (1.0 - old_eff) * MAINTENANCE_RESTORE_FRACTION
-        )
+    # ── 9. Build result ──────────────────────────────────────────────
+    result = ScrubberTickResult(
+        regolith_in_kg=regolith_kg,
+        perchlorate_removed_kg=total_removed_kg,
+        clean_soil_out_kg=clean_soil_kg,
+        o2_released_kg=o2_kg,
+        salt_produced_kg=salt_kg,
+        energy_used_kwh=energy_used,
+        thermal_fraction=t_frac,
+        chemical_fraction=c_frac,
+        soil_perchlorate_ppm=output_ppm,
+        water_used_L=water_used,
+        iron_consumed_kg=iron_consumed,
+        alert=state.alert,
+    )
+    return state, result
 
-        old_pop = self.bio_tank.population
-        self.bio_tank.population = min(
-            BIO_MAX_POPULATION,
-            old_pop + (BIO_MAX_POPULATION - old_pop) * 0.3
-        )
 
-        return {
-            "column_regenerated": regen is not None,
-            "column_regen": regen,
-            "catalyst_efficiency_before": round(old_eff, 4),
-            "catalyst_efficiency_after": round(self.reactor.efficiency, 4),
-            "bio_population_before": round(old_pop, 4),
-            "bio_population_after": round(self.bio_tank.population, 4),
-        }
+# ── Factory ───────────────────────────────────────────────────────────
 
-    def get_status(self) -> dict:
-        """Return current system status summary."""
-        return {
-            "sol": self.sol,
-            "column_load": round(self.column.load_fraction, 4),
-            "column_efficiency": round(self.column.efficiency, 4),
-            "column_needs_regen": self.column.needs_regeneration,
-            "catalyst_life": round(self.reactor.remaining_life_fraction, 4),
-            "catalyst_efficiency": round(self.reactor.efficiency, 4),
-            "bio_population": round(self.bio_tank.population, 4),
-            "bio_rate_mg_l_sol": round(
-                self.bio_tank.reduction_rate_mg_l_sol, 3),
-            "total_treated_kg": round(self.total_regolith_treated_kg, 1),
-            "total_removed_g": round(self.total_perchlorate_removed_g, 1),
-        }
+def create_scrubber(batch_capacity_kg: float = 200.0,
+                    thermal_units: int = 1) -> PerchlorateState:
+    """Create a fresh perchlorate scrubber with default consumables.
+
+    Args:
+        batch_capacity_kg: regolith capacity per batch (kg).
+        thermal_units: number of thermal reactor units.
+
+    Returns:
+        Initialised :class:`PerchlorateState`.
+    """
+    return PerchlorateState(
+        batch_capacity_kg=max(0.0, batch_capacity_kg),
+        thermal_unit_count=max(0, thermal_units),
+    )
