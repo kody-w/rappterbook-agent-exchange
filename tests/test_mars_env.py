@@ -333,3 +333,118 @@ class TestTerraforming:
         snap_tf = env_tf.tick()
 
         assert snap_tf["pressure_kpa"] > snap_raw["pressure_kpa"]
+
+
+# ── Extended physics invariants ──────────────────────────────────
+# These tests validate deeper physical properties: conservation laws,
+# statistical correctness, exact formula checks, and edge cases.
+
+
+class TestTemperaturePhysics:
+    """Deeper temperature invariants beyond simple bounds."""
+
+    def test_annual_mean_near_minus_60(self) -> None:
+        """Annual mean should be close to -60°C (NASA Mars Fact Sheet)."""
+        temps = [surface_temperature_c(float(ls)) for ls in range(360)]
+        mean = sum(temps) / len(temps)
+        assert abs(mean - MEAN_TEMP_C) < 5.0, f"Mean {mean}°C far from {MEAN_TEMP_C}°C"
+
+    def test_amplitude_matches_constant(self) -> None:
+        """Peak-to-trough / 2 should approximate TEMP_AMPLITUDE_C."""
+        temps = [surface_temperature_c(float(ls)) for ls in range(360)]
+        amplitude = (max(temps) - min(temps)) / 2.0
+        assert abs(amplitude - TEMP_AMPLITUDE_C) < 5.0
+
+    def test_no_discontinuities(self) -> None:
+        """Adjacent Ls values must not jump more than 2°C."""
+        prev = surface_temperature_c(0.0)
+        for ls in range(1, 360):
+            temp = surface_temperature_c(float(ls))
+            assert abs(temp - prev) < 2.0, f"Jump at Ls={ls}: {prev} -> {temp}"
+            prev = temp
+
+
+class TestSolarFluxPhysics:
+    """Exact formula validation for solar flux."""
+
+    def test_beer_lambert_exact(self) -> None:
+        """Clear sky flux = BASE * exp(-0.3) exactly."""
+        flux = solar_flux_wm2(90.0, 0.0)
+        expected = BASE_SOLAR_FLUX_WM2 * math.exp(-0.3)
+        assert abs(flux - expected) < 1.0
+
+    def test_dust_strictly_monotonic(self) -> None:
+        """Flux must strictly decrease as dust increases."""
+        prev = solar_flux_wm2(180.0, 0.0)
+        for pct in range(1, 11):
+            dust = pct / 10.0
+            flux = solar_flux_wm2(180.0, dust)
+            assert flux < prev, f"Flux did not decrease at dust={dust}"
+            prev = flux
+
+    def test_storm_cuts_flux_99_percent(self) -> None:
+        clear = solar_flux_wm2(90.0, 0.0)
+        storm = solar_flux_wm2(90.0, 1.0)
+        assert storm < clear * 0.01
+
+
+class TestSeasonBoundaries:
+    """Exact boundary conditions for season_name."""
+
+    def test_boundary_spring_summer(self) -> None:
+        assert season_name(89.9) == "spring"
+        assert season_name(90.0) == "summer"
+
+    def test_boundary_summer_autumn(self) -> None:
+        assert season_name(179.9) == "summer"
+        assert season_name(180.0) == "autumn"
+
+    def test_boundary_autumn_winter(self) -> None:
+        assert season_name(269.9) == "autumn"
+        assert season_name(270.0) == "winter"
+
+
+class TestOrbitalMechanics:
+    """Deeper sol_to_ls validation."""
+
+    def test_quarter_orbit_is_90(self) -> None:
+        ls = sol_to_ls(int(SOLS_PER_MARS_YEAR / 4))
+        assert 85.0 < ls < 95.0
+
+    def test_half_orbit_is_180(self) -> None:
+        ls = sol_to_ls(int(SOLS_PER_MARS_YEAR / 2))
+        assert 175.0 < ls < 185.0
+
+
+class TestEnvironmentStatistics:
+    """Statistical properties over long runs."""
+
+    def test_storm_occurs_in_mars_year(self) -> None:
+        """At least one storm should occur in 668 sols."""
+        env = MarsEnvironment(seed=42)
+        storms = sum(1 for _ in range(668) if env.tick()["storm"] is not None)
+        assert storms > 0, "Expected at least one storm in a Mars year"
+
+    def test_flare_occurs_in_mars_year(self) -> None:
+        """At 0.3% per sol, expect flares in 668 sols."""
+        env = MarsEnvironment(seed=42)
+        flares = sum(1 for _ in range(668) if env.tick()["flare"])
+        assert flares > 0, "Expected at least one solar flare in a Mars year"
+
+    def test_different_seeds_diverge_on_weather(self) -> None:
+        """Different seeds must produce different storm patterns."""
+        e1, e2 = MarsEnvironment(seed=1), MarsEnvironment(seed=2)
+        s1 = [e1.tick()["storm"] for _ in range(668)]
+        s2 = [e2.tick()["storm"] for _ in range(668)]
+        assert s1 != s2
+
+    def test_snapshot_has_all_required_keys(self) -> None:
+        """Every tick snapshot must contain the full key set."""
+        env = MarsEnvironment(seed=42)
+        snap = env.tick()
+        required = {
+            "sol", "ls", "season", "temperature_c", "solar_flux_wm2",
+            "dust_opacity", "radiation_msv", "storm", "flare",
+            "pressure_kpa", "terraforming_progress", "terraform_phase",
+        }
+        assert required.issubset(snap.keys())
