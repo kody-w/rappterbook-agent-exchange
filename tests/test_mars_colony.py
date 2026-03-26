@@ -671,3 +671,94 @@ class TestPhysicalBounds:
                 f" = {expected} != {snap['population']}"
             )
             prev_pop = snap["population"]
+
+
+# -- Habitability index tests ----------------------------------------
+
+
+class TestHabitabilityIndex:
+    """Tests for Colony.habitability_index() -- composite viability metric."""
+
+    def test_zero_population_returns_zero(self) -> None:
+        c = make_colony(population=0)
+        assert c.habitability_index() == 0.0
+
+    def test_healthy_colony_positive(self) -> None:
+        c = make_colony()
+        assert c.habitability_index() > 0.0
+
+    def test_bounded_zero_one(self) -> None:
+        c = make_colony()
+        h = c.habitability_index()
+        assert 0.0 <= h <= 1.0
+
+    def test_high_food_high_morale_above_half(self) -> None:
+        c = make_colony(morale=0.95, food_kg=50 * FOOD_KG_SOL * 200)
+        h = c.habitability_index()
+        assert h > 0.5
+
+    def test_starvation_tanks_index(self) -> None:
+        c = make_colony(food_kg=0.0)
+        h = c.habitability_index()
+        assert h == 0.0
+
+    def test_zero_morale_tanks_index(self) -> None:
+        c = make_colony(morale=0.0)
+        h = c.habitability_index()
+        assert h == 0.0
+
+    def test_lethal_radiation_tanks_index(self) -> None:
+        c = make_colony()
+        c.cumulative_radiation_msv = RADIATION_LETHAL
+        h = c.habitability_index()
+        assert h == 0.0
+
+    def test_medical_breakthroughs_boost(self) -> None:
+        c1 = make_colony()
+        c2 = make_colony()
+        c2.medical_breakthroughs = 4
+        assert c2.habitability_index() >= c1.habitability_index()
+
+    def test_genetic_diversity_matters(self) -> None:
+        c1 = make_colony()
+        c2 = make_colony()
+        c2.genetic_diversity = 0.1
+        assert c2.habitability_index() < c1.habitability_index()
+
+    def test_monotonic_with_morale(self) -> None:
+        """Higher morale -> higher or equal habitability."""
+        prev = 0.0
+        for m in [0.1, 0.3, 0.5, 0.7, 0.9]:
+            c = make_colony(morale=m)
+            h = c.habitability_index()
+            assert h >= prev, f"morale {m}: {h} < {prev}"
+            prev = h
+
+    def test_snapshot_includes_habitability(self) -> None:
+        """The tick snapshot should contain the habitability_index field."""
+        c = make_colony()
+        snap = c.tick(make_env())
+        assert "habitability_index" in snap
+        assert 0.0 <= snap["habitability_index"] <= 1.0
+
+    def test_full_year_habitability_bounded(self) -> None:
+        """Habitability stays in [0,1] across a full Mars year."""
+        c = create_colony("Test Colony", "balanced", seed=42)
+        for sol in range(1, 366):
+            snap = c.tick(make_env(sol=sol))
+            assert 0.0 <= snap["habitability_index"] <= 1.0
+
+    def test_deterministic(self) -> None:
+        """Same inputs -> same habitability_index."""
+        c1 = make_colony(seed=42)
+        c2 = make_colony(seed=42)
+        assert c1.habitability_index() == c2.habitability_index()
+
+    def test_radiation_degrades_over_time(self) -> None:
+        """Accumulating radiation should lower habitability over time."""
+        c = make_colony()
+        h0 = c.habitability_index()
+        c.cumulative_radiation_msv = 500
+        h1 = c.habitability_index()
+        assert h1 < h0
+
