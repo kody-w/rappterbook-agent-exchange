@@ -165,6 +165,7 @@ def run_proof(
     n_predictions: int = 200,
     n_seeds: int = 3,
     market_seed: int = 42,
+    **kwargs,
 ) -> ProofReport:
     """Run both engines, compute CI, produce proof."""
     t0 = time.monotonic()
