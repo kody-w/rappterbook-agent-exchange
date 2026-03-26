@@ -448,3 +448,121 @@ class TestEnvironmentStatistics:
             "pressure_kpa", "terraforming_progress", "terraform_phase",
         }
         assert required.issubset(snap.keys())
+
+
+# ── Property-based fuzz: 50 seeds × 200 sols ────────────────────
+# The immune system. Other tests are functional; these enforce
+# invariants across 10,000 environment states per property.
+
+
+class TestPropertyFuzz:
+    """50 random seeds × 200 sols — physical invariants must hold for ALL."""
+
+    def test_temperature_bounded(self) -> None:
+        """Temperature in (-150, 50)°C across all seeds."""
+        for seed in range(50):
+            env = MarsEnvironment(seed=seed)
+            for _ in range(200):
+                t = env.tick()["temperature_c"]
+                assert -150 < t < 50, f"seed={seed}: {t}°C"
+
+    def test_radiation_positive(self) -> None:
+        """Radiation dose is always positive."""
+        for seed in range(50):
+            env = MarsEnvironment(seed=seed)
+            for _ in range(200):
+                assert env.tick()["radiation_msv"] > 0
+
+    def test_flux_positive(self) -> None:
+        """Solar flux is always positive (Beer-Lambert never hits zero)."""
+        for seed in range(50):
+            env = MarsEnvironment(seed=seed)
+            for _ in range(200):
+                assert env.tick()["solar_flux_wm2"] > 0
+
+    def test_ls_in_range(self) -> None:
+        """Ls always in [0, 360)."""
+        for seed in range(50):
+            env = MarsEnvironment(seed=seed)
+            for _ in range(200):
+                ls = env.tick()["ls"]
+                assert 0.0 <= ls < 360.0
+
+    def test_pressure_positive(self) -> None:
+        """Atmospheric pressure always positive."""
+        for seed in range(50):
+            env = MarsEnvironment(seed=seed)
+            for _ in range(200):
+                assert env.tick()["pressure_kpa"] > 0
+
+    def test_dust_bounded(self) -> None:
+        """Dust opacity always in [0, 1]."""
+        for seed in range(50):
+            env = MarsEnvironment(seed=seed)
+            for _ in range(200):
+                d = env.tick()["dust_opacity"]
+                assert 0.0 <= d <= 1.0
+
+
+# ── Storm mechanics edge cases ──────────────────────────────────
+
+
+class TestStormEdgeCases:
+    """DustStorm tick precision and terminal conditions."""
+
+    def test_tick_decrements_by_one(self) -> None:
+        """Each tick reduces remaining_sols by exactly 1."""
+        storm = DustStorm("global", 10, 0.9)
+        storm.tick()
+        assert storm.remaining_sols == 9
+
+    def test_dies_at_one_remaining(self) -> None:
+        """Storm with 1 sol remaining dies on next tick."""
+        storm = DustStorm("regional", 1, 0.4)
+        alive = storm.tick()
+        assert alive is False
+        assert storm.remaining_sols == 0
+
+    def test_opacity_formula_exact(self) -> None:
+        """Verify opacity = peak * min(1, remaining/5) for last sols."""
+        storm = DustStorm("regional", 3, 0.4)
+        expected = 0.4 * (3.0 / 5.0)  # 0.24
+        assert abs(storm.opacity() - expected) < 0.001
+
+    def test_full_lifecycle_tick_count(self) -> None:
+        """A 20-sol storm yields exactly 19 alive ticks."""
+        storm = DustStorm("global", 20, 0.9)
+        alive_ticks = 0
+        while storm.tick():
+            alive_ticks += 1
+        assert alive_ticks == 19
+
+
+# ── Miscellaneous gaps ──────────────────────────────────────────
+
+
+class TestMiscGaps:
+    """Tests for edge cases not covered elsewhere."""
+
+    def test_sol_to_ls_overflow_safe(self) -> None:
+        """Ls stays in [0, 360) even at 1 million sols."""
+        for sol in [10_000, 100_000, 1_000_000]:
+            ls = sol_to_ls(sol)
+            assert 0.0 <= ls < 360.0, f"sol={sol} → ls={ls}"
+
+    def test_coldest_in_winter(self) -> None:
+        """Minimum temperature occurs near Ls 340° (winter)."""
+        temps = {ls: surface_temperature_c(float(ls)) for ls in range(360)}
+        trough_ls = min(temps, key=temps.get)
+        assert 320 < trough_ls or trough_ls < 20
+
+    def test_radiation_exact_gcr_constant(self) -> None:
+        """Zero dust, no flare → radiation equals BASE_RADIATION_MSV_SOL exactly."""
+        rad = radiation_msv(0.0, False)
+        assert abs(rad - BASE_RADIATION_MSV_SOL) < 0.001
+
+    def test_all_terraform_thresholds_valid(self) -> None:
+        """Every threshold is in (0, 1] with a non-empty name."""
+        for threshold, name in TERRAFORM_THRESHOLDS.items():
+            assert 0.0 < threshold <= 1.0
+            assert len(name) > 0
