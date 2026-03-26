@@ -144,7 +144,7 @@ def interact(a: dict, b: dict, rng: random.Random) -> list[dict]:
         attack = ga[G_AGGRESSION] * ga[G_SIZE] * ga[G_SPEED]
         defense = gb[G_ARMOR] * gb[G_SIZE] + gb[G_TOXICITY] * 2
         if attack > defense * (0.5 + rng.random()):
-            gained = gb["energy"] * 0.6
+            gained = b["energy"] * 0.6
             a["energy"] += gained
             b["energy"] = 0
             events.append({"type": "predation", "desc": f"Predation: {a['id'][:6]} ate {b['id'][:6]}"})
