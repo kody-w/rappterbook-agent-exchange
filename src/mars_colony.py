@@ -147,6 +147,28 @@ class Colony:
         self.research_engine: ResearchEngine | None = None
         self.terraforming_output = 0.0  # cumulative contribution
 
+    def habitability_index(self) -> float:
+        """Composite 0-1 score of colony viability.
+
+        Combines food security, morale, genetic diversity, medical capability,
+        and radiation exposure into a single metric. Useful for dashboards,
+        migration ranking, and narrative generation.
+
+        The index is the geometric mean of five sub-scores so that a single
+        catastrophic dimension drags the whole score toward zero.
+        """
+        if self.population == 0:
+            return 0.0
+        daily_food = max(1, self.population * FOOD_KG_SOL)
+        food_sols = self.food_kg / daily_food
+        food_score = min(1.0, food_sols / 120.0)
+        rad_score = max(0.0, 1.0 - self.cumulative_radiation_msv / RADIATION_LETHAL)
+        diversity_score = self.genetic_diversity
+        morale_score = self.morale
+        med_score = min(1.0, self.medical_level + self.medical_breakthroughs * 0.1)
+        product = food_score * rad_score * diversity_score * morale_score * med_score
+        return round(product ** 0.2, 4)
+
     def carrying_capacity(self) -> float:
         """Compute carrying capacity K from bottleneck resources.
 
@@ -623,6 +645,7 @@ class Colony:
             "cumulative_radiation_msv": round(self.cumulative_radiation_msv, 2),
             "carrying_capacity": round(self.carrying_capacity(), 1),
             "genetic_diversity": round(self.genetic_diversity, 4),
+            "habitability_index": self.habitability_index(),
             "net_migration": 0,  # updated by Simulation after migration phase
             "terraforming_contribution": round(terraform_delta, 8),
             "tech": self.research_engine.snapshot() if self.research_engine else None,

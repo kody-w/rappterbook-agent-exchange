@@ -159,6 +159,7 @@ def _compact_results(results: dict) -> dict:
             "carrying_capacity": [h.get("carrying_capacity", 0) for h in c["history"]],
             "genetic_diversity": [h.get("genetic_diversity", 1.0) for h in c["history"]],
             "net_migration": [h.get("net_migration", 0) for h in c["history"]],
+            "habitability_index": [h.get("habitability_index", 0) for h in c["history"]],
             "tech": c.get("tech"),
         })
     env_temps = [e["temperature_c"] for e in results["environment"]["history"]]
