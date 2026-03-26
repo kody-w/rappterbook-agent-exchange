@@ -81,8 +81,8 @@ class DustStorm:
         self.peak_opacity = peak_opacity
 
     def opacity(self) -> float:
-        """Current opacity (ramps up then down)."""
-        return self.peak_opacity * min(1.0, self.remaining_sols / 5.0)
+        """Current opacity (ramps up then down). Clamped to [0, peak]."""
+        return self.peak_opacity * max(0.0, min(1.0, self.remaining_sols / 5.0))
 
     def tick(self) -> bool:
         """Advance one sol. Returns True if storm still active."""

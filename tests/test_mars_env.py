@@ -566,3 +566,49 @@ class TestMiscGaps:
         for threshold, name in TERRAFORM_THRESHOLDS.items():
             assert 0.0 < threshold <= 1.0
             assert len(name) > 0
+
+
+# ── Bugfix regression: DustStorm negative opacity ────────────────
+# DustStorm.opacity() returned negative when remaining_sols < 0.
+# Fixed by clamping with max(0.0, ...).
+
+
+class TestDustStormOpacityClamp:
+    """Regression tests for DustStorm.opacity() negative value bug."""
+
+    def test_opacity_nonneg_after_death(self) -> None:
+        """Opacity stays >= 0 even after storm ticks past its lifetime."""
+        storm = DustStorm("global", duration=2, peak_opacity=0.9)
+        for _ in range(10):
+            assert storm.opacity() >= 0, (
+                f"Negative opacity {storm.opacity()} at "
+                f"remaining_sols={storm.remaining_sols}"
+            )
+            storm.tick()
+
+    def test_opacity_zero_at_death(self) -> None:
+        """When remaining_sols hits 0, opacity is exactly 0."""
+        storm = DustStorm("regional", duration=1, peak_opacity=0.5)
+        storm.tick()  # remaining_sols -> 0
+        assert storm.opacity() == 0.0
+
+    def test_opacity_zero_past_death(self) -> None:
+        """Continued ticking past death keeps opacity at 0, not negative."""
+        storm = DustStorm("global", duration=1, peak_opacity=0.9)
+        storm.tick()  # dies
+        storm.tick()  # remaining_sols = -1
+        storm.tick()  # remaining_sols = -2
+        assert storm.opacity() == 0.0
+
+    def test_lifecycle_trajectory_nonneg(self) -> None:
+        """Full opacity trajectory is non-negative through and past death."""
+        storm = DustStorm("global", duration=8, peak_opacity=0.9)
+        opacities = []
+        for _ in range(15):  # tick well past death
+            opacities.append(storm.opacity())
+            storm.tick()
+        assert all(o >= 0 for o in opacities), (
+            f"Negative opacity in trajectory: {opacities}"
+        )
+        # After death, should be clamped to 0
+        assert opacities[-1] == 0.0
