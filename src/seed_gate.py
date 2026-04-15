@@ -36,9 +36,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb normalization for inflected forms (#12503/#12507),
+                  suggest() engine (#12507), confidence property,
+                  expanded KNOWN_TOOLS (#12505), irregular verb map.
 """
 from __future__ import annotations
 
@@ -96,6 +99,79 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
 
+# ---------------------------------------------------------------------------
+# Verb normalization -- lemmatize inflected forms (#12503, #12507, #12530)
+# ---------------------------------------------------------------------------
+
+# Irregular verbs: inflected form → base form (must be in ACTION_VERBS)
+_IRREGULAR_VERBS: dict[str, str] = {
+    "built": "build", "wrote": "write", "ran": "run",
+    "shipped": "ship", "deployed": "deploy", "wired": "wire",
+    "hooked": "hook", "mocked": "mock", "logged": "log",
+    "mapped": "map", "planned": "plan", "modeled": "model",
+    "profiled": "profile", "compiled": "compile", "stubbed": "stub",
+    "wrapped": "wrap", "patched": "patch",
+    "scanned": "scan", "scored": "score",
+}
+
+# Consonants that double before -ed/-ing (e.g. ship→shipped, run→running)
+_DOUBLE_CONSONANT_BASES: frozenset[str] = frozenset({
+    "ship", "run", "plan", "log", "map", "model", "stub",
+    "wrap", "scan", "mock", "profile",
+})
+
+
+def _normalize_verb(word: str) -> str | None:
+    """Lemmatize an inflected verb form to its ACTION_VERBS base.
+
+    Handles: irregulars, gerunds (-ing), past tense (-ed), and
+    terminal-e restoration (caching→cache, optimizing→optimize).
+    Membership-gated: only returns if base is in ACTION_VERBS.
+    Skips -s forms to avoid plural noun false positives.
+    """
+    w = word.lower()
+    if w in ACTION_VERBS:
+        return w
+    if w in _IRREGULAR_VERBS:
+        base = _IRREGULAR_VERBS[w]
+        return base if base in ACTION_VERBS else None
+
+    # Gerund: -ing
+    if w.endswith("ing") and len(w) > 5:
+        stem = w[:-3]
+        # Doubled consonant: running→run, shipping→ship
+        if len(stem) >= 3 and stem[-1] == stem[-2]:
+            base = stem[:-1]
+            if base in ACTION_VERBS:
+                return base
+        # Direct: building→build, testing→test
+        if stem in ACTION_VERBS:
+            return stem
+        # Terminal-e restoration: caching→cache, optimizing→optimize
+        if (stem + "e") in ACTION_VERBS:
+            return stem + "e"
+
+    # Past tense: -ed
+    if w.endswith("ed") and len(w) > 4:
+        stem = w[:-2]
+        # Doubled consonant: shipped→ship, logged→log
+        if len(stem) >= 3 and stem[-1] == stem[-2]:
+            base = stem[:-1]
+            if base in ACTION_VERBS:
+                return base
+        # Direct: tested→test, benchmarked→benchmark
+        if stem in ACTION_VERBS:
+            return stem
+        # Terminal-e: configured→configure, optimized→optimize
+        # -ed on e-final: w ends with "ed", stem ends with base sans 'e' + 'd'
+        # e.g. "configured" → stem="configur" → configur+"e" = "configure"
+        if (stem + "e") in ACTION_VERBS:
+            return stem + "e"
+        # -ied → -y: e.g. "deployed" → stem="deploy" (already covered above)
+
+    return None
+
+
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
@@ -151,6 +227,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    "inject_seed", "tally_votes", "steer", "reconcile_state",
+    "run_proof", "run_python", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -273,6 +351,15 @@ class SeedGateResult:
     def target(self) -> str:
         return self.target_found or ""
 
+    @property
+    def confidence(self) -> str:
+        """Specificity band: high (≥0.7), medium (≥0.4), low (<0.4)."""
+        if self.score >= 0.7:
+            return "high"
+        if self.score >= 0.4:
+            return "medium"
+        return "low"
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -284,6 +371,8 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "confidence": self.confidence,
+            "suggestions": suggest(self),
         }
 
 
@@ -322,6 +411,38 @@ class BatchResult:
 
 
 # ---------------------------------------------------------------------------
+# Suggestion engine (#12507) -- actionable hints for failed proposals
+# ---------------------------------------------------------------------------
+
+def suggest(result: SeedGateResult | None = None, *, text: str = "",
+            tags: list | None = None) -> list[str]:
+    """Return actionable suggestions for improving a seed proposal.
+
+    Can be called with a SeedGateResult or with raw text (which will be
+    validated first).  Returns an empty list for passing proposals.
+    """
+    if result is None:
+        result = validate_seed(text, tags)
+    if result.passed:
+        return []
+    if result.junk:
+        return ["Rewrite the proposal as a complete sentence starting with an action verb."]
+    hints: list[str] = []
+    if not result.verb_found:
+        sample_verbs = ["Build", "Test", "Refactor", "Optimize", "Fix"]
+        hints.append(
+            "Start with an action verb: %s" % ", ".join(sample_verbs)
+        )
+    if not result.target_found:
+        hints.append(
+            "Name a concrete target: a filename (e.g. water_mining.py), "
+            "tool (e.g. seed_gate), path (e.g. src/thermal.py), or "
+            "discussion reference (e.g. #1234)."
+        )
+    return hints
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -331,7 +452,10 @@ def _is_false_file_match(match_text: str) -> bool:
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single or phrasal).
+
+    Recognizes inflected forms: 'Building', 'Implemented', 'Testing'.
+    """
     words = text.split()
     if not words:
         return False
@@ -340,7 +464,9 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    if first in ACTION_VERBS:
+        return True
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,7 +482,11 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Recognizes inflected forms via _normalize_verb(): 'building' → 'build',
+    'implemented' → 'implement', 'optimizing' → 'optimize'.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
@@ -366,11 +496,17 @@ def find_verb(text: str, limit: int = 0) -> str | None:
                 return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Inflected forms are normalized to their base: 'building' → 'build'.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -388,9 +524,15 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        if word in ACTION_VERBS:
+            if word not in seen:
+                seen.add(word)
+                result.append(word)
+            continue
+        normalized = _normalize_verb(word)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
     return result
 
 
