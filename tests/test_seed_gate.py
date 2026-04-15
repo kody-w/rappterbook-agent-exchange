@@ -24,13 +24,20 @@ from seed_gate import (
     KNOWN_MODULES,
     CHANNEL_RE,
     CLI_RE,
+    CONST_RE,
     DISCUSSION_RE,
     FILE_RE,
     MODULE_CONTEXT_RE,
     PATH_RE,
+    PHRASAL_VERBS,
     QUOTED_RE,
+    TAG_IMPLIED_VERBS,
     TOOL_RE,
     SeedGateResult,
+    find_all_verbs,
+    find_verb,
+    find_target,
+    is_junk,
     passes_gate,
     validate,
     validate_seed,
@@ -1004,3 +1011,415 @@ class TestCanonicalizeTarget:
     def test_preserve_underscores(self):
         from seed_gate import canonicalize_target
         assert canonicalize_target("water_mining.py") == "water_mining"
+
+
+# =========================================================================
+# NEW TESTS: verb normalization, CONST_RE, phrasal verbs, tag-implied
+# verbs, find_all_verbs, _find_all_targets, advisory, all_verbs/all_targets
+# =========================================================================
+
+
+class TestVerbNormalization:
+    """_normalize_verb() handles inflected forms."""
+
+    def test_exact_match(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("build") == "build"
+        assert _normalize_verb("test") == "test"
+
+    def test_gerund_simple(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("refactoring") == "refactor"
+        assert _normalize_verb("deploying") == "deploy"
+
+    def test_gerund_double_consonant(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("shipping") == "ship"
+        assert _normalize_verb("mapping") == "map"
+
+    def test_gerund_silent_e(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("configuring") == "configure"
+        assert _normalize_verb("writing") == "write"
+
+    def test_past_tense_simple(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("deployed") == "deploy"
+        assert _normalize_verb("reviewed") == "review"
+
+    def test_past_tense_double_consonant(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("shipped") == "ship"
+        assert _normalize_verb("mapped") == "map"
+
+    def test_past_tense_silent_e(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("configured") == "configure"
+        assert _normalize_verb("optimized") == "optimize"
+
+    def test_plural_s(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("builds") == "build"
+        assert _normalize_verb("tests") == "test"
+        assert _normalize_verb("deploys") == "deploy"
+
+    def test_plural_es(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("fixes") == "fix"
+        assert _normalize_verb("patches") == "patch"
+
+    def test_non_verb_returns_none(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("hello") is None
+        assert _normalize_verb("potato") is None
+
+    def test_membership_gated(self):
+        """Only returns if the normalized form is in ACTION_VERBS."""
+        from seed_gate import _normalize_verb
+        # "singing" -> "sing" -- not an action verb
+        assert _normalize_verb("singing") is None
+        # "running" -> "run" -- IS an action verb
+        assert _normalize_verb("running") == "run"
+
+    def test_case_insensitive(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("Building") == "build"
+        assert _normalize_verb("DEPLOYED") == "deploy"
+
+
+class TestFindVerbNormalized:
+    """find_verb() uses _normalize_verb() for inflected forms."""
+
+    def test_inflected_in_sentence(self):
+        from seed_gate import find_verb
+        assert find_verb("Refactoring the codebase") == "refactor"
+        assert find_verb("Deployed to production") == "deploy"
+        assert find_verb("Shipping the fix") == "ship"
+
+    def test_find_verb_returns_lemma(self):
+        """find_verb returns the canonical base form, not the inflected form."""
+        from seed_gate import find_verb
+        assert find_verb("Configuring STATE_DIR") == "configure"
+        assert find_verb("Optimized the reactor") == "optimize"
+
+
+class TestPhrasalVerbs:
+    """Phrasal verb detection in find_verb / find_all_verbs."""
+
+    def test_set_up_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Set up the dev environment") == "configure"
+
+    def test_tear_down_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Tear down old infrastructure") == "remove"
+
+    def test_phrasal_verbs_dict_size(self):
+        from seed_gate import PHRASAL_VERBS
+        assert len(PHRASAL_VERBS) >= 20
+
+    def test_phrasal_verbs_format(self):
+        from seed_gate import PHRASAL_VERBS
+        for phrase in PHRASAL_VERBS:
+            assert " " in phrase, f"{phrase} should be two words"
+
+    def test_spin_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Spin up a new container") == "launch"
+
+    def test_clean_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Clean up the dead code") == "refactor"
+
+
+class TestNewVerbs:
+    """13 newly added verbs pass validation when used with targets."""
+
+    @pytest.mark.parametrize("verb", [
+        "install", "deprecate", "rewrite", "standardize",
+        "containerize", "expose", "wrap", "stub", "mock",
+        "isolate", "define", "declare", "register",
+    ])
+    def test_new_verb_with_file(self, verb):
+        r = _v(f"{verb.capitalize()} water_mining.py for production")
+        assert r["passed"], f"{verb} should pass with a file target"
+
+    @pytest.mark.parametrize("verb", [
+        "install", "deprecate", "rewrite", "standardize",
+        "containerize", "expose", "wrap", "stub", "mock",
+        "isolate", "define", "declare", "register",
+    ])
+    def test_new_verb_detected(self, verb):
+        from seed_gate import find_verb
+        assert find_verb(f"{verb} water_mining.py") == verb
+
+
+class TestConstTargets:
+    """CONST_RE detects SCREAMING_SNAKE_CASE as targets."""
+
+    def test_state_dir_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Configure STATE_DIR for tests")
+        assert target == "STATE_DIR"
+        assert kind == "const"
+
+    def test_github_token_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Rotate the GITHUB_TOKEN secret")
+        assert target == "GITHUB_TOKEN"
+        assert kind == "const"
+
+    def test_file_re_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Fix FILE_RE regex false positives")
+        assert target == "FILE_RE"
+        assert kind == "const"
+
+    def test_const_passes_validation(self):
+        r = _v("Configure STATE_DIR for the test harness")
+        assert r["passed"]
+        assert r["target_found"] == "STATE_DIR"
+
+    def test_const_score(self):
+        r = _v("Configure STATE_DIR for production")
+        assert r["score"] > 0.0  # const = 2.5 kind score
+
+    def test_const_in_count_unique(self):
+        from seed_gate import count_unique_targets
+        n = count_unique_targets("Set STATE_DIR and GITHUB_TOKEN")
+        assert n >= 2
+
+    def test_const_regex_basic(self):
+        from seed_gate import CONST_RE
+        assert CONST_RE.search("STATE_DIR")
+        assert CONST_RE.search("GITHUB_TOKEN")
+        assert not CONST_RE.search("snake_case")  # lowercase
+        assert not CONST_RE.search("CamelCase")  # no underscores
+
+    def test_file_before_const(self):
+        """Files have higher priority than constants in find_target."""
+        from seed_gate import find_target
+        target, kind = find_target("Fix seed_gate.py and STATE_DIR")
+        assert kind == "file"  # file takes priority
+
+
+class TestTagImpliedVerbs:
+    """Tags can imply verbs when no explicit verb is found."""
+
+    def test_code_tag_implies_build(self):
+        r = _v("Something about water_mining.py improvements", tags=["code"])
+        assert r["passed"]
+
+    def test_test_tag_implies_test(self):
+        r = _v("Something about water_mining.py improvements", tags=["test"])
+        assert r["passed"]
+
+    def test_debug_tag_implies_debug(self):
+        r = _v("Something about water_mining.py issues", tags=["debug"])
+        assert r["passed"]
+
+    def test_docs_tag_implies_document(self):
+        r = _v("Something about water_mining.py documentation", tags=["docs"])
+        assert r["passed"]
+
+    def test_tag_verb_doesnt_override_explicit(self):
+        """Explicit verbs take precedence over tag-implied verbs."""
+        r = _v("Build water_mining.py for production", tags=["test"])
+        assert r["verb_found"] == "build"
+
+    def test_no_tag_no_verb_fails(self):
+        """Without tags or verbs, proposals with just targets fail."""
+        r = _v("Something about water_mining.py improvements")
+        assert not r["passed"]
+
+
+class TestAdvisoryLabel:
+    """Advisory label for low-specificity passing proposals."""
+
+    def test_advisory_needs_specificity(self):
+        r = _v("Build something amazing for the colony", tags=["philosophy"])
+        assert r["advisory"] == "needs-specificity"
+
+    def test_advisory_empty_for_specific(self):
+        r = _v("Build water_mining.py optimizer for the Mars colony")
+        assert r["advisory"] == ""
+
+    def test_advisory_in_dict(self):
+        r = _v("Build water_mining.py optimizer for the Mars colony")
+        assert "advisory" in r
+        assert r["advisory"] == ""
+
+    def test_advisory_in_dataclass(self):
+        result = validate_seed("Build something for the colony", tags=["philosophy"])
+        assert result.advisory == "needs-specificity"
+
+
+class TestRichMatchInfo:
+    """all_verbs and all_targets in validation results."""
+
+    def test_all_verbs_single(self):
+        r = _v("Build water_mining.py optimizer for colony")
+        assert "build" in r["all_verbs"]
+
+    def test_all_verbs_multiple(self):
+        r = _v("Build water_mining.py and deploy to production then test")
+        assert "build" in r["all_verbs"]
+        assert "deploy" in r["all_verbs"]
+
+    def test_all_verbs_deduped(self):
+        r = _v("Build water_mining.py then build again and build more")
+        assert r["all_verbs"].count("build") == 1
+
+    def test_all_verbs_includes_phrasal(self):
+        r = _v("Set up the module and test it thoroughly")
+        assert "configure" in r["all_verbs"]
+
+    def test_all_targets_multiple(self):
+        r = _v("Build water_mining.py and test seed_gate.py")
+        targets = [t[0] for t in r["all_targets"]]
+        assert "water_mining.py" in targets
+
+    def test_all_targets_deduped(self):
+        r = _v("Build water_mining.py and also water_mining.py again")
+        assert len(r["all_targets"]) == 1
+
+    def test_all_targets_with_kinds(self):
+        r = _v("Build water_mining.py and fix STATE_DIR")
+        has_file = any(k == "file" for _, k in r["all_targets"])
+        assert has_file
+
+    def test_confidence_property(self):
+        result = validate_seed("Build water_mining.py optimizer for the Mars colony")
+        assert result.confidence in ("high", "medium", "low")
+
+
+class TestFindAllVerbs:
+    """find_all_verbs() standalone tests."""
+
+    def test_single_verb(self):
+        from seed_gate import find_all_verbs
+        assert find_all_verbs("Build the reactor") == ["build"]
+
+    def test_multiple_verbs(self):
+        from seed_gate import find_all_verbs
+        result = find_all_verbs("Build water_mining.py and deploy to production then test")
+        assert "build" in result
+        assert "deploy" in result
+        assert "test" in result
+
+    def test_phrasal_in_all_verbs(self):
+        from seed_gate import find_all_verbs
+        result = find_all_verbs("Set up the module and test it thoroughly")
+        assert "configure" in result
+        assert "test" in result
+
+    def test_deduped(self):
+        from seed_gate import find_all_verbs
+        result = find_all_verbs("Build it then build again and build once more")
+        assert result.count("build") == 1
+
+    def test_inflected_forms(self):
+        from seed_gate import find_all_verbs
+        result = find_all_verbs("Refactoring and deploying the changes")
+        assert "refactor" in result
+        assert "deploy" in result
+
+    def test_empty(self):
+        from seed_gate import find_all_verbs
+        assert find_all_verbs("No verbs here at all") == []
+
+
+class TestFindAllTargets:
+    """_find_all_targets() returns all target pairs."""
+
+    def test_multiple_files(self):
+        from seed_gate import _find_all_targets
+        result = _find_all_targets("Build water_mining.py and seed_gate.py")
+        names = [t[0] for t in result]
+        assert "water_mining.py" in names
+        assert "seed_gate.py" in names
+
+    def test_mixed_kinds(self):
+        from seed_gate import _find_all_targets
+        result = _find_all_targets("Build water_mining.py and configure STATE_DIR")
+        kinds = [k for _, k in result]
+        assert "file" in kinds
+        assert "const" in kinds
+
+    def test_deduped_by_canonical(self):
+        from seed_gate import _find_all_targets
+        result = _find_all_targets("Build water_mining.py and src/water_mining.py")
+        assert len(result) == 1
+
+    def test_returns_tuple_of_tuples(self):
+        from seed_gate import _find_all_targets
+        result = _find_all_targets("Build water_mining.py")
+        assert isinstance(result, tuple)
+        assert len(result) > 0
+        assert isinstance(result[0], tuple)
+        assert len(result[0]) == 2
+
+
+class TestNewFeatureInvariants:
+    """Property-based invariants for new features."""
+
+    @pytest.mark.parametrize("text", [
+        "Build water_mining.py optimizer for colony",
+        "Deploy seed_gate.py to production",
+        "Configure STATE_DIR for the test environment",
+        "Set up the dev environment with Dockerfile",
+    ])
+    def test_all_verbs_superset_of_verb_found(self, text):
+        r = _v(text)
+        if r["verb_found"]:
+            assert r["verb_found"] in r["all_verbs"], (
+                f"{r['verb_found']} not in all_verbs for: {text}"
+            )
+
+    @pytest.mark.parametrize("text", [
+        "Build water_mining.py",
+        "Fix seed_gate.py and deploy reactor.py",
+    ])
+    def test_all_targets_superset_of_target_found(self, text):
+        r = _v(text)
+        if r["target_found"]:
+            target_names = [t[0] for t in r["all_targets"]]
+            assert r["target_found"] in target_names
+
+    def test_confidence_in_dict(self):
+        r = _v("Build water_mining.py optimizer for the Mars colony")
+        assert "confidence" in r
+        assert r["confidence"] in ("high", "medium", "low")
+
+    def test_starts_with_inflected_verb_not_junk(self):
+        from seed_gate import is_junk
+        assert is_junk("refactoring the codebase for performance") == ""
+        assert is_junk("deploying new changes to production systems") == ""
+        assert is_junk("configuring environment variables for CI") == ""
+
+
+class TestBackwardCompat:
+    """Backward compatibility with existing API."""
+
+    def test_validate_dict_keys(self):
+        r = _v("Build water_mining.py")
+        # All original keys still present
+        for key in ("passed", "reasons", "score", "verb_found", "target_found", "junk"):
+            assert key in r
+        # New keys also present
+        for key in ("advisory", "all_verbs", "all_targets", "confidence"):
+            assert key in r
+
+    def test_passes_gate_still_works(self):
+        assert passes_gate("Build water_mining.py")
+
+    def test_known_tool_still_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Refactor state_io module")
+        assert target == "state_io"
+        assert kind == "tool"
+
+    def test_false_file_still_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("This is e.g. an example")
+        assert target != "e.g"
