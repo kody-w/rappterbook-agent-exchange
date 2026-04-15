@@ -36,9 +36,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb normalization (inflected forms: -ing/-ed/-s),
+                  inflected phrasal verbs, version string filter,
+                  suggest() API for actionable rejection feedback.
 """
 from __future__ import annotations
 
@@ -96,8 +99,62 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
 
+# Irregular verb forms -> canonical (#12503 consolidation)
+_IRREGULAR_VERBS: dict[str, str] = {
+    "built": "build", "wrote": "write", "written": "write", "ran": "run",
+}
+
+
+def _candidate_stems(word: str) -> list[str]:
+    """Return candidate base forms by stripping English verb suffixes.
+
+    Used by _normalize_verb (single verbs) and find_verb (phrasal
+    verbs) to recognise inflected forms like 'building', 'tested', 'deploys'.
+    """
+    w = word.lower()
+    stems: list[str] = [w]
+    if w.endswith("ing") and len(w) > 4:
+        s = w[:-3]
+        stems.extend([s, s + "e"])
+        if len(s) >= 2 and s[-1] == s[-2]:
+            stems.append(s[:-1])
+    elif w.endswith("ed") and len(w) > 3:
+        s = w[:-2]
+        stems.extend([s, s + "e"])
+        if len(s) >= 2 and s[-1] == s[-2]:
+            stems.append(s[:-1])
+    elif w.endswith("ies") and len(w) > 4:
+        stems.append(w[:-3] + "y")
+    elif w.endswith("es") and not w.endswith("ies") and len(w) > 4:
+        s = w[:-2]
+        stems.extend([s, s + "e"])
+    elif w.endswith("s") and not w.endswith("ss") and not w.endswith("es") and len(w) > 3:
+        stems.append(w[:-1])
+    return stems
+
+
+def _normalize_verb(word: str) -> str | None:
+    """Normalize an inflected English verb to its canonical ACTION_VERBS form.
+
+    Handles -ing, -ed, -s/-es suffixes and irregular past participles.
+    Returns None if no canonical form is found.
+    """
+    w = word.lower()
+    if w in _IRREGULAR_VERBS:
+        canonical = _IRREGULAR_VERBS[w]
+        if canonical in ACTION_VERBS:
+            return canonical
+    for stem in _candidate_stems(w):
+        if stem in ACTION_VERBS:
+            return stem
+    return None
+
+
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+# Version strings: v1.2.3, 2.0.0, 1.0-beta -- not real filenames
+_VERSION_RE = re.compile(r"v?\d+\.\d+(?:\.\d+)*(?:[-+][\w.]+)?")
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -266,6 +323,15 @@ class SeedGateResult:
     all_targets: tuple = ()
 
     @property
+    def confidence(self) -> str:
+        """Return a confidence label: 'high', 'medium', or 'low'."""
+        if self.score >= 0.7:
+            return "high"
+        if self.score >= 0.4:
+            return "medium"
+        return "low"
+
+    @property
     def verb(self) -> str:
         return self.verb_found or ""
 
@@ -327,7 +393,11 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    if match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.fullmatch(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -336,11 +406,13 @@ def _starts_with_verb(text: str) -> bool:
     if not words:
         return False
     first = words[0].lower()
-    if first in _PHRASAL_FIRST and len(words) > 1:
+    # Check phrasal verbs (raw and inflected forms)
+    if len(words) > 1:
         second = words[1].lower()
-        if second in _PHRASAL_FIRST[first]:
-            return True
-    return first in ACTION_VERBS
+        for stem in _candidate_stems(first):
+            if stem in _PHRASAL_FIRST and second in _PHRASAL_FIRST[stem]:
+                return True
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,21 +428,32 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Recognises inflected forms (-ing, -ed, -s) and irregular past
+    participles.  Returns the canonical base form.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
-        if word in _PHRASAL_FIRST and i + 1 < len(words):
+        # Phrasal verbs (raw and inflected first word)
+        if i + 1 < len(words):
             next_word = words[i + 1]
-            if next_word in _PHRASAL_FIRST[word]:
-                return _PHRASAL_FIRST[word][next_word]
-        if word in ACTION_VERBS:
-            return word
+            for stem in _candidate_stems(word):
+                if stem in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[stem]:
+                    return _PHRASAL_FIRST[stem][next_word]
+        # Single verb (exact or inflected)
+        canonical = _normalize_verb(word)
+        if canonical:
+            return canonical
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Recognises inflected forms and inflected phrasal verbs.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -379,18 +462,26 @@ def find_all_verbs(text: str) -> list[str]:
         if skip_next:
             skip_next = False
             continue
-        if word in _PHRASAL_FIRST and i + 1 < len(words):
+        # Phrasal verbs (raw and inflected first word)
+        if i + 1 < len(words):
             next_word = words[i + 1]
-            if next_word in _PHRASAL_FIRST[word]:
-                v = _PHRASAL_FIRST[word][next_word]
-                if v not in seen:
-                    seen.add(v)
-                    result.append(v)
-                skip_next = True
+            matched_phrasal = False
+            for stem in _candidate_stems(word):
+                if stem in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[stem]:
+                    v = _PHRASAL_FIRST[stem][next_word]
+                    if v not in seen:
+                        seen.add(v)
+                        result.append(v)
+                    skip_next = True
+                    matched_phrasal = True
+                    break
+            if matched_phrasal:
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        # Single verb (exact or inflected)
+        canonical = _normalize_verb(word)
+        if canonical and canonical not in seen:
+            seen.add(canonical)
+            result.append(canonical)
     return result
 
 
@@ -583,6 +674,7 @@ def compute_score(
 
 
 # Backward-compat aliases
+_normalize = _normalize_verb
 _detect_verb = find_verb
 _detect_target = find_target
 _is_junk = is_junk
@@ -720,6 +812,35 @@ def validate_batch(
         failed_items=tuple(failed_items),
         junk_items=tuple(junk_items),
     )
+
+
+def suggest(text: str, tags: list = None) -> list[str]:
+    """Return actionable suggestions when a proposal fails the gate.
+
+    Returns an empty list if the proposal already passes.
+    """
+    result = validate_seed(text, tags)
+    if result.passed:
+        return []
+    suggestions: list[str] = []
+    if result.junk:
+        stripped = text.strip()
+        if not stripped:
+            suggestions.append("Proposal is empty. Write a clear imperative sentence.")
+        elif len(stripped) < 15:
+            suggestions.append("Too short. Expand with specifics: what to build, fix, or test.")
+        else:
+            suggestions.append("Looks like a fragment or artifact. Start with a verb: Build, Fix, Test.")
+        return suggestions
+    if not result.verb_found:
+        suggestions.append("Start with an action verb: Build, Fix, Test, Refactor, Deploy, etc.")
+    tag_set = frozenset(t.lower().strip() for t in (tags or []))
+    if not result.target_found and not (tag_set & EXEMPT_TAGS):
+        suggestions.append(
+            "Name a concrete target: a filename (e.g., water_mining.py), "
+            "tool (e.g., process_inbox), path (e.g., src/thermal), or discussion (#NNN)."
+        )
+    return suggestions
 
 
 # ---------------------------------------------------------------------------
