@@ -45,6 +45,12 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- diagnostics evolution: explain() + score_breakdown() APIs;
+                  find_verb_with_position(); is_imperative property;
+                  commit-prefix stripping (two-pass fallback); negation
+                  detection (hard-fail for negated primary actions);
+                  numbered-ref false-file filter (fig.1, ch.3, vol.2);
+                  expanded abbreviation filter (Ph.D, U.S).
 """
 from __future__ import annotations
 
@@ -197,6 +203,34 @@ _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
 
 # Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
+
+# Numbered references: fig.1, no.5, ch.3, vol.2 -- not files (PR #257, #264)
+_NUMBERED_REF_RE = re.compile(r"^(?:fig|no|ch|vol|eq|pt|sec|app)\.\d+$", re.I)
+
+# Expanded abbreviations that look like files
+_EXPANDED_FALSE_FILES: frozenset[str] = frozenset({
+    "ph.d", "u.s", "u.k", "u.n", "mr.", "ms.", "dr.", "jr.", "sr.",
+    "st.", "ft.", "inc.", "ltd.", "etc.", "dept.",
+})
+
+# Conventional commit prefixes: feat:, fix(scope):, etc.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:feat|fix|chore|build|test|docs|refactor|style|perf|ci|revert|breaking)"
+    r"(?:\([^)]+\))?:\s*",
+    re.I,
+)
+
+# Negation patterns: don't, never, stop, avoid, skip, shouldn't, etc.
+_NEGATION_WORDS: tuple[str, ...] = (
+    "don't", "don\u2019t", "do not", "never", "stop", "avoid",
+    "skip", "shouldn't", "shouldn\u2019t", "should not",
+    "can't", "can\u2019t", "cannot", "won't", "won\u2019t",
+    "will not", "must not", "mustn't", "mustn\u2019t",
+)
+_NEGATION_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(w) for w in sorted(_NEGATION_WORDS, key=len, reverse=True)) + r")\b",
+    re.I,
+)
 
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
@@ -356,6 +390,8 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    verb_position: int = -1
+    negation: str = ""
 
     @property
     def verb(self) -> str:
@@ -364,6 +400,11 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def is_imperative(self) -> bool:
+        """True when verb appears in the first 3 words (direct command style)."""
+        return 0 <= self.verb_position <= 2
 
     @property
     def confidence(self) -> str | None:
@@ -386,6 +427,9 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "is_imperative": self.is_imperative,
+            "verb_position": self.verb_position,
+            "negation": self.negation,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -432,12 +476,17 @@ class BatchResult:
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive.
 
-    Catches abbreviations (e.g., i.e.) and bare version strings (2.0.1).
+    Catches abbreviations (e.g., i.e.), bare version strings (2.0.1),
+    numbered references (fig.1, ch.3), and expanded abbreviations (Ph.D).
     """
     stripped = match_text.lower().rstrip(".")
     if stripped in _FALSE_FILE_MATCHES:
         return True
+    if stripped in _EXPANDED_FALSE_FILES:
+        return True
     if _VERSION_RE.match(match_text):
+        return True
+    if _NUMBERED_REF_RE.match(match_text):
         return True
     return False
 
@@ -469,6 +518,37 @@ def _starts_with_file(text: str) -> bool:
     return False
 
 
+def _strip_commit_prefix(text: str) -> str:
+    """Strip conventional commit prefix if present.
+
+    Returns stripped text or original.  Used as a two-pass fallback:
+    analyze raw first, use stripped only if it improves detection.
+    """
+    return _COMMIT_PREFIX_RE.sub("", text)
+
+
+def _is_negated(text: str) -> str:
+    """Detect negation at the start of text.
+
+    Returns a reason string if the primary clause is negated, else empty.
+    Only triggers on sentence-initial negation — embedded negation like
+    "Add guard so users can't deploy" is NOT flagged.
+    """
+    stripped = text.strip()
+    m = _NEGATION_RE.match(stripped)
+    if not m:
+        return ""
+    neg_word = m.group().lower()
+    remainder = stripped[m.end():].strip()
+    # Check if there's a redeeming positive clause after semicolon/period
+    for sep in (";", ". ", " — ", " -- ", " but ", " instead "):
+        if sep in remainder:
+            after_sep = remainder.split(sep, 1)[1].strip()
+            if find_verb(after_sep):
+                return ""
+    return "negated by '%s'" % neg_word
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
@@ -493,6 +573,27 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             return word
         if word in _INFLECTION_MAP:
             return _INFLECTION_MAP[word]
+    return None
+
+
+def find_verb_with_position(text: str) -> tuple[str, int] | None:
+    """Return (canonical_verb, word_index) or None.
+
+    The word_index indicates where in the text the verb was found,
+    enabling imperative detection (position 0-2 = imperative).
+    """
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word], i
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return _PHRASAL_INFLECTED[word][next_word], i
+        if word in ACTION_VERBS:
+            return word, i
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word], i
     return None
 
 
@@ -735,6 +836,47 @@ def compute_score(
     return min(raw / 10.0, 1.0)
 
 
+def score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict:
+    """Decompose the specificity score into component contributions.
+
+    Returns a dict showing each factor's contribution to the final score.
+    Useful for diagnostics and transparency.
+    """
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    verb_pts = 2.5 if verb else 0.0
+    target_pts = kind_scores.get(target_kind, 1.5) if target else 0.0
+    words = text.split()
+    length_pts = 0.0
+    if len(words) >= 8:
+        length_pts += 0.5
+    if len(words) >= 15:
+        length_pts += 1.0
+    unique = count_unique_targets(text)
+    multi_target_pts = 1.0 if unique >= 2 else 0.0
+    imperative_pts = 0.5 if verb and _starts_with_verb(text) else 0.0
+    raw = verb_pts + target_pts + length_pts + multi_target_pts + imperative_pts
+    return {
+        "verb": verb_pts,
+        "target": target_pts,
+        "target_kind": target_kind or "",
+        "length": length_pts,
+        "multi_target": multi_target_pts,
+        "unique_targets": unique,
+        "imperative": imperative_pts,
+        "raw": raw,
+        "normalized": min(raw / 10.0, 1.0),
+    }
+
+
 def suggest(text: str, tags: list = None) -> list[str]:
     """Return actionable suggestions for improving a rejected proposal.
 
@@ -759,6 +901,51 @@ def suggest(text: str, tags: list = None) -> list[str]:
             "Rewrite as a complete sentence starting with a capital letter"
         )
     return suggestions
+
+
+def explain(text: str, tags: list = None) -> str:
+    """Return a human-readable diagnostic string explaining the validation.
+
+    Shows pass/fail status, score, confidence, verb, target, and the
+    scoring breakdown.  Useful for debugging rejected proposals.
+    """
+    result = validate_seed(text, tags)
+    target_str, target_kind = find_target(text)
+    bd = score_breakdown(text, result.verb_found, target_str, target_kind)
+
+    status = "PASS" if result.passed else "FAIL"
+    conf = " %s" % result.confidence if result.confidence else ""
+    parts = ["%s (%.2f%s)" % (status, result.score, conf)]
+
+    if result.verb_found:
+        pos_str = " at position %d" % result.verb_position if result.verb_position >= 0 else ""
+        parts.append("verb='%s'%s" % (result.verb_found, pos_str))
+    else:
+        parts.append("no verb")
+
+    if target_str:
+        parts.append("target='%s' (%s)" % (target_str, target_kind))
+    else:
+        parts.append("no target")
+
+    unique = bd["unique_targets"]
+    if unique >= 2:
+        parts.append("%d unique targets" % unique)
+
+    if result.is_imperative:
+        parts.append("imperative form")
+
+    if result.negation:
+        parts.append("negation: %s" % result.negation)
+
+    if result.advisory:
+        parts.append("advisory: %s" % result.advisory)
+
+    if not result.passed:
+        for reason in result.reasons:
+            parts.append("reason: %s" % reason)
+
+    return "; ".join(parts)
 
 
 # Backward-compat aliases
@@ -787,19 +974,40 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
-    # -- Junk check (hard fail) ---
+    # -- Strip commit prefix early (metadata, not content) ---
+    analysis_text = text
+    stripped_prefix = _strip_commit_prefix(text)
+    has_prefix = stripped_prefix != text
+    if has_prefix:
+        analysis_text = stripped_prefix
+
+    # -- Junk check (hard fail) -- uses stripped text when prefix found ---
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
+    junk_reason = is_junk(analysis_text, limit=junk_limit)
     if junk_reason:
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target (from stripped text if prefix found, else raw) ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb = find_verb(analysis_text, limit=verb_limit)
+    target, target_kind = find_target(analysis_text)
+
+    # Two-pass fallback: if prefix was stripped but missed something,
+    # also try raw text (for cases like "build: auth.py" where prefix IS the verb)
+    if has_prefix and not (verb and target):
+        rv = find_verb(text, limit=verb_limit)
+        rt, rk = find_target(text)
+        if (rv and not verb):
+            verb = rv
+        if (rt and not target):
+            target, target_kind = rt, rk
+
+    # -- Verb position ---
+    vp = find_verb_with_position(analysis_text)
+    verb_position = vp[1] if vp else -1
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
@@ -825,7 +1033,11 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            verb_position=verb_position,
         )
+
+    # -- Negation check (use stripped text so commit prefixes don't mask it) ---
+    negation = _is_negated(analysis_text)
 
     # -- Decision ---
     if mode == "purge":
@@ -833,17 +1045,24 @@ def validate_seed(
         specificity = 0.5
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        specificity = compute_score(analysis_text, verb, target, target_kind)
+        # Hard-fail negated primary actions (no redeeming clause)
+        if passed and negation:
+            passed = False
 
     reasons: list[str] = []
     advisory = ""
     if not passed:
-        if not verb:
-            reasons.append("No action verb found")
-        if not target and not is_exempt:
-            reasons.append("No concrete target (filename, tool, or reference)")
-        if verb and not target and not is_exempt:
-            advisory = "needs-specificity"
+        if negation and verb and (target or is_exempt):
+            reasons.append("Primary action is negated (%s)" % negation)
+            advisory = "negated-action"
+        else:
+            if not verb:
+                reasons.append("No action verb found")
+            if not target and not is_exempt:
+                reasons.append("No concrete target (filename, tool, or reference)")
+            if verb and not target and not is_exempt:
+                advisory = "needs-specificity"
     elif verb and not target:
         advisory = "needs-specificity"
 
@@ -851,6 +1070,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        verb_position=verb_position, negation=negation,
     )
 
 

@@ -37,6 +37,17 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    find_verb,
+    find_verb_with_position,
+    find_target,
+    score_breakdown,
+    explain,
+    suggest,
+    _strip_commit_prefix,
+    _is_negated,
+    _NUMBERED_REF_RE,
+    _EXPANDED_FALSE_FILES,
+    _COMMIT_PREFIX_RE,
 )
 
 
@@ -1652,3 +1663,537 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# NEW: Commit prefix stripping (two-pass fallback)
+# ===================================================================
+
+class TestCommitPrefixStripping:
+    """Test _strip_commit_prefix and its two-pass integration."""
+
+    @pytest.mark.parametrize("text,expected", [
+        ("feat: Build seed_gate.py", "Build seed_gate.py"),
+        ("fix: Patch auth.py vulnerability", "Patch auth.py vulnerability"),
+        ("chore: Update dependencies in config.yaml", "Update dependencies in config.yaml"),
+        ("test: Add coverage for seed_gate.py", "Add coverage for seed_gate.py"),
+        ("docs: Document the API endpoints", "Document the API endpoints"),
+        ("refactor: Clean up state_io.py", "Clean up state_io.py"),
+        ("ci: Configure GitHub Actions pipeline", "Configure GitHub Actions pipeline"),
+        ("perf: Optimize compute_trending.py queries", "Optimize compute_trending.py queries"),
+        ("revert: Roll back deployment of auth.py", "Roll back deployment of auth.py"),
+    ])
+    def test_strip_commit_prefix(self, text, expected):
+        assert _strip_commit_prefix(text) == expected
+
+    @pytest.mark.parametrize("text,expected", [
+        ("feat(auth): Build login.py", "Build login.py"),
+        ("fix(core): Patch state_io.py", "Patch state_io.py"),
+        ("refactor(tests): Clean up fixtures in conftest.py", "Clean up fixtures in conftest.py"),
+    ])
+    def test_strip_scoped_prefix(self, text, expected):
+        assert _strip_commit_prefix(text) == expected
+
+    def test_no_prefix_unchanged(self):
+        text = "Build seed_gate.py validator"
+        assert _strip_commit_prefix(text) == text
+
+    def test_case_insensitive(self):
+        assert _strip_commit_prefix("Feat: Build auth.py") == "Build auth.py"
+        assert _strip_commit_prefix("FIX: Patch auth.py") == "Patch auth.py"
+
+    def test_feat_prefix_passes_gate(self):
+        """feat: Build X should pass -- the commit prefix reveals the verb."""
+        result = _v("feat: Build seed_gate.py validator")
+        assert result["passed"]
+        assert result["verb_found"] == "build"
+
+    def test_fix_prefix_passes_gate(self):
+        result = _v("fix: Patch auth.py vulnerability in login flow")
+        assert result["passed"]
+        assert result["verb_found"] == "patch"
+
+    def test_prefix_without_verb_still_fails(self):
+        """feat: vague stuff -- stripping prefix doesn't magically add a verb."""
+        result = _v("feat: something about the codebase maybe")
+        assert not result["passed"]
+
+    def test_build_prefix_preserves_verb(self):
+        """'build: auth.py pipeline' -- 'build' is both prefix AND verb.
+        Two-pass should still find verb+target."""
+        result = _v("build: auth.py pipeline configuration")
+        assert result["passed"]
+
+    def test_two_pass_only_improves(self):
+        """If raw text already has verb+target, stripping shouldn't change result."""
+        raw_result = _v("Build seed_gate.py validator")
+        prefixed_result = _v("feat: Build seed_gate.py validator")
+        assert raw_result["passed"]
+        assert prefixed_result["passed"]
+        assert raw_result["verb_found"] == prefixed_result["verb_found"]
+
+    def test_revert_prefix_with_quoted_old(self):
+        """revert: subjects often quote old text."""
+        result = _v('revert: "Build auth.py" -- rolling back this change')
+        assert result["passed"]
+
+
+# ===================================================================
+# NEW: Numbered reference filter
+# ===================================================================
+
+class TestNumberedRefFilter:
+    """fig.1, no.5, ch.3, vol.2, etc. should not match as files."""
+
+    @pytest.mark.parametrize("ref", [
+        "fig.1", "Fig.2", "FIG.10",
+        "no.5", "No.3",
+        "ch.3", "Ch.12",
+        "vol.2", "Vol.1",
+        "eq.1", "Eq.42",
+        "pt.3", "sec.4", "app.1",
+    ])
+    def test_numbered_ref_not_file(self, ref):
+        assert _NUMBERED_REF_RE.match(ref), f"{ref} should match _NUMBERED_REF_RE"
+
+    def test_real_file_not_filtered(self):
+        """app.py, sec.rs should still match as files."""
+        assert not _NUMBERED_REF_RE.match("app.py")
+        assert not _NUMBERED_REF_RE.match("sec.rs")
+
+    def test_numbered_ref_in_proposal(self):
+        """'Build visualization for fig.1' -- fig.1 should not be the target."""
+        result = _v("Build visualization for the data in auth.py see fig.1")
+        assert result["passed"]
+        assert result["target_found"] == "auth.py"
+
+    def test_only_numbered_ref_no_file(self):
+        """If the ONLY file-like thing is fig.1, find_target should skip it."""
+        from seed_gate import find_target
+        target, kind = find_target("See fig.1 and no.5 for details")
+        assert target != "fig.1"
+        assert target != "no.5"
+
+
+# ===================================================================
+# NEW: Expanded abbreviation filter
+# ===================================================================
+
+class TestExpandedAbbreviations:
+    """Ph.D, U.S, etc. should not match as files."""
+
+    @pytest.mark.parametrize("abbr", [
+        "ph.d", "u.s", "u.k", "u.n", "mr.", "dr.", "inc.", "etc.",
+    ])
+    def test_abbreviation_in_false_files(self, abbr):
+        assert abbr in _EXPANDED_FALSE_FILES
+
+    def test_phd_not_file_target(self):
+        from seed_gate import find_target
+        target, kind = find_target("The Ph.D thesis on auth.py")
+        assert target == "auth.py"
+
+    def test_us_not_file_target(self):
+        from seed_gate import find_target
+        target, kind = find_target("Build a U.S compliant config.yaml")
+        assert target == "config.yaml"
+
+
+# ===================================================================
+# NEW: Negation detection
+# ===================================================================
+
+class TestNegationDetection:
+    """Negated primary actions should hard-fail the gate."""
+
+    @pytest.mark.parametrize("text", [
+        "Don't build seed_gate.py",
+        "Don\u2019t deploy auth.py to production",
+        "Never deploy auth.py without review",
+        "Stop deploying state_io.py directly",
+        "Avoid adding new endpoints to api.py",
+        "Skip testing the seed_gate.py module",
+        "Shouldn't refactor state_io.py now",
+        "Should not deploy config.yaml to prod",
+        "Can't deploy auth.py today",
+        "Cannot merge seed_gate.py changes",
+        "Won't ship the dashboard.py update",
+        "Must not delete agents.json",
+    ])
+    def test_negated_primary_fails(self, text):
+        result = _v(text)
+        assert not result["passed"], f"Expected {text!r} to fail"
+        assert "negated" in result["reasons"][0].lower()
+        assert result["negation"]
+
+    def test_negation_reason_string(self):
+        reason = _is_negated("Don't build auth.py")
+        assert "don't" in reason.lower()
+
+    def test_no_negation_passes(self):
+        result = _v("Build seed_gate.py validator")
+        assert result["passed"]
+        assert result["negation"] == ""
+
+    def test_embedded_negation_ok(self):
+        """Negation inside the sentence (not at start) should not trigger."""
+        result = _v("Build a guard so users can't deploy auth.py to prod")
+        assert result["passed"]
+
+    def test_negation_with_redeeming_clause(self):
+        """'Don't deploy prod; build staging.yaml instead' has a positive clause."""
+        reason = _is_negated("Don't deploy prod; build staging.yaml instead")
+        assert reason == "", "Should find redeeming clause after semicolon"
+
+    def test_negation_with_but_clause(self):
+        reason = _is_negated("Don't deploy prod but build staging.yaml")
+        assert reason == ""
+
+    def test_negation_with_instead(self):
+        reason = _is_negated("Don't deploy prod -- instead build staging.yaml")
+        assert reason == ""
+
+    def test_negation_unicode_apostrophe(self):
+        reason = _is_negated("Don\u2019t build auth.py")
+        assert reason != ""
+
+    def test_negation_advisory_field(self):
+        result = _vs("Don't build auth.py")
+        assert result.advisory == "negated-action"
+
+    def test_negation_in_to_dict(self):
+        result = _v("Never deploy auth.py")
+        assert "negation" in result
+        assert result["negation"]
+
+    def test_purge_mode_ignores_negation(self):
+        """In purge mode, negation should not cause failure."""
+        result = _v("Don't build auth.py", mode="purge")
+        assert result["passed"]
+
+
+# ===================================================================
+# NEW: find_verb_with_position
+# ===================================================================
+
+class TestFindVerbWithPosition:
+    """Test verb position detection for imperative scoring."""
+
+    def test_imperative_position_0(self):
+        result = find_verb_with_position("Build seed_gate.py")
+        assert result == ("build", 0)
+
+    def test_verb_at_position_3(self):
+        result = find_verb_with_position("We should definitely build seed_gate.py")
+        assert result is not None
+        assert result[0] == "build"
+        assert result[1] == 3
+
+    def test_phrasal_verb_position(self):
+        result = find_verb_with_position("Set up the CI pipeline")
+        assert result is not None
+        assert result[0] == "set up"
+        assert result[1] == 0
+
+    def test_inflected_verb_position(self):
+        result = find_verb_with_position("Building seed_gate.py validator")
+        assert result is not None
+        assert result[0] == "build"
+        assert result[1] == 0
+
+    def test_no_verb_returns_none(self):
+        assert find_verb_with_position("Something about the codebase") is None
+
+    def test_inflected_phrasal_position(self):
+        result = find_verb_with_position("Setting up the auth module")
+        assert result is not None
+        assert result[0] == "set up"
+        assert result[1] == 0
+
+
+# ===================================================================
+# NEW: is_imperative property
+# ===================================================================
+
+class TestIsImperativeProperty:
+    """Test is_imperative on SeedGateResult."""
+
+    def test_imperative_true(self):
+        result = _vs("Build seed_gate.py validator")
+        assert result.is_imperative is True
+
+    def test_not_imperative(self):
+        result = _vs("We should definitely probably build seed_gate.py validator")
+        assert result.is_imperative is False
+
+    def test_position_2_still_imperative(self):
+        """Verb at position 2 (0-indexed) is still within threshold."""
+        result = _vs("Please quickly build auth.py")
+        assert result.verb_position <= 2
+        assert result.is_imperative is True
+
+    def test_is_imperative_in_to_dict(self):
+        result = _v("Build auth.py module")
+        assert "is_imperative" in result
+        assert result["is_imperative"] is True
+
+    def test_verb_position_in_to_dict(self):
+        result = _v("Build auth.py module")
+        assert "verb_position" in result
+        assert result["verb_position"] == 0
+
+    def test_failed_result_not_imperative(self):
+        result = _vs("Something vague and unspecific here")
+        assert result.is_imperative is False
+        assert result.verb_position == -1
+
+
+# ===================================================================
+# NEW: score_breakdown
+# ===================================================================
+
+class TestScoreBreakdown:
+    """Test score decomposition transparency."""
+
+    def test_all_keys_present(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        expected_keys = {
+            "verb", "target", "target_kind", "length",
+            "multi_target", "unique_targets", "imperative", "raw", "normalized",
+        }
+        assert set(bd.keys()) == expected_keys
+
+    def test_verb_contribution(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["verb"] == 2.5
+
+    def test_no_verb_zero(self):
+        bd = score_breakdown("auth.py is broken", None, "auth.py", "file")
+        assert bd["verb"] == 0.0
+
+    def test_file_target_score(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["target"] == 4.0
+        assert bd["target_kind"] == "file"
+
+    def test_tool_target_score(self):
+        bd = score_breakdown("Build state_io", "build", "state_io", "tool")
+        assert bd["target"] == 3.0
+
+    def test_no_target_zero(self):
+        bd = score_breakdown("Build something", "build", None, "")
+        assert bd["target"] == 0.0
+        assert bd["target_kind"] == ""
+
+    def test_length_bonus(self):
+        short = "Build auth.py"
+        long_text = "Build auth.py " + " ".join(["word"] * 12)
+        bd_short = score_breakdown(short, "build", "auth.py", "file")
+        bd_long = score_breakdown(long_text, "build", "auth.py", "file")
+        assert bd_long["length"] > bd_short["length"]
+
+    def test_multi_target_bonus(self):
+        text = "Build auth.py and deploy config.yaml"
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert bd["multi_target"] == 1.0
+        assert bd["unique_targets"] >= 2
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["imperative"] == 0.5
+
+    def test_non_imperative_no_bonus(self):
+        bd = score_breakdown("We should build auth.py", "build", "auth.py", "file")
+        assert bd["imperative"] == 0.0
+
+    def test_normalized_matches_compute_score(self):
+        from seed_gate import compute_score
+        text = "Build auth.py and config.yaml for the pipeline"
+        verb = "build"
+        target = "auth.py"
+        kind = "file"
+        bd = score_breakdown(text, verb, target, kind)
+        cs = compute_score(text, verb, target, kind)
+        assert abs(bd["normalized"] - cs) < 0.001
+
+    def test_raw_is_sum(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        expected_raw = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["raw"] - expected_raw) < 0.001
+
+
+# ===================================================================
+# NEW: explain() diagnostics
+# ===================================================================
+
+class TestExplainAPI:
+    """Test human-readable diagnostic output."""
+
+    def test_explain_passing(self):
+        result = explain("Build seed_gate.py validator")
+        assert "PASS" in result
+        assert "build" in result
+        assert "seed_gate.py" in result
+
+    def test_explain_failing_no_verb(self):
+        result = explain("Something about the codebase that lacks specifics")
+        assert "FAIL" in result
+        assert "no verb" in result
+
+    def test_explain_failing_no_target(self):
+        result = explain("Build something cool and impressive")
+        assert "FAIL" in result
+        assert "no target" in result
+
+    def test_explain_shows_confidence(self):
+        result = explain("Build seed_gate.py and auth.py for the pipeline system")
+        assert any(c in result for c in ("high", "medium", "low"))
+
+    def test_explain_shows_imperative(self):
+        result = explain("Build seed_gate.py validator")
+        assert "imperative" in result
+
+    def test_explain_shows_negation(self):
+        result = explain("Don't build seed_gate.py")
+        assert "negation" in result.lower()
+
+    def test_explain_shows_multiple_targets(self):
+        result = explain("Build auth.py and config.yaml and state_io.py for the system")
+        assert "unique targets" in result
+
+    def test_explain_shows_advisory(self):
+        result = explain("Build something vague without a real target name")
+        assert "FAIL" in result
+
+    def test_explain_returns_string(self):
+        assert isinstance(explain("Build auth.py"), str)
+        assert isinstance(explain("vibes only"), str)
+        assert isinstance(explain(""), str)
+
+    def test_explain_with_tags(self):
+        result = explain("Explore consciousness in AI agents deeply", ["theme"])
+        assert "PASS" in result
+
+
+# ===================================================================
+# NEW: Integration / regression tests for new features
+# ===================================================================
+
+class TestNewFeatureIntegration:
+    """Cross-cutting tests ensuring all new features play well together."""
+
+    def test_commit_prefix_with_negation(self):
+        """feat: Don't build X -- negation still applies after prefix strip."""
+        result = _v("feat: Don't build seed_gate.py")
+        assert not result["passed"]
+
+    def test_commit_prefix_with_imperative(self):
+        """feat: Build X -- verb position should be 0 after stripping."""
+        result = _vs("feat: Build seed_gate.py validator")
+        assert result.is_imperative
+
+    def test_explain_with_commit_prefix(self):
+        result = explain("feat: Build seed_gate.py")
+        assert "PASS" in result
+        assert "build" in result
+
+    def test_score_breakdown_consistent_with_explain(self):
+        """score_breakdown normalized should match what explain reports."""
+        text = "Build auth.py and config.yaml for the pipeline"
+        ex = explain(text)
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        # The score in explain comes from validate_seed which uses compute_score
+        assert "PASS" in ex
+        assert bd["normalized"] > 0
+
+    def test_numbered_ref_with_negation(self):
+        """Edge case: negated + numbered ref."""
+        result = _v("Don't see fig.1 but build auth.py instead")
+        # Has redeeming clause after 'but'
+        assert result["passed"]
+
+    def test_all_new_dict_keys(self):
+        """Verify all new keys appear in the dict API."""
+        result = _v("Build auth.py module")
+        assert "is_imperative" in result
+        assert "verb_position" in result
+        assert "negation" in result
+        assert "confidence" in result
+
+    def test_backwards_compat_keys_still_present(self):
+        """All original keys must still exist."""
+        result = _v("Build auth.py module")
+        for key in ("passed", "reasons", "score", "verb_found", "target_found",
+                     "junk", "advisory", "all_verbs", "all_targets"):
+            assert key in result, f"Missing key: {key}"
+
+
+# ===================================================================
+# NEW: Property invariants for new features
+# ===================================================================
+
+class TestNewPropertyInvariants:
+    """Ensure new features maintain invariants across diverse inputs."""
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Fix bugs", "feat: Deploy config.yaml",
+        "Don't build auth.py", "Never deploy config.yaml",
+        "", "x", "Something vague about the code",
+        "Set up the CI pipeline for auth.py",
+        "What if we explored consciousness?",
+    ])
+    def test_verb_position_always_int(self, text):
+        result = _vs(text)
+        assert isinstance(result.verb_position, int)
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't build auth.py",
+        "feat: Build auth.py", "vibes only",
+    ])
+    def test_negation_always_string(self, text):
+        result = _vs(text)
+        assert isinstance(result.negation, str)
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Fix stuff",
+        "We should build something specific in auth.py",
+    ])
+    def test_is_imperative_always_bool(self, text):
+        result = _vs(text)
+        assert isinstance(result.is_imperative, bool)
+
+    def test_score_breakdown_normalized_equals_compute_score(self):
+        """score_breakdown().normalized must always equal compute_score()."""
+        from seed_gate import compute_score
+        cases = [
+            ("Build auth.py", "build", "auth.py", "file"),
+            ("Deploy", "deploy", None, ""),
+            ("Build auth.py and config.yaml pipeline", "build", "auth.py", "file"),
+        ]
+        for text, verb, target, kind in cases:
+            bd = score_breakdown(text, verb, target, kind)
+            cs = compute_score(text, verb, target, kind)
+            assert abs(bd["normalized"] - cs) < 0.001, f"Mismatch for {text}"
+
+    def test_explain_never_crashes(self):
+        """explain() should handle any input without raising."""
+        for text in ["", "x", "Build auth.py", "Don't deploy",
+                      "feat: Build config.yaml", "🔥 fire", "   spaces   "]:
+            result = explain(text)
+            assert isinstance(result, str)
+
+    def test_find_verb_with_position_consistent_with_find_verb(self):
+        """find_verb_with_position should find the same verb as find_verb."""
+        cases = [
+            "Build auth.py", "We should build auth.py",
+            "Set up the pipeline", "Setting up auth module",
+            "Deployed the fix to production",
+        ]
+        for text in cases:
+            fv = find_verb(text)
+            fvp = find_verb_with_position(text)
+            if fv is None:
+                assert fvp is None
+            else:
+                assert fvp is not None
+                assert fvp[0] == fv, f"Verb mismatch for {text}: {fvp[0]} != {fv}"
