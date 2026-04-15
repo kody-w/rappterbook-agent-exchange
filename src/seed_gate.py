@@ -45,6 +45,10 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- commit-prefix handling (feat:, fix:, etc. as implied
+                  verbs); find_verb_with_position(); shared _analyze()
+                  pipeline; score_breakdown(); explain() diagnostics;
+                  starts_with_verb property; gated multi-verb bonus.
 """
 from __future__ import annotations
 
@@ -182,6 +186,13 @@ for _inf_phrase, _inf_canonical in _INFLECTION_MAP.items():
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+# Conventional commit prefixes: feat:, fix(scope):, chore!:, etc.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:feat|fix|chore|docs|refactor|test|ci|perf|style|build|revert)"
+    r"(?:\([^)]*\))?!?\s*:\s*",
+    re.I,
+)
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -356,6 +367,9 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    verb_position: int = -1
+    score_components: tuple = ()
+    commit_prefix_verb: object = None
 
     @property
     def verb(self) -> str:
@@ -364,6 +378,11 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def starts_with_verb(self) -> bool:
+        """True if the proposal starts with an action verb (base form only)."""
+        return self.verb_position == 0
 
     @property
     def confidence(self) -> str | None:
@@ -386,6 +405,8 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "starts_with_verb": self.starts_with_verb,
+            "verb_position": self.verb_position,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -469,6 +490,38 @@ def _starts_with_file(text: str) -> bool:
     return False
 
 
+# Commit prefix → implied verb mapping
+_COMMIT_PREFIX_VERBS: dict[str, str] = {
+    "feat": "build", "fix": "fix", "chore": "clean",
+    "docs": "document", "refactor": "refactor", "test": "test",
+    "ci": "configure", "perf": "optimize", "style": "clean",
+    "build": "build", "revert": "fix",
+}
+
+
+def _strip_commit_prefix(text: str) -> tuple[str, str | None]:
+    """Strip a conventional commit prefix and return (body, implied_verb).
+
+    Returns the original text unchanged if no prefix is found.
+    The implied verb comes from the prefix type (feat->build, fix->fix, etc.)
+    but is only used as a fallback when the body has no verb of its own.
+    """
+    m = _COMMIT_PREFIX_RE.match(text)
+    if not m:
+        return text, None
+    prefix = m.group()
+    body = text[len(prefix):].strip()
+    if not body:
+        return text, None
+    # Extract the prefix keyword (before optional scope/bang)
+    keyword = re.match(r"[a-z]+", prefix.lower())
+    implied = _COMMIT_PREFIX_VERBS.get(keyword.group()) if keyword else None
+    # Capitalize body if it starts lowercase (commit bodies often do)
+    if body and body[0].islower():
+        body = body[0].upper() + body[1:]
+    return body, implied
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
@@ -494,6 +547,28 @@ def find_verb(text: str, limit: int = 0) -> str | None:
         if word in _INFLECTION_MAP:
             return _INFLECTION_MAP[word]
     return None
+
+
+def find_verb_with_position(text: str, limit: int = 0) -> tuple[str | None, int]:
+    """Return (verb, word_index) for the first action verb, or (None, -1).
+
+    The word_index is the 0-based position among alpha tokens.
+    Position 0 means the text starts with an action verb (imperative).
+    """
+    search_text = text[:limit] if limit else text
+    words = re.findall(r"[a-zA-Z]+", search_text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word], i
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return _PHRASAL_INFLECTED[word][next_word], i
+        if word in ACTION_VERBS:
+            return word, i
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word], i
+    return None, -1
 
 
 def find_all_verbs(text: str) -> list[str]:
@@ -709,10 +784,30 @@ def compute_score(
     verb: str | None,
     target: str | None,
     target_kind: str,
+    *,
+    all_verbs: tuple | list = (),
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
+    return _compute_score_components(text, verb, target, target_kind,
+                                     all_verbs=all_verbs)["score"]
+
+
+def _compute_score_components(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+    *,
+    all_verbs: tuple | list = (),
+) -> dict:
+    """Compute score with component breakdown.
+
+    Returns {"components": {...}, "raw_total": float, "score": float}.
+    """
+    components: dict[str, float] = {}
     raw = 0.0
     if verb:
+        components["verb"] = 2.5
         raw += 2.5
     if target:
         kind_scores = {
@@ -720,19 +815,34 @@ def compute_score(
             "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
-        raw += kind_scores.get(target_kind, 1.5)
+        val = kind_scores.get(target_kind, 1.5)
+        components["target"] = val
+        raw += val
     words = text.split()
+    length_bonus = 0.0
     if len(words) >= 8:
-        raw += 0.5
+        length_bonus += 0.5
     if len(words) >= 15:
-        raw += 1.0
+        length_bonus += 1.0
+    if length_bonus:
+        components["length"] = length_bonus
+        raw += length_bonus
     unique = count_unique_targets(text)
     if unique >= 2:
+        components["multi_target"] = 1.0
         raw += 1.0
     # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
+    is_imperative = bool(verb and _starts_with_verb(text))
+    if is_imperative:
+        components["imperative"] = 0.5
         raw += 0.5
-    return min(raw / 10.0, 1.0)
+    # Multi-verb bonus: gated -- only when imperative + target present
+    verb_count = len(all_verbs) if all_verbs else len(find_all_verbs(text))
+    if verb_count >= 2 and is_imperative and target:
+        components["multi_verb"] = 0.5
+        raw += 0.5
+    score = min(raw / 10.0, 1.0)
+    return {"components": components, "raw_total": raw, "score": score}
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -773,6 +883,106 @@ _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
 
 
 # ---------------------------------------------------------------------------
+# Shared analysis pipeline
+# ---------------------------------------------------------------------------
+
+def _analyze(
+    text: str,
+    tags: list | None = None,
+    mode: str = "admission",
+) -> dict:
+    """Core analysis shared by validate_seed, score_breakdown, and explain.
+
+    Returns a rich dict with all computed fields.  Public APIs consume
+    this to avoid logic duplication.
+    """
+    tags = tags or []
+    tag_set = frozenset(t.lower().strip() for t in tags)
+    is_exempt = bool(tag_set & EXEMPT_TAGS)
+
+    # -- Commit prefix handling ---
+    body, commit_verb = _strip_commit_prefix(text)
+    analysis_text = body if commit_verb else text
+
+    # -- Junk check ---
+    junk_limit = 60 if mode == "purge" else 0
+    junk_reason = is_junk(analysis_text, limit=junk_limit)
+
+    # -- Verb + target ---
+    verb_limit = 200 if mode == "purge" else 0
+    verb, verb_pos = find_verb_with_position(analysis_text, limit=verb_limit)
+    target, target_kind = find_target(analysis_text)
+
+    # -- Tag-implied verb inference ---
+    if not verb:
+        for tag in tag_set:
+            if tag in TAG_IMPLIED_VERBS:
+                verb = TAG_IMPLIED_VERBS[tag]
+                verb_pos = -1
+                break
+
+    # -- Commit prefix as fallback implied verb ---
+    if not verb and commit_verb:
+        verb = commit_verb
+        verb_pos = -1
+
+    # -- Question stem inference (exempt tags only) ---
+    if not verb and is_exempt:
+        m = _QUESTION_STEM_RE.match(analysis_text.strip())
+        if m:
+            verb = QUESTION_STEMS.get(m.group().lower())
+            verb_pos = -1
+
+    # -- Rich match info ---
+    all_verbs = tuple(find_all_verbs(analysis_text))
+    all_targets = _find_all_targets(analysis_text)
+
+    # -- Soft artifact check ---
+    soft_fail = (
+        is_soft_artifact(analysis_text)
+        and not (verb and target)
+        and not is_exempt
+    )
+
+    # -- Score components ---
+    if mode == "purge":
+        score_data = {"components": {}, "raw_total": 5.0, "score": 0.5}
+    else:
+        score_data = _compute_score_components(
+            analysis_text, verb, target, target_kind, all_verbs=all_verbs
+        )
+
+    # -- Decision ---
+    if junk_reason:
+        passed = False
+    elif soft_fail:
+        passed = False
+    elif mode == "purge":
+        passed = True
+    else:
+        passed = bool(verb) and (bool(target) or is_exempt)
+
+    return {
+        "text": text,
+        "analysis_text": analysis_text,
+        "commit_prefix_verb": commit_verb,
+        "junk_reason": junk_reason,
+        "soft_fail": soft_fail,
+        "verb": verb,
+        "verb_pos": verb_pos,
+        "target": target,
+        "target_kind": target_kind,
+        "is_exempt": is_exempt,
+        "tag_set": tag_set,
+        "all_verbs": all_verbs,
+        "all_targets": all_targets,
+        "score_data": score_data,
+        "passed": passed,
+        "mode": mode,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -783,74 +993,43 @@ def validate_seed(
     mode: str = "admission",
 ) -> SeedGateResult:
     """Validate a seed proposal and return a *SeedGateResult*."""
-    tags = tags or []
-    tag_set = frozenset(t.lower().strip() for t in tags)
-    is_exempt = bool(tag_set & EXEMPT_TAGS)
+    a = _analyze(text, tags, mode)
 
-    # -- Junk check (hard fail) ---
-    junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
-    if junk_reason:
+    if a["junk_reason"]:
         return SeedGateResult(
-            passed=False, reasons=(junk_reason,), score=0.0,
+            passed=False, reasons=(a["junk_reason"],), score=0.0,
             verb_found=None, target_found=None, junk=True,
         )
 
-    # -- Verb + target ---
-    verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
-
-    # -- Tag-implied verb inference (#12530) ---
-    if not verb:
-        for tag in tag_set:
-            if tag in TAG_IMPLIED_VERBS:
-                verb = TAG_IMPLIED_VERBS[tag]
-                break
-
-    # -- Question stem inference (exempt tags only) ---
-    if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
-        if m:
-            verb = QUESTION_STEMS.get(m.group().lower())
-
-    # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
-
-    # -- Soft artifact check ---
-    if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+    if a["soft_fail"]:
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
-            score=0.0, verb_found=verb, target_found=target or None,
-            junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            score=0.0, verb_found=a["verb"], target_found=a["target"] or None,
+            junk=True, all_verbs=a["all_verbs"], all_targets=a["all_targets"],
         )
-
-    # -- Decision ---
-    if mode == "purge":
-        passed = True
-        specificity = 0.5
-    else:
-        passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
 
     reasons: list[str] = []
     advisory = ""
-    if not passed:
-        if not verb:
+    if not a["passed"]:
+        if not a["verb"]:
             reasons.append("No action verb found")
-        if not target and not is_exempt:
+        if not a["target"] and not a["is_exempt"]:
             reasons.append("No concrete target (filename, tool, or reference)")
-        if verb and not target and not is_exempt:
+        if a["verb"] and not a["target"] and not a["is_exempt"]:
             advisory = "needs-specificity"
-    elif verb and not target:
+    elif a["verb"] and not a["target"]:
         advisory = "needs-specificity"
 
     return SeedGateResult(
-        passed=passed, reasons=tuple(reasons), score=specificity,
-        verb_found=verb or None, target_found=target or None, junk=False,
-        advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        passed=a["passed"], reasons=tuple(reasons),
+        score=a["score_data"]["score"],
+        verb_found=a["verb"] or None, target_found=a["target"] or None,
+        junk=False, advisory=advisory,
+        all_verbs=a["all_verbs"], all_targets=a["all_targets"],
+        verb_position=a["verb_pos"],
+        score_components=tuple(a["score_data"]["components"].items()),
+        commit_prefix_verb=a["commit_prefix_verb"],
     )
 
 
@@ -862,6 +1041,78 @@ def validate(text: str, tags: list = None, mode: str = "admission") -> dict:
 def passes_gate(text: str, tags: list = None, mode: str = "admission") -> bool:
     """Convenience: return True iff the proposal passes the gate."""
     return validate_seed(text, tags, mode=mode).passed
+
+
+def score_breakdown(text: str, tags: list = None) -> dict:
+    """Return decomposed score components for a proposal.
+
+    Returns {"components": {name: raw_points}, "raw_total": float, "score": float}.
+    Uses the shared _analyze() pipeline so scoring is consistent with validate_seed.
+    """
+    a = _analyze(text, tags)
+    return a["score_data"]
+
+
+def explain(text: str, tags: list = None) -> str:
+    """Return a human-readable explanation of the gate decision.
+
+    Combines score breakdown, verb/target detection, and suggestions
+    into a single diagnostic string.  Useful for debugging and for
+    agents understanding what the gate wants.
+    """
+    a = _analyze(text, tags)
+    parts: list[str] = []
+
+    # Commit prefix
+    if a["commit_prefix_verb"]:
+        parts.append("Commit prefix detected (implied verb: %s)" % a["commit_prefix_verb"])
+
+    # Junk
+    if a["junk_reason"]:
+        parts.append("REJECTED (junk): %s" % a["junk_reason"])
+        return " | ".join(parts)
+
+    # Soft artifact
+    if a["soft_fail"]:
+        parts.append("REJECTED (soft artifact without redeeming verb+target)")
+        return " | ".join(parts)
+
+    score = a["score_data"]["score"]
+    conf = "high" if score >= 0.65 else ("medium" if score >= 0.35 else "low")
+
+    # Verb
+    if a["verb"]:
+        pos_label = "position %d" % a["verb_pos"] if a["verb_pos"] >= 0 else "inferred"
+        parts.append("verb '%s' (%s)" % (a["verb"], pos_label))
+    else:
+        parts.append("no verb found")
+
+    # Target
+    if a["target"]:
+        parts.append("target '%s' (%s)" % (a["target"], a["target_kind"]))
+    else:
+        parts.append("no target found")
+
+    # Score
+    components = a["score_data"]["components"]
+    comp_strs = ["%s=%.1f" % (k, v) for k, v in components.items()]
+    parts.append("score %.2f (%s) [%s]" % (score, conf, ", ".join(comp_strs)))
+
+    # Decision
+    if a["passed"]:
+        parts.insert(0, "PASSED")
+    else:
+        parts.insert(0, "REJECTED")
+        # Add suggestions
+        sug: list[str] = []
+        if not a["verb"]:
+            sug.append("add action verb")
+        if not a["target"] and not a["is_exempt"]:
+            sug.append("name a concrete target")
+        if sug:
+            parts.append("suggestions: %s" % "; ".join(sug))
+
+    return " | ".join(parts)
 
 
 def validate_batch(

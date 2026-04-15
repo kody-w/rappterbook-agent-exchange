@@ -37,6 +37,11 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    find_verb_with_position,
+    score_breakdown,
+    explain,
+    _strip_commit_prefix,
+    _COMMIT_PREFIX_RE,
 )
 
 
@@ -1652,3 +1657,488 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# NEW: Commit prefix handling
+# ===================================================================
+
+class TestCommitPrefixRegex:
+    """Test _COMMIT_PREFIX_RE matches conventional commit formats."""
+
+    @pytest.mark.parametrize("prefix", [
+        "feat: ", "fix: ", "chore: ", "docs: ", "refactor: ",
+        "test: ", "ci: ", "perf: ", "style: ", "build: ", "revert: ",
+    ])
+    def test_simple_prefix(self, prefix):
+        assert _COMMIT_PREFIX_RE.match(prefix)
+
+    @pytest.mark.parametrize("prefix", [
+        "feat(auth): ", "fix(scope): ", "chore(deps): ",
+        "refactor(core): ", "test(unit): ",
+    ])
+    def test_scoped_prefix(self, prefix):
+        assert _COMMIT_PREFIX_RE.match(prefix)
+
+    def test_breaking_change_bang(self):
+        assert _COMMIT_PREFIX_RE.match("feat!: ")
+
+    def test_scoped_breaking(self):
+        assert _COMMIT_PREFIX_RE.match("fix(api)!: ")
+
+    def test_case_insensitive(self):
+        assert _COMMIT_PREFIX_RE.match("FEAT: ")
+        assert _COMMIT_PREFIX_RE.match("Fix: ")
+
+    def test_no_match_random(self):
+        assert _COMMIT_PREFIX_RE.match("Build auth.py") is None
+        assert _COMMIT_PREFIX_RE.match("Deploy the service") is None
+
+
+class TestStripCommitPrefix:
+    """Test _strip_commit_prefix behavior."""
+
+    def test_feat_stripped(self):
+        body, verb = _strip_commit_prefix("feat: Add auth.py handler")
+        assert body == "Add auth.py handler"
+        assert verb == "build"
+
+    def test_fix_stripped(self):
+        body, verb = _strip_commit_prefix("fix: Repair broken pipe in water_mining.py")
+        assert body == "Repair broken pipe in water_mining.py"
+        assert verb == "fix"
+
+    def test_chore_stripped(self):
+        body, verb = _strip_commit_prefix("chore: Clean up temp files in state/")
+        assert body == "Clean up temp files in state/"
+        assert verb == "clean"
+
+    def test_scoped_stripped(self):
+        body, verb = _strip_commit_prefix("feat(auth): Build login handler")
+        assert body == "Build login handler"
+        assert verb == "build"
+
+    def test_breaking_stripped(self):
+        body, verb = _strip_commit_prefix("feat!: Rewrite auth.py")
+        assert body == "Rewrite auth.py"
+        assert verb == "build"
+
+    def test_no_prefix_unchanged(self):
+        text = "Build water_mining.py optimizer"
+        body, verb = _strip_commit_prefix(text)
+        assert body == text
+        assert verb is None
+
+    def test_empty_body_unchanged(self):
+        body, verb = _strip_commit_prefix("feat: ")
+        assert body == "feat: "
+        assert verb is None
+
+    def test_lowercase_body_capitalized(self):
+        body, verb = _strip_commit_prefix("fix: update solar_array.py config")
+        assert body[0] == "U"
+        assert verb == "fix"
+
+    def test_uppercase_body_preserved(self):
+        body, verb = _strip_commit_prefix("fix: Update solar_array.py config")
+        assert body == "Update solar_array.py config"
+
+    def test_docs_prefix(self):
+        _, verb = _strip_commit_prefix("docs: Update README.md")
+        assert verb == "document"
+
+    def test_refactor_prefix(self):
+        _, verb = _strip_commit_prefix("refactor: Simplify water_mining.py")
+        assert verb == "refactor"
+
+    def test_ci_prefix(self):
+        _, verb = _strip_commit_prefix("ci: Configure deploy pipeline")
+        assert verb == "configure"
+
+    def test_perf_prefix(self):
+        _, verb = _strip_commit_prefix("perf: Optimize solar_array.py")
+        assert verb == "optimize"
+
+
+class TestCommitPrefixIntegration:
+    """Test commit prefix handling in validate_seed."""
+
+    def test_feat_prefix_passes(self):
+        r = _vs("feat: Add auth.py login handler")
+        assert r.passed
+        assert r.commit_prefix_verb == "build"
+
+    def test_fix_prefix_passes(self):
+        r = _vs("fix: Repair water_mining.py pipe leak")
+        assert r.passed
+
+    def test_prefix_implied_verb_fallback(self):
+        """Commit prefix provides verb when body has no explicit verb."""
+        r = _vs("feat: The auth.py module needs attention")
+        # Body has no verb but target exists + commit prefix provides implied verb
+        assert r.passed
+        assert r.verb_found is not None
+
+    def test_body_verb_takes_priority(self):
+        """Body's own verb is preferred over commit prefix implied verb."""
+        r = _vs("fix: Build new auth.py handler")
+        assert r.verb == "build"  # body verb, not "fix" from prefix
+
+    def test_no_prefix_no_commit_verb(self):
+        r = _vs("Build water_mining.py optimizer")
+        assert r.commit_prefix_verb is None
+
+
+# ===================================================================
+# NEW: find_verb_with_position
+# ===================================================================
+
+class TestFindVerbWithPosition:
+    def test_verb_at_start(self):
+        verb, pos = find_verb_with_position("Build water_mining.py optimizer")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_verb_after_article(self):
+        verb, pos = find_verb_with_position("The team should build auth.py")
+        assert verb == "build"
+        assert pos == 3
+
+    def test_no_verb(self):
+        verb, pos = find_verb_with_position("The big red thing")
+        assert verb is None
+        assert pos == -1
+
+    def test_phrasal_verb_position(self):
+        verb, pos = find_verb_with_position("Set up the auth.py module")
+        assert verb == "set up"
+        assert pos == 0
+
+    def test_inflected_verb_position(self):
+        verb, pos = find_verb_with_position("Creating water_mining.py tests")
+        assert verb == "create"
+        assert pos == 0
+
+    def test_limit_parameter(self):
+        text = "Just a description. Build water_mining.py here."
+        verb, pos = find_verb_with_position(text, limit=20)
+        assert verb is None  # "Build" is after limit
+
+    def test_phrasal_not_at_start(self):
+        verb, pos = find_verb_with_position("We need to set up auth.py")
+        assert verb == "set up"
+        assert pos == 3
+
+
+# ===================================================================
+# NEW: starts_with_verb property
+# ===================================================================
+
+class TestStartsWithVerbProperty:
+    def test_imperative_true(self):
+        r = _vs("Build water_mining.py optimizer")
+        assert r.starts_with_verb is True
+
+    def test_non_imperative_false(self):
+        r = _vs("The team should build auth.py fast")
+        assert r.starts_with_verb is False
+
+    def test_no_verb_false(self):
+        r = _vs("Something about the water_mining.py module")
+        assert r.starts_with_verb is False
+
+    def test_phrasal_at_start_true(self):
+        r = _vs("Set up the solar_array.py config")
+        assert r.starts_with_verb is True
+
+    def test_inflected_at_start_true(self):
+        r = _vs("Building water_mining.py test suite now")
+        assert r.starts_with_verb is True
+
+    def test_in_to_dict(self):
+        r = _vs("Build water_mining.py optimizer")
+        d = r.to_dict()
+        assert "starts_with_verb" in d
+        assert d["starts_with_verb"] is True
+
+    def test_verb_position_in_to_dict(self):
+        r = _vs("Build water_mining.py optimizer")
+        d = r.to_dict()
+        assert "verb_position" in d
+        assert d["verb_position"] == 0
+
+
+# ===================================================================
+# NEW: score_breakdown
+# ===================================================================
+
+class TestScoreBreakdown:
+    def test_returns_dict(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        assert isinstance(sb, dict)
+        assert "components" in sb
+        assert "raw_total" in sb
+        assert "score" in sb
+
+    def test_has_verb_component(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        assert "verb" in sb["components"]
+        assert sb["components"]["verb"] == 2.5
+
+    def test_has_target_component(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        assert "target" in sb["components"]
+        assert sb["components"]["target"] == 4.0  # file
+
+    def test_imperative_component(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        assert "imperative" in sb["components"]
+        assert sb["components"]["imperative"] == 0.5
+
+    def test_no_imperative_for_non_start(self):
+        sb = score_breakdown("The team should build auth.py fast")
+        assert "imperative" not in sb["components"]
+
+    def test_multi_verb_bonus_gated(self):
+        """Multi-verb bonus only when imperative + target present."""
+        sb = score_breakdown("Build and test water_mining.py suite")
+        assert "multi_verb" in sb["components"]
+        assert sb["components"]["multi_verb"] == 0.5
+
+    def test_no_multi_verb_without_imperative(self):
+        """Non-imperative multi-verb gets no bonus."""
+        sb = score_breakdown("The team should build and test auth.py")
+        assert "multi_verb" not in sb["components"]
+
+    def test_length_bonus_short(self):
+        sb = score_breakdown("Build auth.py")
+        assert "length" not in sb["components"]
+
+    def test_length_bonus_medium(self):
+        text = "Build water_mining.py optimizer for the drill subsystem components"
+        sb = score_breakdown(text)
+        assert "length" in sb["components"]
+
+    def test_multi_target_bonus(self):
+        sb = score_breakdown("Build water_mining.py and solar_array.py")
+        assert "multi_target" in sb["components"]
+
+    def test_raw_total_is_sum(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        total = sum(sb["components"].values())
+        assert abs(sb["raw_total"] - total) < 0.01
+
+    def test_score_is_normalized(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        assert 0.0 <= sb["score"] <= 1.0
+
+    def test_score_equals_raw_over_10(self):
+        sb = score_breakdown("Build water_mining.py optimizer")
+        assert abs(sb["score"] - min(sb["raw_total"] / 10.0, 1.0)) < 0.01
+
+    def test_empty_text(self):
+        sb = score_breakdown("Make things work better everywhere")
+        assert sb["score"] >= 0.0
+
+    def test_consistent_with_validate(self):
+        """score_breakdown matches validate_seed's score."""
+        text = "Build water_mining.py optimizer for drilling"
+        sb = score_breakdown(text)
+        r = _vs(text)
+        assert abs(sb["score"] - r.score) < 0.01
+
+
+# ===================================================================
+# NEW: explain
+# ===================================================================
+
+class TestExplain:
+    def test_returns_string(self):
+        e = explain("Build water_mining.py optimizer")
+        assert isinstance(e, str)
+        assert len(e) > 10
+
+    def test_passed_label(self):
+        e = explain("Build water_mining.py optimizer")
+        assert "PASSED" in e
+
+    def test_rejected_label(self):
+        e = explain("Make everything better and amazing")
+        assert "REJECTED" in e
+
+    def test_contains_verb(self):
+        e = explain("Build water_mining.py optimizer")
+        assert "build" in e.lower()
+
+    def test_contains_target(self):
+        e = explain("Build water_mining.py optimizer")
+        assert "water_mining.py" in e
+
+    def test_contains_score(self):
+        e = explain("Build water_mining.py optimizer")
+        assert "score" in e.lower()
+
+    def test_junk_explanation(self):
+        e = explain("")
+        assert "junk" in e.lower()
+
+    def test_no_verb_suggestion(self):
+        e = explain("Something about the auth.py module")
+        assert "verb" in e.lower()
+
+    def test_commit_prefix_noted(self):
+        e = explain("feat: Build auth.py handler")
+        assert "commit prefix" in e.lower() or "Commit prefix" in e
+
+    def test_soft_artifact_explanation(self):
+        e = explain("the regex matched but failed to parse")
+        assert "artifact" in e.lower() or "REJECTED" in e
+
+    def test_confidence_in_explanation(self):
+        e = explain("Build water_mining.py optimizer")
+        assert "high" in e or "medium" in e or "low" in e
+
+    def test_components_in_explanation(self):
+        e = explain("Build water_mining.py optimizer")
+        assert "verb=" in e or "target=" in e
+
+
+# ===================================================================
+# NEW: Multi-verb gated bonus
+# ===================================================================
+
+class TestMultiVerbBonus:
+    def test_multi_verb_imperative_higher_score(self):
+        """Build + test at position 0 with target should score higher."""
+        single = score_breakdown("Build water_mining.py optimizer")
+        multi = score_breakdown("Build and test water_mining.py suite")
+        assert multi["score"] >= single["score"]
+
+    def test_no_bonus_without_target(self):
+        """Multi-verb without target gets no bonus."""
+        sb = score_breakdown("Build and test something quickly")
+        assert "multi_verb" not in sb["components"]
+
+    def test_no_bonus_non_imperative(self):
+        """Even with target, non-imperative multi-verb gets no bonus."""
+        sb = score_breakdown("We should build and test auth.py")
+        assert "multi_verb" not in sb["components"]
+
+    def test_bonus_value_is_half(self):
+        sb = score_breakdown("Build and test water_mining.py suite")
+        assert sb["components"].get("multi_verb", 0) == 0.5
+
+
+# ===================================================================
+# NEW: score_components on SeedGateResult
+# ===================================================================
+
+class TestScoreComponents:
+    def test_score_components_tuple(self):
+        r = _vs("Build water_mining.py optimizer")
+        assert isinstance(r.score_components, tuple)
+        assert len(r.score_components) > 0
+
+    def test_components_are_pairs(self):
+        r = _vs("Build water_mining.py optimizer")
+        for item in r.score_components:
+            assert len(item) == 2
+            name, value = item
+            assert isinstance(name, str)
+            assert isinstance(value, float)
+
+    def test_junk_has_empty_components(self):
+        r = _vs("x")
+        assert r.score_components == ()
+
+    def test_components_sum_matches_score(self):
+        r = _vs("Build water_mining.py optimizer")
+        comp_sum = sum(v for _, v in r.score_components)
+        assert abs(min(comp_sum / 10.0, 1.0) - r.score) < 0.01
+
+
+# ===================================================================
+# NEW: Property invariants for new features
+# ===================================================================
+
+class TestNewFeatureInvariants:
+    """Property-based invariants for new features."""
+
+    PROPOSALS = [
+        "Build water_mining.py optimizer",
+        "feat: Add auth.py handler",
+        "fix(core): Repair broken pipe",
+        "The team should build auth.py",
+        "Make everything better",
+        "Set up the solar_array.py config",
+        "",
+        "x",
+        "What if we explored consciousness?",
+    ]
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_explain_always_string(self, text):
+        e = explain(text)
+        assert isinstance(e, str)
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_score_breakdown_always_dict(self, text):
+        sb = score_breakdown(text)
+        assert isinstance(sb, dict)
+        assert "score" in sb
+        assert 0.0 <= sb["score"] <= 1.0
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_verb_position_consistent(self, text):
+        r = _vs(text)
+        if r.starts_with_verb:
+            assert r.verb_position == 0
+        if r.verb_position == 0 and r.verb_found:
+            assert r.starts_with_verb
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_explain_contains_passed_or_rejected(self, text):
+        e = explain(text)
+        assert "PASSED" in e or "REJECTED" in e
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_find_verb_with_position_consistent_with_find_verb(self, text):
+        from seed_gate import find_verb
+        v1 = find_verb(text)
+        v2, _ = find_verb_with_position(text)
+        assert v1 == v2
+
+
+# ===================================================================
+# NEW: Regression -- commit prefix edge cases
+# ===================================================================
+
+class TestCommitPrefixEdgeCases:
+    def test_revert_prefix(self):
+        r = _vs('revert: Fix water_mining.py issue')
+        assert r.passed
+
+    def test_build_prefix(self):
+        r = _vs('build: Compile solar_array.py module')
+        assert r.passed
+
+    def test_style_prefix_with_target(self):
+        r = _vs('style: Clean up auth.py formatting')
+        assert r.passed
+
+    def test_prefix_without_target_uses_implied_verb(self):
+        """feat: without target still needs target to pass (no exempt)."""
+        r = _vs("feat: Improve overall system performance")
+        assert not r.passed  # no target
+
+    def test_prefix_body_only_target_no_verb(self):
+        """Body has target but no verb -- commit prefix provides verb."""
+        r = _vs("feat: The water_mining.py subsystem")
+        # commit prefix provides implied verb 'build', body has target
+        assert r.passed
+
+    def test_nested_colon_not_prefix(self):
+        """Only first colon triggers prefix stripping."""
+        r = _vs("Build the config: water_mining.py parser")
+        assert r.commit_prefix_verb is None
+        assert r.passed
