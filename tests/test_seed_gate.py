@@ -4,7 +4,9 @@ Covers: verb detection, target detection (files, paths, tools, modules,
 CLI, discussions, channels, quoted), junk detection (hard + soft artifacts),
 scoring with unique-target counting, validation pass/fail, exempt tags,
 CLI, real-world proposals, edge cases, property invariants, smoke tests,
-propose_seed.py contract, and regression tests for false rejects.
+propose_seed.py contract, regression tests for false rejects, explain()
+diagnostics, score_breakdown() decomposition, commit-prefix stripping,
+and is_imperative property.
 """
 from __future__ import annotations
 
@@ -37,6 +39,8 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    explain,
+    score_breakdown,
 )
 
 
@@ -1652,3 +1656,501 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# NEW: Commit-prefix stripping
+# ===================================================================
+
+class TestCommitPrefixStripping:
+    """_strip_commit_prefix() and its effect on validation."""
+
+    def test_fix_prefix_passes(self):
+        r = _v("fix: Build auth.py and add error handling for login")
+        assert r["passed"], r["reasons"]
+        assert r["verb_found"] == "build"
+        assert r["commit_prefix"] == "fix: "
+
+    def test_feat_prefix_passes(self):
+        r = _v("feat: Add water_mining.py optimizer for better throughput")
+        assert r["passed"]
+        assert r["commit_prefix"] == "feat: "
+
+    def test_feat_scope_prefix(self):
+        r = _v("feat(auth): Add logging to state_io module system")
+        assert r["passed"]
+        assert r["commit_prefix"] == "feat(auth): "
+
+    def test_feat_scope_bang_prefix(self):
+        r = _v("feat(auth)!: Migrate state_io to new format entirely")
+        assert r["passed"]
+        assert r["commit_prefix"] == "feat(auth)!: "
+
+    def test_docs_prefix(self):
+        r = _v("docs: Document the seed_gate.py validator thoroughly")
+        assert r["passed"]
+        assert r["commit_prefix"] == "docs: "
+
+    def test_refactor_prefix(self):
+        r = _v("refactor: Optimize compute_trending.py query performance")
+        assert r["passed"]
+        assert r["commit_prefix"] == "refactor: "
+
+    def test_chore_prefix(self):
+        r = _v("chore: Clean up deprecated modules in src/thermal/ dir")
+        assert r["passed"]
+        assert r["commit_prefix"] == "chore: "
+
+    def test_no_prefix_empty(self):
+        r = _v("Build water_mining.py optimizer for efficiency")
+        assert r["commit_prefix"] == ""
+
+    def test_case_insensitive(self):
+        r = _v("FIX: Build auth.py handler for the login system")
+        assert r["passed"]
+        assert r["commit_prefix"].lower().startswith("fix")
+
+    def test_prefix_strip_prevents_lowercase_junk(self):
+        """'fix: build auth.py' would fail as lowercase without stripping."""
+        r = _v("fix: build auth.py handler for the login system")
+        assert r["passed"], "Commit-prefixed seeds should not be rejected as lowercase junk"
+
+    def test_non_commit_text_no_strip(self):
+        r = _v("Build the documentation for seed_gate.py system")
+        assert r["commit_prefix"] == ""
+
+    @pytest.mark.parametrize("prefix", [
+        "feat", "fix", "docs", "style", "refactor",
+        "perf", "test", "chore", "ci", "build", "revert",
+    ])
+    def test_all_conventional_prefixes(self, prefix):
+        text = f"{prefix}: Build auth.py handler for the system"
+        r = _v(text)
+        assert r["passed"], f"{prefix}: prefix should be stripped; reasons={r['reasons']}"
+        assert r["commit_prefix"].startswith(prefix)
+
+    def test_random_colon_not_stripped(self):
+        r = _v("Note: Build auth.py handler for the system")
+        assert r["commit_prefix"] == ""
+
+    def test_prefix_with_empty_scope(self):
+        r = _v("feat(): Build auth.py handler for the system")
+        assert r["passed"]
+        assert r["commit_prefix"] == "feat(): "
+
+
+# ===================================================================
+# NEW: is_imperative property
+# ===================================================================
+
+class TestIsImperative:
+    """SeedGateResult.is_imperative property."""
+
+    def test_verb_first_is_imperative(self):
+        r = _vs("Build water_mining.py optimizer for extraction")
+        assert r.is_imperative is True
+
+    def test_noun_first_not_imperative(self):
+        r = _vs("The water_mining.py module needs a Build step")
+        assert r.is_imperative is False
+
+    def test_inflected_verb_first_is_imperative(self):
+        r = _vs("Deploying auth.py to production for the team")
+        assert r.is_imperative is True
+
+    def test_phrasal_verb_first_is_imperative(self):
+        r = _vs("Set up auth.py configuration for the system")
+        assert r.is_imperative is True
+
+    def test_file_first_not_imperative(self):
+        r = _vs("auth.py needs to be built for production use")
+        assert r.is_imperative is False
+
+    def test_imperative_in_dict(self):
+        r = _v("Build auth.py handler for the login system")
+        assert r["is_imperative"] is True
+
+    def test_non_imperative_in_dict(self):
+        r = _v("The auth.py module should be tested for bugs")
+        assert r["is_imperative"] is False
+
+
+# ===================================================================
+# NEW: junk_reason field
+# ===================================================================
+
+class TestJunkReason:
+    """SeedGateResult.junk_reason field."""
+
+    def test_junk_has_reason(self):
+        r = _vs("")
+        assert r.junk is True
+        assert r.junk_reason != ""
+
+    def test_non_junk_empty_reason(self):
+        r = _vs("Build auth.py handler for the login system")
+        assert r.junk is False
+        assert r.junk_reason == ""
+
+    def test_short_text_junk_reason(self):
+        r = _vs("Too short")
+        assert "short" in r.junk_reason.lower()
+
+    def test_junk_reason_in_dict(self):
+        r = _v("   ")
+        assert r["junk"] is True
+        assert r["junk_reason"] != ""
+
+    def test_soft_artifact_junk_reason(self):
+        r = _vs("The regex captures something unexpected here")
+        if r.junk:
+            assert r.junk_reason != ""
+
+
+# ===================================================================
+# NEW: target_kind field
+# ===================================================================
+
+class TestTargetKind:
+    """SeedGateResult.target_kind field."""
+
+    def test_file_target_kind(self):
+        r = _vs("Build auth.py handler for the login system")
+        assert r.target_kind == "file"
+
+    def test_path_target_kind(self):
+        r = _vs("Build modules in src/thermal/ directory now")
+        assert r.target_kind == "path"
+
+    def test_tool_target_kind(self):
+        r = _vs("Fix state_io helper for atomic write system")
+        assert r.target_kind == "tool"
+
+    def test_discussion_target_kind(self):
+        r = _vs("Review the proposal in #12503 for seed gate")
+        assert r.target_kind == "discussion"
+
+    def test_empty_target_kind(self):
+        r = _vs("Make everything better and more amazing now")
+        assert r.target_kind == ""
+
+    def test_target_kind_in_dict(self):
+        r = _v("Build auth.py handler for the login system")
+        assert r["target_kind"] == "file"
+
+
+# ===================================================================
+# NEW: score_breakdown()
+# ===================================================================
+
+class TestScoreBreakdown:
+    """score_breakdown() decomposition of compute_score()."""
+
+    def test_has_all_components(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        assert "verb_bonus" in bd
+        assert "target_bonus" in bd
+        assert "target_kind" in bd
+        assert "length_bonus" in bd
+        assert "multi_target_bonus" in bd
+        assert "imperative_bonus" in bd
+        assert "raw" in bd
+        assert "total" in bd
+
+    def test_verb_bonus_present(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        assert bd["verb_bonus"] == 2.5
+
+    def test_no_verb_zero_bonus(self):
+        bd = score_breakdown("The auth.py system is currently offline today")
+        assert bd["verb_bonus"] == 0.0
+
+    def test_file_target_bonus(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        assert bd["target_bonus"] == 4.0
+        assert bd["target_kind"] == "file"
+
+    def test_no_target_zero_bonus(self):
+        bd = score_breakdown("Build something amazing and wonderful today")
+        assert bd["target_bonus"] == 0.0
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        assert bd["imperative_bonus"] == 0.5
+
+    def test_non_imperative_no_bonus(self):
+        bd = score_breakdown("The auth.py needs a Build step for production")
+        assert bd["imperative_bonus"] == 0.0
+
+    def test_multi_target_bonus(self):
+        bd = score_breakdown("Build auth.py and config.yaml for the system")
+        assert bd["multi_target_bonus"] == 1.0
+
+    def test_single_target_no_multi_bonus(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        assert bd["multi_target_bonus"] == 0.0
+
+    def test_length_bonus_short(self):
+        bd = score_breakdown("Build auth.py quickly")
+        assert bd["length_bonus"] == 0.0
+
+    def test_length_bonus_medium(self):
+        bd = score_breakdown("Build auth.py handler with improved error handling for login flow")
+        assert bd["length_bonus"] >= 0.5
+
+    def test_length_bonus_long(self):
+        text = "Build auth.py handler " + " ".join(["word"] * 15)
+        bd = score_breakdown(text)
+        assert bd["length_bonus"] == 1.5
+
+    def test_total_matches_compute_score(self):
+        from seed_gate import find_verb, find_target, compute_score
+        text = "Build auth.py and config.yaml for the deployment pipeline"
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        expected = compute_score(text, verb, target, kind)
+        bd = score_breakdown(text, verb, target, kind)
+        assert abs(bd["total"] - expected) < 0.001, (
+            f"breakdown total {bd['total']} != compute_score {expected}"
+        )
+
+    def test_raw_sum_equals_components(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        component_sum = (
+            bd["verb_bonus"] + bd["target_bonus"] + bd["length_bonus"]
+            + bd["multi_target_bonus"] + bd["imperative_bonus"]
+        )
+        assert abs(bd["raw"] - component_sum) < 0.001
+
+    def test_total_capped_at_1(self):
+        text = "Build auth.py config.yaml main.py test.py " + " ".join(["w"] * 20)
+        bd = score_breakdown(text)
+        assert bd["total"] <= 1.0
+
+    def test_explicit_args_override_auto(self):
+        bd = score_breakdown("Something without verbs or files", "build", "auth.py", "file")
+        assert bd["verb_bonus"] == 2.5
+        assert bd["target_bonus"] == 4.0
+
+    def test_none_verb_auto_detects(self):
+        bd = score_breakdown("Build auth.py handler for the login system")
+        assert bd["verb_bonus"] == 2.5
+
+    def test_breakdown_total_always_0_to_1(self):
+        for text in [
+            "Build auth.py and deploy config.yaml with test coverage for CI",
+            "x",
+            "",
+            "Fix bugs in the codebase right now please",
+        ]:
+            bd = score_breakdown(text)
+            assert 0.0 <= bd["total"] <= 1.0
+
+
+# ===================================================================
+# NEW: explain()
+# ===================================================================
+
+class TestExplain:
+    """explain() diagnostic breakdown."""
+
+    def test_explain_structure(self):
+        e = explain("Build auth.py handler for the login system")
+        assert "passed" in e
+        assert "verb" in e
+        assert "target" in e
+        assert "score" in e
+        assert "junk" in e
+        assert "confidence" in e
+        assert "suggestions" in e
+        assert "advisory" in e
+        assert "commit_prefix" in e
+        assert "reasons" in e
+
+    def test_explain_verb_section(self):
+        e = explain("Build auth.py handler for the login system")
+        assert e["verb"]["found"] == "build"
+        assert "build" in e["verb"]["all"]
+        assert e["verb"]["is_imperative"] is True
+
+    def test_explain_target_section(self):
+        e = explain("Build auth.py handler for the login system")
+        assert e["target"]["found"] == "auth.py"
+        assert e["target"]["kind"] == "file"
+
+    def test_explain_score_has_breakdown(self):
+        e = explain("Build auth.py handler for the login system")
+        assert "breakdown" in e["score"]
+        assert e["score"]["total"] > 0
+
+    def test_explain_junk_section(self):
+        e = explain("Build auth.py handler for the login system")
+        assert e["junk"]["is_junk"] is False
+        assert e["junk"]["reason"] == ""
+
+    def test_explain_junk_text(self):
+        e = explain("")
+        assert e["junk"]["is_junk"] is True
+        assert e["junk"]["reason"] != ""
+
+    def test_explain_passing_no_suggestions(self):
+        e = explain("Build auth.py handler for the login system")
+        assert e["passed"] is True
+        assert e["suggestions"] == []
+
+    def test_explain_failing_has_suggestions(self):
+        e = explain("Make everything better and more amazing now")
+        assert e["passed"] is False
+        assert len(e["suggestions"]) > 0
+
+    def test_explain_confidence_passing(self):
+        e = explain("Build auth.py handler for the login system")
+        assert e["confidence"] in ("high", "medium", "low")
+
+    def test_explain_confidence_failing(self):
+        e = explain("Vibes and abstract thoughts about the cosmos")
+        assert e["confidence"] is None
+
+    def test_explain_with_commit_prefix(self):
+        e = explain("fix: Build auth.py handler for the login system")
+        assert e["passed"] is True
+        assert e["commit_prefix"] == "fix: "
+        assert e["verb"]["found"] == "build"
+
+    def test_explain_multiple_verbs(self):
+        e = explain("Build auth.py and test config.yaml for deployment")
+        assert len(e["verb"]["all"]) >= 2
+
+    def test_explain_multiple_targets(self):
+        e = explain("Build auth.py and config.yaml for the deployment")
+        assert len(e["target"]["all"]) >= 2
+
+    def test_explain_no_verb_reasons(self):
+        e = explain("The auth.py system is completely broken today")
+        assert "No action verb found" in e["reasons"]
+
+    def test_explain_no_target_reasons(self):
+        e = explain("Build something amazing and wonderful today")
+        assert any("target" in r.lower() for r in e["reasons"])
+
+    def test_explain_exempt_tag(self):
+        e = explain("Explore consciousness and the meaning of existence", ["theme"])
+        assert e["passed"] is True
+
+    def test_explain_advisory_needs_specificity(self):
+        e = explain("Build something for the colony", ["theme"])
+        assert e["advisory"] == "needs-specificity" or e["passed"] is True
+
+    def test_explain_serializable(self):
+        e = explain("Build auth.py handler for the login system")
+        s = json.dumps(e)
+        parsed = json.loads(s)
+        assert parsed["passed"] is True
+
+    def test_explain_breakdown_matches_total(self):
+        e = explain("Build auth.py handler for the login system")
+        bd = e["score"]["breakdown"]
+        assert abs(bd["total"] - e["score"]["total"]) < 0.001
+
+
+# ===================================================================
+# NEW: Commit-prefix + validation integration
+# ===================================================================
+
+class TestCommitPrefixIntegration:
+    """Commit-prefix stripping integrates correctly with all validators."""
+
+    def test_commit_prefix_junk_detection(self):
+        """Text after prefix must pass junk detection."""
+        r = _v("fix: x")
+        assert r["junk"] is True
+
+    def test_commit_prefix_verb_extraction(self):
+        r = _v("fix: Build the solar_array.py controller for power")
+        assert r["verb_found"] == "build"
+
+    def test_commit_prefix_target_extraction(self):
+        r = _v("feat: Wire up auth.py to the login controller")
+        assert r["target_found"] == "auth.py"
+
+    def test_commit_prefix_score_computed(self):
+        r = _v("feat: Build auth.py and test config.yaml for pipeline")
+        assert r["score"] > 0
+
+    def test_commit_prefix_imperative_detected(self):
+        r = _vs("fix: Build auth.py handler for the login system")
+        assert r.is_imperative is True
+
+    def test_commit_prefix_not_counted_as_verb(self):
+        """'fix' in prefix shouldn't be the verb -- 'build' after it should."""
+        r = _vs("fix: Build auth.py handler for the login system")
+        assert r.verb_found == "build"
+
+
+# ===================================================================
+# NEW: Property invariants for new features
+# ===================================================================
+
+class TestNewFeatureInvariants:
+    """Property-based invariants for the new features."""
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py handler for the login system",
+        "fix: Deploy config.yaml to production environment",
+        "feat(auth)!: Migrate state_io to new format",
+        "Make everything better and more amazing now",
+        "",
+        "x",
+        "The regex captures something unexpected here",
+    ])
+    def test_explain_always_valid_structure(self, text):
+        e = explain(text)
+        assert isinstance(e["passed"], bool)
+        assert isinstance(e["verb"], dict)
+        assert isinstance(e["target"], dict)
+        assert isinstance(e["score"], dict)
+        assert isinstance(e["junk"], dict)
+        assert isinstance(e["suggestions"], list)
+        assert isinstance(e["reasons"], list)
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py handler for the login system",
+        "fix: Deploy config.yaml to production environment",
+        "",
+        "Make stuff better",
+    ])
+    def test_score_breakdown_always_valid(self, text):
+        bd = score_breakdown(text)
+        for key in ("verb_bonus", "target_bonus", "length_bonus",
+                     "multi_target_bonus", "imperative_bonus", "raw", "total"):
+            assert key in bd
+            assert isinstance(bd[key], float), f"{key} is not float"
+        assert 0.0 <= bd["total"] <= 1.0
+
+    def test_is_imperative_always_bool(self):
+        for text in [
+            "Build auth.py", "The auth.py module", "fix: test it",
+            "x", "",
+        ]:
+            r = _vs(text) if len(text) > 14 else None
+            if r:
+                assert isinstance(r.is_imperative, bool)
+
+    def test_commit_prefix_always_string(self):
+        for text in [
+            "Build auth.py handler for the system now",
+            "fix: Build auth.py handler for the system",
+            "feat(x)!: Build auth.py handler for system",
+        ]:
+            r = _vs(text)
+            assert isinstance(r.commit_prefix, str)
+
+    def test_explain_score_breakdown_consistent(self):
+        """explain()'s score.total and score.breakdown.total must match."""
+        for text in [
+            "Build auth.py and config.yaml for deployment pipeline",
+            "fix: Deploy state_io to production immediately now",
+            "Make everything better and more amazing overall",
+        ]:
+            e = explain(text)
+            assert abs(e["score"]["total"] - e["score"]["breakdown"]["total"]) < 0.001
