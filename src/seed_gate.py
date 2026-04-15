@@ -39,6 +39,11 @@ Evolution log:
     This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb inflection normalization (_normalize_verb):
+                  handles -ing/-ed/-s/-es/-ied forms → base verb.
+                  Inflected phrasal verbs ("setting up", "cleaned up").
+                  Version-string filter (v1.2.3 ≠ file). Confidence
+                  property on SeedGateResult (high/medium/low).
 """
 from __future__ import annotations
 
@@ -96,6 +101,68 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
 
+# ---------------------------------------------------------------------------
+# Verb inflection normalization (PR #252 idea, evolved)
+# ---------------------------------------------------------------------------
+
+def _generate_stem_candidates(word: str) -> set[str]:
+    """Generate possible base forms of an inflected English word."""
+    w = word.lower()
+    candidates: set[str] = {w}
+    # -ing: building→build, writing→write, running→run
+    if w.endswith("ing") and len(w) > 4:
+        base = w[:-3]
+        candidates.add(base)
+        candidates.add(base + "e")
+        if len(base) > 2 and base[-1] == base[-2]:
+            candidates.add(base[:-1])
+    # -ed: deployed→deploy, optimized→optimize, shipped→ship
+    if w.endswith("ed") and len(w) > 3:
+        base = w[:-2]
+        candidates.add(base)
+        candidates.add(base + "e")
+        if len(base) > 2 and base[-1] == base[-2]:
+            candidates.add(base[:-1])
+    # -ied: e.g. "dirtied" → base + y (future-proof)
+    if w.endswith("ied") and len(w) > 4:
+        candidates.add(w[:-3] + "y")
+    # -es: fixes→fix, patches→patch
+    if w.endswith("es") and len(w) > 3 and not w.endswith("sses"):
+        candidates.add(w[:-2])
+        candidates.add(w[:-1])
+    # -s: tests→test, builds→build
+    if w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+        candidates.add(w[:-1])
+    return candidates
+
+
+def _normalize_verb(word: str) -> str | None:
+    """Strip common English inflectional suffixes and return base verb.
+
+    Returns the canonical ACTION_VERBS form if found, else None.
+    Safe: always validates against ACTION_VERBS — no false verbs created.
+    """
+    for c in _generate_stem_candidates(word):
+        if c in ACTION_VERBS:
+            return c
+    return None
+
+
+_PHRASAL_ROOTS: frozenset[str] = frozenset(_PHRASAL_FIRST.keys())
+
+
+def _normalize_to_phrasal_root(word: str) -> str | None:
+    """Normalize an inflected word to a phrasal-verb first word.
+
+    E.g. 'setting' → 'set', 'rolling' → 'roll', 'scaled' → 'scale'.
+    Returns a key from _PHRASAL_FIRST if found, else None.
+    """
+    for c in _generate_stem_candidates(word):
+        if c in _PHRASAL_ROOTS:
+            return c
+    return None
+
+
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
@@ -110,6 +177,9 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
     "e.g", "i.e", "a.m", "p.m", "vs.",
 })
+
+# Version strings that FILE_RE would false-match: v1.2, 3.11, v2.0.1
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?$", re.I)
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -273,6 +343,17 @@ class SeedGateResult:
     def target(self) -> str:
         return self.target_found or ""
 
+    @property
+    def confidence(self) -> str:
+        """Map score to confidence level: high/medium/low/empty."""
+        if self.score >= 0.7:
+            return "high"
+        if self.score >= 0.4:
+            return "medium"
+        if self.score > 0:
+            return "low"
+        return ""
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -282,6 +363,7 @@ class SeedGateResult:
             "target_found": self.target_found,
             "junk": self.junk,
             "advisory": self.advisory,
+            "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -327,20 +409,36 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    stripped = match_text.lower().rstrip(".")
+    if stripped in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single or phrasal).
+
+    Handles inflected forms: 'Building ...', 'Optimized ...', 'Tests ...'
+    Also handles inflected phrasal verbs: 'Setting up ...', 'Rolled back ...'
+    """
     words = text.split()
     if not words:
         return False
     first = words[0].lower()
+    # Check phrasal verbs (exact first word)
     if first in _PHRASAL_FIRST and len(words) > 1:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    # Check inflected phrasal: "Setting up ...", "Rolled back ..."
+    phrasal_root = _normalize_to_phrasal_root(first)
+    if phrasal_root and len(words) > 1:
+        second = words[1].lower()
+        if second in _PHRASAL_FIRST[phrasal_root]:
+            return True
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,21 +454,40 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Handles inflected forms: 'building' → 'build', 'optimized' → 'optimize'.
+    Also handles inflected phrasal verbs: 'setting up' → 'set up'.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
+        # Check phrasal verbs (exact first word)
         if word in _PHRASAL_FIRST and i + 1 < len(words):
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
                 return _PHRASAL_FIRST[word][next_word]
+        # Check phrasal verbs (inflected first word)
+        phrasal_root = _normalize_to_phrasal_root(word)
+        if phrasal_root and phrasal_root != word and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word in _PHRASAL_FIRST[phrasal_root]:
+                return _PHRASAL_FIRST[phrasal_root][next_word]
+        # Check single verbs (exact then normalized)
         if word in ACTION_VERBS:
             return word
+        norm = _normalize_verb(word)
+        if norm:
+            return norm
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Handles inflected forms — returns canonical base forms.
+    Also handles inflected phrasal verbs.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -379,6 +496,7 @@ def find_all_verbs(text: str) -> list[str]:
         if skip_next:
             skip_next = False
             continue
+        # Phrasal verbs (exact first word)
         if word in _PHRASAL_FIRST and i + 1 < len(words):
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
@@ -388,9 +506,26 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
+        # Phrasal verbs (inflected first word)
+        phrasal_root = _normalize_to_phrasal_root(word)
+        if phrasal_root and phrasal_root != word and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word in _PHRASAL_FIRST[phrasal_root]:
+                v = _PHRASAL_FIRST[phrasal_root][next_word]
+                if v not in seen:
+                    seen.add(v)
+                    result.append(v)
+                skip_next = True
+                continue
+        # Single verbs (exact then normalized)
         if word in ACTION_VERBS and word not in seen:
             seen.add(word)
             result.append(word)
+        else:
+            norm = _normalize_verb(word)
+            if norm and norm not in seen and word not in ACTION_VERBS:
+                seen.add(norm)
+                result.append(norm)
     return result
 
 

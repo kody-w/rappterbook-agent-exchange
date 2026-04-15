@@ -1376,3 +1376,381 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# NEW: Verb inflection normalization tests
+# ===================================================================
+
+class TestNormalizeVerb:
+    """Tests for _normalize_verb() — suffix stripping to base verb."""
+
+    def test_exact_match_passthrough(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("build") == "build"
+        assert _normalize_verb("test") == "test"
+        assert _normalize_verb("deploy") == "deploy"
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("building", "build"),
+        ("implementing", "implement"),
+        ("writing", "write"),
+        ("running", "run"),
+        ("shipping", "ship"),
+        ("deploying", "deploy"),
+        ("computing", "compute"),
+        ("analyzing", "analyze"),
+        ("caching", "cache"),
+        ("generating", "generate"),
+        ("monitoring", "monitor"),
+        ("profiling", "profile"),
+        ("configuring", "configure"),
+        ("containerizing", "containerize"),
+        ("debugging", "debug"),
+        ("testing", "test"),
+        ("logging", "log"),
+        ("tracking", "track"),
+        ("scheduling", "schedule"),
+        ("publishing", "publish"),
+    ])
+    def test_ing_forms(self, inflected, expected):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == expected
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("deployed", "deploy"),
+        ("optimized", "optimize"),
+        ("implemented", "implement"),
+        ("shipped", "ship"),
+        ("computed", "compute"),
+        ("cached", "cache"),
+        ("configured", "configure"),
+        ("generated", "generate"),
+        ("archived", "archive"),
+        ("published", "publish"),
+        ("benchmarked", "benchmark"),
+        ("patched", "patch"),
+        ("resolved", "resolve"),
+    ])
+    def test_ed_forms(self, inflected, expected):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == expected
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("tests", "test"),
+        ("builds", "build"),
+        ("deploys", "deploy"),
+        ("ships", "ship"),
+        ("fixes", "fix"),
+        ("patches", "patch"),
+        ("publishes", "publish"),
+        ("launches", "launch"),
+        ("merges", "merge"),
+        ("compiles", "compile"),
+        ("containerizes", "containerize"),
+    ])
+    def test_s_es_forms(self, inflected, expected):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == expected
+
+    def test_non_verb_returns_none(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("potato") is None
+        assert _normalize_verb("nothing") is None
+        assert _normalize_verb("string") is None
+        assert _normalize_verb("king") is None
+        assert _normalize_verb("the") is None
+
+    def test_short_words_safe(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("a") is None
+        assert _normalize_verb("is") is None
+        assert _normalize_verb("go") is None
+
+    def test_case_insensitive(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("Building") == "build"
+        assert _normalize_verb("TESTING") == "test"
+
+
+class TestInflectedVerbsInFindVerb:
+    """Verify inflected verbs work through the public find_verb() API."""
+
+    def test_building_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Building water_mining.py optimizer") == "build"
+
+    def test_optimized_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Optimized the solar_array.py module") == "optimize"
+
+    def test_implementing_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Implementing new fuel_cell.py backend") == "implement"
+
+    def test_tests_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Tests for seed_gate.py validation") == "test"
+
+    def test_fixes_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Fixes for rover.py navigation bug") == "fix"
+
+    def test_exact_preferred_over_inflected(self):
+        """Exact match in ACTION_VERBS should take priority."""
+        from seed_gate import find_verb
+        assert find_verb("test the module") == "test"
+        assert find_verb("build the thing") == "build"
+
+
+class TestInflectedPhrasalVerbs:
+    """Verify inflected phrasal verbs: setting up, rolling back, etc."""
+
+    def test_setting_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Setting up the deployment pipeline") == "set up"
+
+    def test_cleaning_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Cleaning up dead code in state_io.py") == "clean up"
+
+    def test_wiring_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Wiring up the new API endpoints") == "wire up"
+
+    def test_spinning_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Spinning up a test environment") == "spin up"
+
+    def test_rolling_back(self):
+        from seed_gate import find_verb
+        assert find_verb("Rolling back the migration safely") == "roll back"
+
+    def test_tearing_down(self):
+        from seed_gate import find_verb
+        assert find_verb("Tearing down old infrastructure") == "tear down"
+
+    def test_scaled_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Scaled up the reactor module") == "scale up"
+
+    def test_cleaned_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Cleaned up the test suite thoroughly") == "clean up"
+
+
+class TestInflectedFindAllVerbs:
+    """Verify find_all_verbs() handles inflections."""
+
+    def test_mixed_inflections(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Building and testing water_mining.py, then deploying")
+        assert "build" in verbs
+        assert "test" in verbs
+        assert "deploy" in verbs
+
+    def test_inflected_phrasal_in_all_verbs(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Setting up and testing the module")
+        assert "set up" in verbs
+        assert "test" in verbs
+
+    def test_dedup_inflected_and_base(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Build and building the water_mining.py")
+        assert verbs.count("build") == 1
+
+
+class TestInflectedStartsWithVerb:
+    """Verify _starts_with_verb() handles inflections (critical for lowercase)."""
+
+    def test_building_starts_with_verb(self):
+        from seed_gate import _starts_with_verb
+        assert _starts_with_verb("building water_mining.py from scratch")
+
+    def test_testing_starts_with_verb(self):
+        from seed_gate import _starts_with_verb
+        assert _starts_with_verb("testing the rover module carefully")
+
+    def test_setting_up_starts_with_verb(self):
+        from seed_gate import _starts_with_verb
+        assert _starts_with_verb("setting up the deployment pipeline")
+
+    def test_random_word_not_verb(self):
+        from seed_gate import _starts_with_verb
+        assert not _starts_with_verb("potato is not a verb")
+
+
+class TestInflectedProposalsPassGate:
+    """Full end-to-end: inflected proposals pass the specificity gate."""
+
+    def test_building_proposal_passes(self):
+        r = _v("Building water_mining.py optimizer for drilling")
+        assert r["passed"], r["reasons"]
+        assert r["verb_found"] == "build"
+
+    def test_optimized_proposal_passes(self):
+        r = _v("Optimized the solar_array.py power distribution")
+        assert r["passed"], r["reasons"]
+        assert r["verb_found"] == "optimize"
+
+    def test_implementing_proposal_passes(self):
+        r = _v("Implementing new fuel_cell.py power management backend")
+        assert r["passed"], r["reasons"]
+        assert r["verb_found"] == "implement"
+
+    def test_lowercase_building_passes(self):
+        """Lowercase inflected verb should pass junk filter."""
+        r = _v("building water_mining.py optimizer for the colony")
+        assert r["passed"], r["reasons"]
+
+    def test_setting_up_proposal_passes(self):
+        r = _v("Setting up the deploy.yml pipeline for CI")
+        assert r["passed"], r["reasons"]
+        assert r["verb_found"] == "set up"
+
+    def test_cleaning_up_proposal_passes(self):
+        r = _v("Cleaning up dead code in state_io.py module")
+        assert r["passed"], r["reasons"]
+
+
+# ===================================================================
+# NEW: Version-string filter tests
+# ===================================================================
+
+class TestVersionStringFilter:
+    """Version strings (v1.2, 3.11.1) should NOT be file targets."""
+
+    def test_v_version_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("v1.2")
+        assert _is_false_file_match("v2.0.1")
+        assert _is_false_file_match("v10.3.4")
+
+    def test_bare_version_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("3.11")
+        assert _is_false_file_match("3.11.1")
+
+    def test_version_with_pre_release(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("v1.0.0-beta")
+        assert _is_false_file_match("v2.1.0-rc.1")
+
+    def test_real_file_not_filtered(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("seed_gate.py")
+        assert not _is_false_file_match("config.json")
+        assert not _is_false_file_match("rover.py")
+
+    def test_version_in_proposal_no_false_target(self):
+        """A proposal mentioning a version should not get the version as target."""
+        r = _v("Upgrade Python to v3.12 and test the module ecosystem")
+        assert r.get("target_found") != "v3.12"
+        assert r.get("target_found") != "3.12"
+
+    def test_file_plus_version(self):
+        """Real file should be found even when version is present."""
+        from seed_gate import find_target
+        target, kind = find_target("Upgrade rover.py to support Python 3.12")
+        assert target == "rover.py"
+        assert kind == "file"
+
+
+# ===================================================================
+# NEW: Confidence property tests
+# ===================================================================
+
+class TestConfidence:
+    """Confidence property on SeedGateResult."""
+
+    def test_high_confidence(self):
+        r = _vs("Build water_mining.py and solar_array.py optimizer with advanced drilling algorithms for the colony habitat")
+        assert r.confidence == "high"
+        assert r.score >= 0.7
+
+    def test_medium_confidence(self):
+        """A verb + file target should be at least medium."""
+        r = _vs("Build rover.py navigation module")
+        assert r.confidence in ("medium", "high")
+        assert r.score >= 0.4
+
+    def test_low_confidence_exempt(self):
+        """Exempt tag with verb but no target gets low/medium."""
+        r = _vs("Explore the nature of consciousness deeply", tags=["theme"])
+        assert r.confidence in ("low", "medium")
+        assert r.score > 0
+
+    def test_zero_confidence_junk(self):
+        r = _vs("")
+        assert r.confidence == ""
+        assert r.score == 0.0
+
+    def test_confidence_in_dict(self):
+        r = _v("Build water_mining.py optimizer for drilling")
+        assert "confidence" in r
+        assert r["confidence"] in ("high", "medium", "low", "")
+
+    def test_confidence_invariant_matches_score(self):
+        """Property invariant: confidence always matches score ranges."""
+        test_texts = [
+            "Build water_mining.py and solar_array.py optimizer with advanced drilling algorithms for the colony",
+            "Build rover.py navigation module",
+            "Explore consciousness in the simulation deeply",
+            "",
+            "Fix rover.py navigation bug in pathfinding module",
+        ]
+        for text in test_texts:
+            r = _vs(text, tags=["theme"] if "Explore" in text else [])
+            if r.score >= 0.7:
+                assert r.confidence == "high", f"score={r.score} text={text!r}"
+            elif r.score >= 0.4:
+                assert r.confidence == "medium", f"score={r.score} text={text!r}"
+            elif r.score > 0:
+                assert r.confidence == "low", f"score={r.score} text={text!r}"
+            else:
+                assert r.confidence == "", f"score={r.score} text={text!r}"
+
+
+# ===================================================================
+# NEW: Noun-phrase edge cases (rubber-duck recommendation)
+# ===================================================================
+
+class TestNounPhraseEdgeCases:
+    """Ensure inflection doesn't create excessive false admissions from nouns."""
+
+    def test_noun_with_target_still_passes(self):
+        """'Regression tests for seed_gate.py' has target — OK to pass."""
+        r = _v("Regression tests for seed_gate.py validation suite")
+        assert r["passed"]  # has target, "tests" → "test" verb
+        assert r["verb_found"] == "test"
+
+    def test_pure_noun_no_target_fails(self):
+        """'Architecture designs for the future' — no target → fails."""
+        r = _v("Architecture designs for the future of everything")
+        assert not r["passed"]
+
+    def test_noun_alerts_with_target_passes(self):
+        """'Alerts for state_io' — has tool target, OK to pass."""
+        r = _v("Alerts for state_io monitoring dashboard")
+        assert r["passed"]
+
+
+# ===================================================================
+# NEW: Backward compat — new dict keys
+# ===================================================================
+
+class TestBackwardCompatConfidence:
+    """Ensure confidence key doesn't break consumers."""
+
+    def test_all_dict_keys_present(self):
+        r = validate("Build auth.py")
+        expected = {"passed", "reasons", "score", "verb_found", "target_found",
+                    "junk", "advisory", "confidence", "all_verbs", "all_targets"}
+        assert expected.issubset(set(r.keys()))
+
+    def test_batch_results_include_confidence(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py", "Fix rover.py bug"])
+        for _, result in br.passed_items:
+            assert "confidence" in result
