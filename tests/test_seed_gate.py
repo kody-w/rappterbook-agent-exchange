@@ -1376,3 +1376,279 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ============================================================
+# Tests for PR #256: inflected verbs, version filter, confidence,
+# suggest(), env vars, expanded tools, imperative bonus
+# ============================================================
+
+from seed_gate import (
+    find_verb,
+    find_all_verbs,
+    find_target,
+    compute_score,
+)
+
+
+class TestInflectionMap:
+    """Test the generated inflection map."""
+
+    def test_map_is_populated(self):
+        from seed_gate import _INFLECTION_MAP
+        assert len(_INFLECTION_MAP) > 200
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("builds", "build"), ("building", "build"), ("built", "build"),
+        ("tests", "test"), ("testing", "test"), ("tested", "test"),
+        ("deploys", "deploy"), ("deploying", "deploy"), ("deployed", "deploy"),
+        ("creates", "create"), ("creating", "create"), ("created", "create"),
+        ("fixes", "fix"), ("fixing", "fix"), ("fixed", "fix"),
+        ("writes", "write"), ("writing", "write"), ("wrote", "write"),
+        ("runs", "run"), ("running", "run"), ("ran", "run"),
+        ("ships", "ship"), ("shipping", "ship"), ("shipped", "ship"),
+        ("adds", "add"), ("adding", "add"), ("added", "add"),
+        ("refactors", "refactor"), ("refactoring", "refactor"),
+        ("debugs", "debug"), ("debugging", "debug"), ("debugged", "debug"),
+    ])
+    def test_inflection_map_entries(self, inflected, expected):
+        from seed_gate import _INFLECTION_MAP
+        assert _INFLECTION_MAP.get(inflected) == expected, (
+            f"{inflected} should map to {expected}"
+        )
+
+    @pytest.mark.parametrize("irregular,expected", [
+        ("built", "build"), ("wrote", "write"), ("ran", "run"),
+    ])
+    def test_irregular_past(self, irregular, expected):
+        from seed_gate import _INFLECTION_MAP
+        assert _INFLECTION_MAP.get(irregular) == expected
+
+    def test_irregular_only_valid_bases(self):
+        """Irregular past entries must map to verbs in ACTION_VERBS."""
+        from seed_gate import _IRREGULAR_PAST, _INFLECTION_MAP, ACTION_VERBS
+        for form, base in _IRREGULAR_PAST.items():
+            if base in ACTION_VERBS:
+                assert form in _INFLECTION_MAP
+
+    def test_no_false_positives(self):
+        from seed_gate import _INFLECTION_MAP
+        for word in ["nothing", "during", "morning", "something", "string",
+                      "everything", "testing123", "interesting"]:
+            assert word not in _INFLECTION_MAP, f"{word} should NOT be in map"
+
+
+class TestInflectedVerbDetection:
+    """Test that inflected verbs are detected by find_verb/find_all_verbs."""
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("Builds the thermal_control.py module", "build"),
+        ("Creating water_mining.py from scratch", "create"),
+        ("Deployed config.yaml to production", "deploy"),
+        ("Implementing the new auth flow", "implement"),
+        ("Refactoring state_io.py for clarity", "refactor"),
+        ("Shipped v2 of the dashboard", "ship"),
+        ("Debugging the flaky test in ci.yml", "debug"),
+    ])
+    def test_find_verb_inflected(self, text, expected_verb):
+        assert find_verb(text) == expected_verb
+
+    def test_find_all_verbs_with_inflected(self):
+        text = "Building auth.py and deploying config.yaml"
+        verbs = find_all_verbs(text)
+        assert "build" in verbs
+        assert "deploy" in verbs
+
+
+class TestInflectedPhrasalVerbs:
+    """Test inflected phrasal verb detection."""
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("Setting up the CI pipeline", "set up"),
+        ("Rolling back the deployment", "roll back"),
+        ("Spinning up new workers", "spin up"),
+        ("Tearing down the test fixtures", "tear down"),
+        ("Wiring up the auth module", "wire up"),
+    ])
+    def test_inflected_phrasal(self, text, expected_verb):
+        assert find_verb(text) == expected_verb
+
+    def test_inflected_phrasal_in_find_all(self):
+        verbs = find_all_verbs("Setting up auth.py and rolling back config.yaml")
+        assert "set up" in verbs
+        assert "roll back" in verbs
+
+
+class TestVersionFilter:
+    """Test that version strings are NOT matched as file targets."""
+
+    @pytest.mark.parametrize("version", [
+        "2.0.1", "v1.2.3", "1.0", "3.14.159", "v0.1.0-beta",
+    ])
+    def test_version_not_matched_as_file(self, version):
+        target, kind = find_target(f"Update to version {version}") or ("", "")
+        assert target != version, f"{version} should not match as file target"
+
+    @pytest.mark.parametrize("real_file", [
+        "module2.py", "release-v1.2.3.md", "seed_gate_v2.py",
+    ])
+    def test_versioned_files_still_match(self, real_file):
+        target, kind = find_target(f"Build {real_file}") or ("", "")
+        assert target == real_file, f"Versioned file {real_file} should still match"
+
+
+class TestConfidenceProperty:
+    """Test the confidence band property on SeedGateResult."""
+
+    def test_high_confidence(self):
+        result = validate_seed("Build the thermal_control.py module from scratch with full test coverage")
+        assert result.passed
+        assert result.confidence == "high"
+
+    def test_medium_confidence(self):
+        result = validate_seed("Fix the auth.py login handler")
+        assert result.passed
+        assert result.confidence in ("medium", "high")
+
+    def test_none_on_failure(self):
+        result = validate_seed("just vibes")
+        assert not result.passed
+        assert result.confidence is None
+
+    def test_confidence_in_to_dict(self):
+        result = validate_seed("Build thermal_control.py")
+        d = result.to_dict()
+        assert "confidence" in d
+        assert d["confidence"] in ("high", "medium", "low", None)
+
+
+class TestSuggestAPI:
+    """Test the suggest() function for rejection feedback."""
+
+    def test_no_suggestions_for_passing(self):
+        from seed_gate import suggest
+        result = suggest("Build thermal_control.py")
+        assert result == []
+
+    def test_suggests_verb_when_missing(self):
+        from seed_gate import suggest
+        result = suggest("the thermal_control.py module")
+        assert any("verb" in s.lower() for s in result)
+
+    def test_suggests_target_when_missing(self):
+        from seed_gate import suggest
+        result = suggest("Build something cool")
+        assert any("target" in s.lower() or "filename" in s.lower() for s in result)
+
+    def test_suggests_rewrite_for_junk(self):
+        from seed_gate import suggest
+        result = suggest("fix stuff lol")
+        # Either junk or missing target suggestion
+        assert len(result) >= 1
+
+
+class TestEnvVarTargets:
+    """Test environment variable target detection."""
+
+    @pytest.mark.parametrize("text,expected_var", [
+        ("Set $STATE_DIR to /tmp", "$STATE_DIR"),
+        ("Configure ${GITHUB_TOKEN} for auth", "${GITHUB_TOKEN}"),
+        ("Update $DOCS_DIR path", "$DOCS_DIR"),
+    ])
+    def test_env_var_found(self, text, expected_var):
+        target, kind = find_target(text) or ("", "")
+        assert target == expected_var
+        assert kind == "env"
+
+    def test_env_var_in_find_all_targets(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Set $STATE_DIR and $DOCS_DIR")
+        names = [t[0] for t in targets]
+        assert "$STATE_DIR" in names
+        assert "$DOCS_DIR" in names
+
+
+class TestExpandedKnownTools:
+    """Test that newly added tools are recognized."""
+
+    @pytest.mark.parametrize("tool", [
+        "inject_seed", "tally_votes", "steer", "reconcile_state",
+        "run_proof", "run_python", "vlink",
+    ])
+    def test_new_tool_found(self, tool):
+        target, kind = find_target(f"Run {tool} to verify") or ("", "")
+        assert target == tool
+        assert kind == "tool"
+
+
+class TestImperativeBonus:
+    """Test the imperative scoring bonus."""
+
+    def test_imperative_higher(self):
+        imperative = compute_score("Build auth.py from scratch", "build", "auth.py", "file")
+        declarative = compute_score("The auth.py module needs to be built", "build", "auth.py", "file")
+        assert imperative > declarative
+
+    def test_inflected_imperative(self):
+        # Even inflected verbs at start should get the bonus
+        score = compute_score("Building auth.py from scratch", "build", "auth.py", "file")
+        assert score > 0.5
+
+
+class TestNounUseFalsePositives:
+    """Ensure words that look like verb inflections but are nouns don't match."""
+
+    @pytest.mark.parametrize("text", [
+        "Nothing works in the thermal_control.py system",
+        "During the morning review of auth.py we found bugs",
+        "Something strange with the water_mining.py module",
+    ])
+    def test_non_verb_words_ignored(self, text):
+        from seed_gate import _INFLECTION_MAP
+        for word in ["nothing", "during", "morning", "something", "strange"]:
+            assert word not in _INFLECTION_MAP
+
+
+class TestInflectionInvariants:
+    """Property-based invariants for the inflection system."""
+
+    def test_all_map_values_are_action_verbs(self):
+        from seed_gate import _INFLECTION_MAP, ACTION_VERBS, PHRASAL_VERBS
+        canonical = ACTION_VERBS | set(PHRASAL_VERBS.values())
+        for form, base in _INFLECTION_MAP.items():
+            assert base in canonical, f"{form} maps to {base} which is not a known verb"
+
+    def test_inflected_verb_always_returns_base(self):
+        from seed_gate import _INFLECTION_MAP
+        for form, base in list(_INFLECTION_MAP.items())[:50]:
+            found = find_verb(f"{form} something")
+            assert found == base, f"find_verb('{form} something') = {found}, expected {base}"
+
+    def test_double_final_all_in_action_verbs_or_phrasal(self):
+        from seed_gate import _DOUBLE_FINAL, ACTION_VERBS, PHRASAL_VERBS
+        head_words = {phrase.split()[0] for phrase in PHRASAL_VERBS}
+        for verb in _DOUBLE_FINAL:
+            assert verb in ACTION_VERBS or verb in head_words, (
+                f"{verb} in _DOUBLE_FINAL but not in ACTION_VERBS or phrasal heads"
+            )
+
+    def test_score_always_0_to_1(self):
+        for text in [
+            "Build auth.py and deploy config.yaml with full test coverage for the CI pipeline",
+            "x",
+            "",
+            "Fix bugs",
+        ]:
+            s = compute_score(text, find_verb(text), *(find_target(text) or ("", "")))
+            assert 0.0 <= s <= 1.0, f"Score {s} out of bounds for: {text}"
+
+    def test_confidence_always_valid(self):
+        for text in ["Build auth.py", "Fix stuff", "x"]:
+            result = validate_seed(text)
+            assert result.confidence in ("high", "medium", "low", None)
+
+    def test_suggestions_always_list(self):
+        from seed_gate import suggest
+        for text in ["Build auth.py", "vibes only", "x"]:
+            result = suggest(text)
+            assert isinstance(result, list)
