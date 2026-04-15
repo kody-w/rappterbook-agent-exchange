@@ -14,7 +14,7 @@ Two public APIs -- pick whichever suits the call-site:
 
     # Dataclass API
     result = validate_seed_result(text, tags)  # -> SeedGateResult
-    if not result.passes: ...
+    if not result.passed: ...
 
     # Bool convenience
     ok = passes_gate(text, tags)
@@ -42,6 +42,8 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "parse", "extract", "transform", "convert", "compile",
     "monitor", "track", "log", "alert",
     "document", "map", "diagram", "prototype",
+    "explore", "investigate", "analyze", "evaluate", "assess",
+    "consider", "debate", "discuss", "propose", "plan",
 })
 
 # Target regex patterns (compiled once)
@@ -84,11 +86,11 @@ EXEMPT_TAGS: frozenset[str] = frozenset({
 # Junk signals -- if these appear the proposal is almost certainly garbage
 _JUNK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*[`|,()\-]"),              # starts with junk punctuation
-    re.compile(r"^[a-z]"),                      # starts lowercase (fragment)
+    re.compile(r"^[a-z]"),                       # starts lowercase (fragment)
     re.compile(r"^\d+\.\s"),                    # numbered list item
-    re.compile(r"^https?://"),                   # bare URL
+    re.compile(r"^https?://"),                    # bare URL
     re.compile(r"(?:TODO|FIXME|HACK)\b", re.I), # leftover comment
-    re.compile(r"^\s*$"),                        # blank / whitespace-only
+    re.compile(r"^\s*$"),                         # blank / whitespace-only
 ]
 
 # Exception: `run_` prefix is OK even though it starts lowercase
@@ -102,22 +104,35 @@ _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 class SeedGateResult:
     """Immutable result of seed-gate validation."""
 
-    passes: bool
-    reasons: list[str]
-    score: int          # 0-10 specificity score (informational)
-    verb: str           # first detected verb, or ""
-    target: str         # first detected target, or ""
-    code: str           # machine-readable result code
+    passed: bool
+    reasons: tuple       # empty if passed; join-able with '; '
+    score: float         # 0.0-1.0 specificity score
+    verb_found: object   # first detected verb (str), or None
+    target_found: object # first detected target (str), or None
+    junk: bool           # True if proposal is junk/fragment
 
-    def to_dict(self) -> dict[str, object]:
-        """Return the dict shape that propose_seed.py expects."""
+    @property
+    def verb(self) -> str:
+        """Alias for verb_found, always str."""
+        return self.verb_found or ""
+
+    @property
+    def target(self) -> str:
+        """Alias for target_found, always str."""
+        return self.target_found or ""
+
+    def to_dict(self) -> dict:
+        """Return the dict shape that propose_seed.py expects.
+
+        Keys: passed, reasons, score, verb_found, target_found, junk.
+        """
         return {
-            "passed": self.passes,
+            "passed": self.passed,
             "reasons": list(self.reasons),
             "score": self.score,
-            "verb": self.verb,
-            "target": self.target,
-            "code": self.code,
+            "verb_found": self.verb_found,
+            "target_found": self.target_found,
+            "junk": self.junk,
         }
 
 
@@ -125,8 +140,8 @@ class SeedGateResult:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _detect_verb(text: str, limit: int | None = None) -> str:
-    """Return the first action verb found in *text*, or ''."""
+def _detect_verb(text: str, limit: int = 0) -> str:
+    """Return the first action verb found in *text*, or empty string."""
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for word in words:
@@ -135,7 +150,7 @@ def _detect_verb(text: str, limit: int | None = None) -> str:
     return ""
 
 
-def _detect_target(text: str) -> tuple[str, str]:
+def _detect_target(text: str) -> tuple:
     """Return (target_string, target_kind) or ('', '')."""
     # Order matters -- most specific first
     m = FILE_RE.search(text)
@@ -159,45 +174,45 @@ def _detect_target(text: str) -> tuple[str, str]:
     return "", ""
 
 
-def _is_junk(text: str, limit: int | None = None) -> str | None:
-    """Return a reason string if *text* looks like junk, else None."""
+def _is_junk(text: str, limit: int = 0) -> str:
+    """Return a reason string if *text* looks like junk, else empty string."""
     check = text[:limit] if limit else text
     stripped = check.strip()
     if not stripped:
         return "empty or whitespace-only"
     if len(stripped) < 15:
-        return f"too short ({len(stripped)} chars)"
+        return "too short (%d chars)" % len(stripped)
     if _JUNK_EXCEPTION_RE.match(stripped):
-        return None
+        return ""
     for pat in _JUNK_PATTERNS:
         if pat.search(stripped):
-            return f"junk signal: {pat.pattern!r}"
-    return None
+            return "junk signal: %r" % pat.pattern
+    return ""
 
 
-def _score(text: str, verb: str, target: str, target_kind: str) -> int:
-    """Compute a 0-10 specificity score (informational only)."""
-    s = 0
+def _score(text: str, verb: str, target: str, target_kind: str) -> float:
+    """Compute a 0.0-1.0 specificity score."""
+    raw = 0
     if verb:
-        s += 3
+        raw += 3
     if target:
         kind_scores = {
             "file": 4, "tool": 3, "cli": 3,
             "discussion": 2, "channel": 2, "quoted": 1,
         }
-        s += kind_scores.get(target_kind, 1)
+        raw += kind_scores.get(target_kind, 1)
     # Bonus for length / detail
     words = text.split()
     if len(words) >= 8:
-        s += 1
+        raw += 1
     if len(words) >= 15:
-        s += 1
+        raw += 1
     # Bonus for multiple concrete targets
     file_count = len(FILE_RE.findall(text))
     tool_count = len(TOOL_RE.findall(text))
     if (file_count + tool_count) >= 2:
-        s += 1
-    return min(s, 10)
+        raw += 1
+    return min(raw / 10.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +221,8 @@ def _score(text: str, verb: str, target: str, target_kind: str) -> int:
 
 def validate_seed(
     text: str,
-    tags: list[str] | tuple[str, ...] | None = None,
+    tags: list = None,
+    *,
     mode: str = "admission",
 ) -> SeedGateResult:
     """Validate a seed proposal and return a *SeedGateResult*.
@@ -224,70 +240,76 @@ def validate_seed(
     tags = tags or []
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
-    reasons: list[str] = []
 
     # -- Junk check ---------------------------------------------------------
-    junk_limit = 60 if mode == "purge" else None
-    junk = _is_junk(text, limit=junk_limit)
-    if junk:
+    junk_limit = 60 if mode == "purge" else 0
+    junk_reason = _is_junk(text, limit=junk_limit)
+    is_junk_flag = bool(junk_reason)
+
+    if is_junk_flag:
         return SeedGateResult(
-            passes=False,
-            reasons=[f"Rejected: {junk}"],
-            score=0, verb="", target="", code="junk",
+            passed=False,
+            reasons=(junk_reason,),
+            score=0.0,
+            verb_found=None,
+            target_found=None,
+            junk=True,
         )
 
     # -- Verb check ---------------------------------------------------------
-    verb_limit = 200 if mode == "purge" else None
+    verb_limit = 200 if mode == "purge" else 0
     verb = _detect_verb(text, limit=verb_limit)
-    if not verb:
-        reasons.append("No action verb found")
 
     # -- Target check -------------------------------------------------------
     target, target_kind = _detect_target(text)
-    if not target and not is_exempt:
-        reasons.append("No concrete target (file, tool, or ref)")
 
     # -- Decision -----------------------------------------------------------
-    passes = len(reasons) == 0
-    if not passes and is_exempt and verb:
-        # Exempt tags + verb -> pass even without target
-        passes = True
-        reasons = [f"Exempt via tag ({', '.join(sorted(tag_set & EXEMPT_TAGS))})"]
+    if mode == "purge":
+        # Purge mode: only junk check matters for pass/fail
+        passed = True
+        specificity = 0.5
+    else:
+        # Admission mode: require verb + (target or exempt)
+        passed = bool(verb) and (bool(target) or is_exempt)
+        specificity = _score(text, verb, target, target_kind)
 
-    specificity = _score(text, verb, target, target_kind)
-
-    code = "pass" if passes else "no_verb" if not verb else "no_target"
+    reasons = []
+    if not passed:
+        if not verb:
+            reasons.append("No action verb found")
+        if not target and not is_exempt:
+            reasons.append("No concrete target (filename, tool, or reference)")
 
     return SeedGateResult(
-        passes=passes,
-        reasons=reasons,
+        passed=passed,
+        reasons=tuple(reasons),
         score=specificity,
-        verb=verb,
-        target=target,
-        code=code,
+        verb_found=verb or None,
+        target_found=target or None,
+        junk=False,
     )
 
 
 def validate(
     text: str,
-    tags: list[str] | tuple[str, ...] | None = None,
+    tags: list = None,
     mode: str = "admission",
-) -> dict[str, object]:
+) -> dict:
     """Dict API -- the shape expected by ``propose_seed.py``.
 
-    Returns ``{"passed": bool, "reasons": [...], "score": int,
-    "verb": str, "target": str, "code": str}``.
+    Returns a dict with keys: passed, reasons, score, verb_found,
+    target_found, junk.
     """
-    return validate_seed(text, tags, mode).to_dict()
+    return validate_seed(text, tags, mode=mode).to_dict()
 
 
 def passes_gate(
     text: str,
-    tags: list[str] | tuple[str, ...] | None = None,
+    tags: list = None,
     mode: str = "admission",
 ) -> bool:
     """Convenience: return True iff the proposal passes the gate."""
-    return validate_seed(text, tags, mode).passes
+    return validate_seed(text, tags, mode=mode).passed
 
 
 # ---------------------------------------------------------------------------
