@@ -29,6 +29,11 @@ Two public APIs -- pick whichever suits the call-site:
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
+    # Diagnostics (PR #272)
+    verb, pos = find_verb_with_position(text)  # (str|None, int)
+    bd     = score_breakdown(text)    # dict of components
+    line   = explain(text, tags)      # human-readable string
+
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
@@ -45,6 +50,10 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- commit-prefix stripping (fix:, feat(scope):, etc.);
+                  find_verb_with_position(); score_breakdown() for
+                  transparent scoring; explain() for human-readable
+                  diagnostics; batch CLI (--batch, --explain).
 """
 from __future__ import annotations
 
@@ -787,9 +796,14 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
+    # -- Commit prefix stripping (conventional commits) ---
+    # Normalize "fix: build water_mining.py" -> "build water_mining.py"
+    # before any analysis, so prefixes don't trigger junk detection.
+    body = _strip_commit_prefix(text)
+
     # -- Junk check (hard fail) ---
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
+    junk_reason = is_junk(body, limit=junk_limit)
     if junk_reason:
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
@@ -798,8 +812,8 @@ def validate_seed(
 
     # -- Verb + target ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb = find_verb(body, limit=verb_limit)
+    target, target_kind = find_target(body)
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
@@ -810,16 +824,16 @@ def validate_seed(
 
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
+        m = _QUESTION_STEM_RE.match(body.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
 
     # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
+    all_verbs = tuple(find_all_verbs(body))
+    all_targets = _find_all_targets(body)
 
     # -- Soft artifact check ---
-    if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+    if is_soft_artifact(body) and not (verb and target) and not is_exempt:
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
@@ -833,7 +847,7 @@ def validate_seed(
         specificity = 0.5
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        specificity = compute_score(body, verb, target, target_kind)
 
     reasons: list[str] = []
     advisory = ""
@@ -902,17 +916,189 @@ def validate_batch(
     )
 
 
+
+# ---------------------------------------------------------------------------
+# Commit-prefix stripping (conventional commit format)
+# ---------------------------------------------------------------------------
+
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:fix|feat|chore|docs|test|ci|build|perf|refactor|style|revert)"
+    r"(?:\([^)]*\))?"    # optional scope like (auth)
+    r"[!]?:\s*",         # colon + optional space; ! for breaking change
+    re.I,
+)
+
+
+def _strip_commit_prefix(text: str) -> str:
+    """Strip conventional-commit prefix from proposal text.
+
+    'fix: build water_mining.py' -> 'build water_mining.py'
+    'feat(auth): add oauth'     -> 'add oauth'
+    """
+    return _COMMIT_PREFIX_RE.sub("", text, count=1)
+
+
+# ---------------------------------------------------------------------------
+# Verb-with-position API (#12521 / PR #264)
+# ---------------------------------------------------------------------------
+
+def find_verb_with_position(text: str) -> tuple[str | None, int]:
+    """Return (verb, word_index) of the first action verb, or (None, -1).
+
+    word_index is the zero-based position in the alpha-token list.
+    Phrasal verbs and inflected forms are resolved to base form;
+    the position reported is that of the head word.
+    """
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word], i
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return _PHRASAL_INFLECTED[word][next_word], i
+        if word in ACTION_VERBS:
+            return word, i
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word], i
+    return None, -1
+
+
+# ---------------------------------------------------------------------------
+# Score breakdown (PR #264 idea — transparent scoring)
+# ---------------------------------------------------------------------------
+
+def score_breakdown(
+    text: str,
+    verb: str | None = None,
+    target: str | None = None,
+    target_kind: str = "",
+) -> dict[str, float]:
+    """Return a component-by-component breakdown of the specificity score.
+
+    If *verb* and *target* are not supplied, they are detected automatically.
+    Returns a dict with individual component contributions plus the total.
+    """
+    if verb is None:
+        verb = find_verb(text)
+    if target is None:
+        target, target_kind = find_target(text)
+
+    verb_score = 2.5 if verb else 0.0
+
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    target_score = kind_scores.get(target_kind, 1.5) if target else 0.0
+
+    words = text.split()
+    length_bonus = 0.0
+    if len(words) >= 8:
+        length_bonus += 0.5
+    if len(words) >= 15:
+        length_bonus += 1.0
+
+    unique = count_unique_targets(text)
+    multi_target_bonus = 1.0 if unique >= 2 else 0.0
+
+    imperative_bonus = 0.0
+    if verb and _starts_with_verb(text):
+        imperative_bonus = 0.5
+
+    raw = verb_score + target_score + length_bonus + multi_target_bonus + imperative_bonus
+    normalized = min(raw / 10.0, 1.0)
+
+    return {
+        "verb": verb_score,
+        "target": target_score,
+        "target_kind": target_kind,
+        "length_bonus": length_bonus,
+        "multi_target_bonus": multi_target_bonus,
+        "imperative_bonus": imperative_bonus,
+        "raw": raw,
+        "normalized": normalized,
+    }
+
+
+# ---------------------------------------------------------------------------
+# explain() — human-readable validation summary
+# ---------------------------------------------------------------------------
+
+def explain(text: str, tags: list = None) -> str:
+    """Return a one-line human-readable explanation of the validation result.
+
+    Useful for debugging, the factory dashboard, and rejection feedback.
+    """
+    result = validate_seed(text, tags)
+    parts: list[str] = []
+
+    if result.junk:
+        return f"Rejected (junk): {result.reasons[0] if result.reasons else 'unknown'}"
+
+    status = "Passed" if result.passed else "Rejected"
+    parts.append(status)
+
+    if result.verb_found:
+        parts.append(f"verb='{result.verb_found}'")
+    else:
+        parts.append("no verb")
+
+    if result.target_found:
+        at = result.all_targets
+        kind = at[0][1] if at else "unknown"
+        parts.append(f"target='{result.target_found}' ({kind})")
+    else:
+        parts.append("no target")
+
+    parts.append(f"score={result.score:.2f}")
+
+    if result.confidence:
+        parts.append(f"confidence={result.confidence}")
+
+    if result.advisory:
+        parts.append(f"advisory={result.advisory}")
+
+    return " | ".join(parts)
+
 # ---------------------------------------------------------------------------
 # CLI entry-point
 # ---------------------------------------------------------------------------
 
 def _cli() -> None:  # pragma: no cover
+    import json as _json
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--batch":
+        # Batch mode: read one proposal per line from stdin.
+        # Skip blank lines and lines starting with #.
+        # Output: JSON array of results.  Exit 0 always.
+        results: list[dict] = []
+        for line in sys.stdin:
+            line = line.rstrip("\n")
+            if not line.strip() or line.strip().startswith("#"):
+                continue
+            results.append(validate(line))
+        print(_json.dumps(results, indent=2))
+        sys.exit(0)
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--explain":
+        if len(sys.argv) < 3:
+            print("Usage: python -m seed_gate --explain '<proposal>'")
+            sys.exit(1)
+        text = sys.argv[2]
+        tags = sys.argv[3:] if len(sys.argv) > 3 else []
+        print(explain(text, tags))
+        sys.exit(0)
+
     if len(sys.argv) < 2:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --batch < proposals.txt")
+        print("       python -m seed_gate --explain '<proposal>'")
         sys.exit(1)
+
     text = sys.argv[1]
     tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)

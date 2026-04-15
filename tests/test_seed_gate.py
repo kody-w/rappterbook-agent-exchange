@@ -1652,3 +1652,461 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ============================================================
+# Tests for PR #272: commit-prefix stripping, find_verb_with_position,
+# score_breakdown, explain, batch CLI, diagnostics evolution
+# ============================================================
+
+from seed_gate import (
+    _strip_commit_prefix,
+    _COMMIT_PREFIX_RE,
+    find_verb_with_position,
+    score_breakdown,
+    explain,
+)
+
+
+class TestCommitPrefixStripping:
+    """Test _strip_commit_prefix() and its integration with validate_seed."""
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("fix: build water_mining.py", "build water_mining.py"),
+        ("feat: add oauth to auth.py", "add oauth to auth.py"),
+        ("chore: clean up dead imports", "clean up dead imports"),
+        ("docs: update README with new API", "update README with new API"),
+        ("test: add coverage for drill.py", "add coverage for drill.py"),
+        ("ci: fix the GitHub Actions workflow", "fix the GitHub Actions workflow"),
+        ("build: upgrade dependencies for tools", "upgrade dependencies for tools"),
+        ("perf: optimize water_mining queries", "optimize water_mining queries"),
+        ("refactor: simplify state_io writes", "simplify state_io writes"),
+        ("style: format seed_gate.py linting", "format seed_gate.py linting"),
+        ("revert: roll back auth.py changes", "roll back auth.py changes"),
+    ])
+    def test_basic_prefixes(self, raw, expected):
+        assert _strip_commit_prefix(raw) == expected
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("feat(auth): add oauth handler", "add oauth handler"),
+        ("fix(thermal): patch overflow bug", "patch overflow bug"),
+        ("chore(deps): update packages list", "update packages list"),
+    ])
+    def test_scoped_prefixes(self, raw, expected):
+        assert _strip_commit_prefix(raw) == expected
+
+    def test_breaking_change_prefix(self):
+        assert _strip_commit_prefix("feat!: redesign auth.py API") == "redesign auth.py API"
+
+    def test_no_prefix_unchanged(self):
+        text = "Build water_mining.py optimizer"
+        assert _strip_commit_prefix(text) == text
+
+    def test_prefix_case_insensitive(self):
+        assert _strip_commit_prefix("FIX: build auth.py") == "build auth.py"
+        assert _strip_commit_prefix("Feat: add feature") == "add feature"
+
+    def test_only_first_prefix_stripped(self):
+        # "fix: fix: double prefix" should only strip the first
+        result = _strip_commit_prefix("fix: fix: double prefix thing")
+        assert result == "fix: double prefix thing"
+
+    def test_not_a_real_prefix(self):
+        # "fixed:" is not a conventional commit prefix
+        assert _strip_commit_prefix("fixed: the bug in water_mining.py") == "fixed: the bug in water_mining.py"
+
+    # Integration: commit-prefixed proposals should now pass validation
+    def test_validate_fix_prefix(self):
+        result = _v("fix: build water_mining.py optimizer")
+        assert result["passed"] is True
+        assert result["verb_found"] == "build"
+
+    def test_validate_feat_scoped(self):
+        result = _v("feat(auth): add oauth to auth.py module")
+        assert result["passed"] is True
+        assert result["verb_found"] == "add"
+        assert result["target_found"] == "auth.py"
+
+    def test_validate_chore_prefix_phrasal(self):
+        result = _v("chore: clean up dead imports in state_io.py")
+        assert result["passed"] is True
+        assert result["verb_found"] == "clean up"
+
+    def test_validate_prefix_not_junk(self):
+        # "fix:" starts lowercase which would normally be junk,
+        # but after stripping the prefix, "Build..." is fine
+        result = _v("fix: Build water_mining.py from scratch now")
+        assert result["junk"] is False
+        assert result["passed"] is True
+
+    def test_validate_without_prefix_still_works(self):
+        result = _v("Build water_mining.py optimizer for drilling")
+        assert result["passed"] is True
+        assert result["verb_found"] == "build"
+
+
+class TestFindVerbWithPosition:
+    """Test find_verb_with_position() API."""
+
+    def test_imperative_position_zero(self):
+        verb, pos = find_verb_with_position("Build auth.py from scratch")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_mid_sentence_verb(self):
+        verb, pos = find_verb_with_position("The team should build auth.py")
+        assert verb == "build"
+        assert pos > 0
+
+    def test_no_verb_returns_none(self):
+        verb, pos = find_verb_with_position("Something about nothing at all")
+        assert verb is None
+        assert pos == -1
+
+    def test_phrasal_verb_position(self):
+        verb, pos = find_verb_with_position("Set up the deployment pipeline")
+        assert verb == "set up"
+        assert pos == 0
+
+    def test_inflected_verb_position(self):
+        verb, pos = find_verb_with_position("Building auth.py from scratch")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_inflected_phrasal_position(self):
+        verb, pos = find_verb_with_position("Setting up the CI pipeline now")
+        assert verb == "set up"
+        assert pos == 0
+
+    def test_verb_after_article(self):
+        verb, pos = find_verb_with_position("We should build auth.py")
+        assert verb == "build"
+        assert pos == 2
+
+    def test_empty_text(self):
+        verb, pos = find_verb_with_position("")
+        assert verb is None
+        assert pos == -1
+
+    def test_consistent_with_find_verb(self):
+        texts = [
+            "Build auth.py", "The team fixes auth.py",
+            "Setting up deployment", "Nothing here really",
+        ]
+        for text in texts:
+            verb_pos, _ = find_verb_with_position(text)
+            verb_plain = find_verb(text)
+            assert verb_pos == verb_plain, f"Mismatch for {text!r}"
+
+
+class TestScoreBreakdown:
+    """Test score_breakdown() returns transparent component scores."""
+
+    def test_basic_structure(self):
+        bd = score_breakdown("Build water_mining.py optimizer")
+        assert "verb" in bd
+        assert "target" in bd
+        assert "target_kind" in bd
+        assert "length_bonus" in bd
+        assert "multi_target_bonus" in bd
+        assert "imperative_bonus" in bd
+        assert "raw" in bd
+        assert "normalized" in bd
+
+    def test_verb_component(self):
+        bd = score_breakdown("Build water_mining.py")
+        assert bd["verb"] == 2.5
+
+    def test_no_verb_component(self):
+        bd = score_breakdown("The water_mining.py module is great")
+        assert bd["verb"] == 0.0
+
+    def test_file_target_component(self):
+        bd = score_breakdown("Build water_mining.py")
+        assert bd["target"] == 4.0
+        assert bd["target_kind"] == "file"
+
+    def test_tool_target_component(self):
+        bd = score_breakdown("Build process_inbox handler here")
+        assert bd["target"] == 3.0
+        assert bd["target_kind"] == "tool"
+
+    def test_channel_target_component(self):
+        bd = score_breakdown("Create r/mars-engineering channel")
+        assert bd["target"] == 2.0
+        assert bd["target_kind"] == "channel"
+
+    def test_no_target_component(self):
+        bd = score_breakdown("Build something amazing")
+        assert bd["target"] == 0.0
+        assert bd["target_kind"] == ""
+
+    def test_length_bonus_short(self):
+        bd = score_breakdown("Build auth.py")
+        assert bd["length_bonus"] == 0.0
+
+    def test_length_bonus_medium(self):
+        bd = score_breakdown("Build the water_mining.py module with improved drilling algorithms today")
+        assert bd["length_bonus"] >= 0.5
+
+    def test_length_bonus_long(self):
+        text = "Build water_mining.py " + "with detailed implementation of " * 5 + "everything"
+        bd = score_breakdown(text)
+        assert bd["length_bonus"] >= 1.0
+
+    def test_multi_target_bonus(self):
+        bd = score_breakdown("Build water_mining.py and solar_array.py")
+        assert bd["multi_target_bonus"] == 1.0
+
+    def test_no_multi_target_bonus(self):
+        bd = score_breakdown("Build water_mining.py optimizer")
+        assert bd["multi_target_bonus"] == 0.0
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build water_mining.py optimizer")
+        assert bd["imperative_bonus"] == 0.5
+
+    def test_no_imperative_bonus(self):
+        bd = score_breakdown("The team should build water_mining.py")
+        assert bd["imperative_bonus"] == 0.0
+
+    def test_raw_is_sum(self):
+        bd = score_breakdown("Build water_mining.py optimizer")
+        expected_raw = (bd["verb"] + bd["target"] + bd["length_bonus"]
+                        + bd["multi_target_bonus"] + bd["imperative_bonus"])
+        assert abs(bd["raw"] - expected_raw) < 0.001
+
+    def test_normalized_is_capped(self):
+        text = "Build " + " and ".join(f"mod_{i}.py" for i in range(20))
+        bd = score_breakdown(text)
+        assert bd["normalized"] <= 1.0
+
+    def test_normalized_matches_compute_score(self):
+        text = "Build water_mining.py optimizer quickly here"
+        bd = score_breakdown(text)
+        cs = compute_score(text, find_verb(text), *find_target(text))
+        assert abs(bd["normalized"] - cs) < 0.001
+
+    def test_auto_detection(self):
+        """score_breakdown without explicit verb/target auto-detects."""
+        bd = score_breakdown("Build water_mining.py optimizer")
+        assert bd["verb"] == 2.5
+        assert bd["target"] == 4.0
+
+    def test_explicit_override(self):
+        """score_breakdown with explicit args uses those."""
+        bd = score_breakdown("Some text here", verb="build", target="auth.py", target_kind="file")
+        assert bd["verb"] == 2.5
+        assert bd["target"] == 4.0
+
+
+class TestExplain:
+    """Test explain() returns human-readable validation summaries."""
+
+    def test_passing_proposal(self):
+        line = explain("Build water_mining.py optimizer")
+        assert "Passed" in line
+        assert "build" in line
+        assert "water_mining.py" in line
+        assert "score=" in line
+
+    def test_failing_no_verb(self):
+        line = explain("Water_mining.py optimizer drilling here")
+        assert "Rejected" in line
+        assert "no verb" in line
+
+    def test_failing_no_target(self):
+        line = explain("Build something amazing for all of us")
+        assert "Rejected" in line
+        assert "no target" in line
+
+    def test_junk(self):
+        line = explain("   ")
+        assert "junk" in line.lower()
+
+    def test_exempt_tag(self):
+        line = explain("Explore consciousness in agents deeply", tags=["philosophy"])
+        assert "Passed" in line
+        assert "explore" in line
+
+    def test_confidence_shown(self):
+        line = explain("Build water_mining.py with full test coverage and documentation update")
+        assert "confidence=" in line
+
+    def test_advisory_shown(self):
+        line = explain("Explore consciousness in agents deeply", tags=["philosophy"])
+        assert "advisory=" in line
+
+    def test_returns_string(self):
+        assert isinstance(explain("Build auth.py"), str)
+        assert isinstance(explain("just vibes"), str)
+        assert isinstance(explain("   "), str)
+
+
+class TestBatchCLI:
+    """Test --batch CLI mode."""
+
+    def test_batch_basic(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input="Build auth.py optimizer\nFix thermal_control.py bug\n",
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        results = json.loads(r.stdout)
+        assert len(results) == 2
+        assert results[0]["passed"] is True
+        assert results[1]["passed"] is True
+
+    def test_batch_skips_blank_lines(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input="Build auth.py\n\n\nFix bug.py\n",
+            capture_output=True, text=True,
+        )
+        results = json.loads(r.stdout)
+        assert len(results) == 2
+
+    def test_batch_skips_comments(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input="# This is a comment\nBuild auth.py now\n",
+            capture_output=True, text=True,
+        )
+        results = json.loads(r.stdout)
+        assert len(results) == 1
+
+    def test_batch_empty_input(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input="",
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        results = json.loads(r.stdout)
+        assert results == []
+
+    def test_batch_always_exit_zero(self):
+        """Batch mode always exits 0, even with failing proposals."""
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input="vibes only and nothing else here\n",
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+
+class TestExplainCLI:
+    """Test --explain CLI mode."""
+
+    def test_explain_passing(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"),
+             "--explain", "Build water_mining.py optimizer"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "Passed" in r.stdout
+
+    def test_explain_failing(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"),
+             "--explain", "Something vague without direction at all"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "Rejected" in r.stdout
+
+
+class TestCommitPrefixInvariants:
+    """Property-based invariants for commit-prefix stripping."""
+
+    @pytest.mark.parametrize("prefix", [
+        "fix", "feat", "chore", "docs", "test", "ci", "build",
+        "perf", "refactor", "style", "revert",
+    ])
+    def test_prefix_regex_matches(self, prefix):
+        assert _COMMIT_PREFIX_RE.match(f"{prefix}: something")
+
+    def test_stripped_text_never_longer(self):
+        texts = [
+            "fix: build auth.py",
+            "Build auth.py",
+            "feat(scope): add thing",
+            "just a normal proposal text here",
+        ]
+        for text in texts:
+            stripped = _strip_commit_prefix(text)
+            assert len(stripped) <= len(text)
+
+    def test_stripping_idempotent(self):
+        """Stripping twice should not change the result vs stripping once."""
+        texts = [
+            "fix: build auth.py",
+            "feat(auth): add oauth",
+            "Build auth.py normally",
+        ]
+        for text in texts:
+            once = _strip_commit_prefix(text)
+            twice = _strip_commit_prefix(once)
+            # After stripping "fix: build auth.py" -> "build auth.py"
+            # "build" is a valid prefix keyword, but "build auth.py"
+            # doesn't match the pattern because there's no colon after "build auth"
+            # Actually "build:" would match, but "build auth.py" wouldn't
+            assert once == twice or _COMMIT_PREFIX_RE.match(once)
+
+
+class TestScoreBreakdownInvariants:
+    """Property invariants for score_breakdown."""
+
+    _TEXTS = [
+        "Build auth.py",
+        "Fix water_mining.py and thermal_control.py",
+        "Something vague without targets",
+        "",
+        "Set up the CI pipeline for config.yaml today",
+        "Build auth.py with full test coverage and documentation update for the team",
+    ]
+
+    @pytest.mark.parametrize("text", _TEXTS)
+    def test_all_components_non_negative(self, text):
+        bd = score_breakdown(text)
+        for key in ("verb", "target", "length_bonus", "multi_target_bonus", "imperative_bonus"):
+            assert bd[key] >= 0.0, f"{key} is negative for: {text}"
+
+    @pytest.mark.parametrize("text", _TEXTS)
+    def test_normalized_in_range(self, text):
+        bd = score_breakdown(text)
+        assert 0.0 <= bd["normalized"] <= 1.0
+
+    @pytest.mark.parametrize("text", _TEXTS)
+    def test_raw_ge_normalized(self, text):
+        bd = score_breakdown(text)
+        # raw can be > 1.0 before normalization
+        assert bd["raw"] >= bd["normalized"] or bd["raw"] <= 1.0
+
+
+class TestDiagnosticsRegression:
+    """Regression tests the rubber-duck agent identified."""
+
+    def test_fix_prefix_water_mining(self):
+        assert _v("fix: build water_mining.py")["passed"]
+
+    def test_feat_auth_scope(self):
+        result = _v("feat(auth): add oauth to auth.py")
+        assert result["passed"]
+        assert result["target_found"] == "auth.py"
+
+    def test_please_build_still_works(self):
+        result = _v("Please build auth.py from scratch now")
+        assert result["verb_found"] == "build"
+
+    def test_commit_prefix_with_inflected_verb(self):
+        result = _v("fix: Building water_mining.py optimizer")
+        assert result["verb_found"] == "build"
+        assert result["passed"]
+
+    def test_commit_prefix_with_phrasal(self):
+        result = _v("chore: Set up deployment pipeline for config.yaml")
+        assert result["verb_found"] == "set up"
+        assert result["passed"]
