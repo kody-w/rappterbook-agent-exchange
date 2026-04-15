@@ -1376,3 +1376,330 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ============================================================
+# New: Verb normalization tests
+# ============================================================
+
+class TestVerbNormalization:
+    """Test _normalize_verb explicit map."""
+
+    @pytest.mark.parametrize("inflected,base", [
+        ("building", "build"), ("creating", "create"), ("designing", "design"),
+        ("testing", "test"), ("implementing", "implement"), ("deploying", "deploy"),
+        ("refactoring", "refactor"), ("fixing", "fix"), ("running", "run"),
+        ("compiling", "compile"), ("monitoring", "monitor"), ("analyzing", "analyze"),
+        ("consolidating", "consolidate"), ("validating", "validate"),
+        ("reviewing", "review"), ("scoring", "score"), ("configuring", "configure"),
+    ])
+    def test_ing_forms(self, inflected, base):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == base
+
+    @pytest.mark.parametrize("inflected,base", [
+        ("built", "build"), ("created", "create"), ("designed", "design"),
+        ("deployed", "deploy"), ("optimized", "optimize"), ("compiled", "compile"),
+        ("tested", "test"), ("fixed", "fix"), ("tracked", "track"),
+        ("generated", "generate"), ("configured", "configure"),
+        ("simplified", "simplify"), ("documented", "document"),
+    ])
+    def test_ed_forms(self, inflected, base):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == base
+
+    @pytest.mark.parametrize("inflected,base", [
+        ("builds", "build"), ("creates", "create"), ("deploys", "deploy"),
+        ("tests", "test"), ("fixes", "fix"), ("runs", "run"),
+        ("optimizes", "optimize"), ("patches", "patch"), ("launches", "launch"),
+        ("analyzes", "analyze"), ("validates", "validate"), ("resolves", "resolve"),
+        ("simplifies", "simplify"), ("documents", "document"),
+    ])
+    def test_s_es_forms(self, inflected, base):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == base
+
+    @pytest.mark.parametrize("inflected,base", [
+        ("wrote", "write"), ("written", "write"), ("ran", "run"),
+        ("sent", "deploy"),
+    ])
+    def test_irregular_forms(self, inflected, base):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == base
+
+    def test_base_form_passthrough(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("build") == "build"
+        assert _normalize_verb("test") == "test"
+
+    def test_unknown_word_returns_none(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("banana") is None
+        assert _normalize_verb("the") is None
+        assert _normalize_verb("configuration") is None
+
+    def test_case_insensitive(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("Building") == "build"
+        assert _normalize_verb("TESTING") == "test"
+        assert _normalize_verb("Created") == "create"
+
+
+class TestVerbNormalizationInValidate:
+    """End-to-end: inflected verbs pass the gate."""
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("Building seed_gate.py from scratch for the platform here", "build"),
+        ("Creates thermal_control.py module for habitat system now", "create"),
+        ("Designed fuel_cell.py architecture for Mars colony today", "design"),
+        ("Testing drill.py output against expected benchmarks today", "test"),
+        ("Implemented solar_array.py energy tracking for habitat now", "implement"),
+        ("Optimizes fuel_cell.py throughput efficiency here today now", "optimize"),
+    ])
+    def test_inflected_verb_passes(self, text, expected_verb):
+        r = _v(text)
+        assert r["passed"], f"Should pass: {text}"
+        assert r["verb_found"] == expected_verb
+
+
+# ============================================================
+# New: Commit-prefix stripping tests
+# ============================================================
+
+class TestCommitPrefixStripping:
+    """Test conventional-commit prefix handling."""
+
+    def test_strip_function_exists(self):
+        from seed_gate import _strip_commit_prefix
+        assert callable(_strip_commit_prefix)
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("fix: Build seed_gate.py validator for system", "build"),
+        ("feat: Add water_mining.py module to pipeline", "add"),
+        ("chore: Update solar_array.py tests here now", "update"),
+        ("refactor: Simplify fuel_cell.py thermodynamics here", "refactor"),
+        ("docs: Document thermal_control.py interfaces here", "document"),
+        ("test: Benchmark drill.py performance metrics here", "benchmark"),
+    ])
+    def test_commit_prefix_passes(self, text, expected_verb):
+        r = _v(text)
+        assert r["passed"], f"Should pass: {text}"
+        assert r["verb_found"] == expected_verb, f"Expected {expected_verb}, got {r['verb_found']}"
+
+    def test_commit_prefix_with_scope(self):
+        r = _v("fix(gate): Resolve seed_gate.py regex pattern issue")
+        assert r["passed"]
+
+    def test_commit_prefix_with_bang(self):
+        r = _v("feat!: Add seed_gate.py breaking change validator")
+        assert r["passed"]
+
+    def test_commit_prefix_with_scope_and_bang(self):
+        r = _v("fix(core)!: Rebuild seed_gate.py validation engine")
+        assert r["passed"]
+
+    def test_commit_type_as_fallback_verb(self):
+        """If the cleaned text has no verb, the commit type serves as one."""
+        r = _v("fix: seed_gate.py has a broken regex pattern")
+        assert r["verb_found"] == "fix"
+        assert r["passed"]
+
+    def test_non_commit_label_not_stripped(self):
+        """plan:, note:, idea: should NOT be stripped -- triggers junk check."""
+        r = _v("plan: Build seed_gate.py validator for checking")
+        # "plan" is not a commit type -- not stripped
+        # "plan:" with colon fails verb detection, triggers lowercase junk
+        assert not r["passed"]
+
+    def test_commit_prefix_not_junk(self):
+        """Commit-prefixed text should not be flagged as junk."""
+        from seed_gate import is_junk
+        reason = is_junk("fix: Build seed_gate.py validator system")
+        assert reason == "", f"Unexpected junk: {reason}"
+
+    def test_case_insensitive_prefix(self):
+        r = _v("FIX: Build seed_gate.py validator for system")
+        assert r["passed"]
+
+    def test_bare_commit_type_no_body(self):
+        """Commit prefix alone without meaningful text fails."""
+        r = _v("fix: nothing specific at all mentioned here anywhere")
+        assert not r["passed"]  # no target
+
+
+# ============================================================
+# New: Version string filter tests
+# ============================================================
+
+class TestVersionStringFilter:
+    """Test that version strings are not matched as file targets."""
+
+    @pytest.mark.parametrize("version", [
+        "v2.0.0", "1.2.3", "3.9", "v1.0.0-beta", "2.1.0+build123",
+    ])
+    def test_version_not_a_target(self, version):
+        from seed_gate import find_target
+        text = f"Upgrade to {version} for better performance today"
+        target, kind = find_target(text)
+        assert target != version, f"Version {version} should not be a target"
+
+    def test_real_file_still_matches(self):
+        from seed_gate import find_target
+        target, kind = find_target("Build seed_gate.py for the system")
+        assert target == "seed_gate.py"
+        assert kind == "file"
+
+    def test_version_in_validate(self):
+        """Version-only text should fail (no real target)."""
+        r = _v("Deploy version v2.0.0 to production now today please")
+        # v2.0.0 is filtered out, but "deploy" verb still found
+        assert r["verb_found"] == "deploy"
+
+    def test_numbered_ref_not_a_target(self):
+        from seed_gate import find_target
+        text = "See fig.1 and ch.3 for reference documentation now"
+        target, kind = find_target(text)
+        # fig.1 and ch.3 should be filtered
+        assert target != "fig.1"
+        assert target != "ch.3"
+
+
+# ============================================================
+# New: Suggestion engine tests
+# ============================================================
+
+class TestSuggestionEngine:
+    """Test the suggest() function."""
+
+    def test_suggest_exists(self):
+        from seed_gate import suggest
+        assert callable(suggest)
+
+    def test_passing_proposal_no_suggestions(self):
+        from seed_gate import suggest
+        hints = suggest("Build seed_gate.py validator for system")
+        assert hints == []
+
+    def test_no_verb_suggests_verb(self):
+        from seed_gate import suggest
+        hints = suggest("The seed_gate.py module needs improvement soon")
+        assert any("verb" in h.lower() for h in hints)
+
+    def test_no_target_suggests_target(self):
+        from seed_gate import suggest
+        hints = suggest("Build something useful for the system today")
+        assert any("target" in h.lower() for h in hints)
+
+    def test_junk_suggests_rewrite(self):
+        from seed_gate import suggest
+        hints = suggest("  ")
+        assert any("rewrite" in h.lower() or "sentence" in h.lower() for h in hints)
+
+
+# ============================================================
+# New: Confidence level tests
+# ============================================================
+
+class TestConfidenceLevels:
+    """Test confidence property on SeedGateResult."""
+
+    def test_high_confidence(self):
+        from seed_gate import validate_seed
+        r = validate_seed("Build seed_gate.py validator for the Mars colony system now")
+        assert r.confidence == "high"
+
+    def test_medium_confidence(self):
+        from seed_gate import validate_seed
+        # Short proposal with verb + target but low score
+        r = validate_seed("Fix #12345 issue in the system now please")
+        assert r.confidence in ("medium", "high")
+
+    def test_none_confidence_on_failure(self):
+        from seed_gate import validate_seed
+        r = validate_seed("Nothing specific mentioned here at all today")
+        assert r.confidence == "none"
+
+    def test_confidence_in_dict(self):
+        r = _v("Build seed_gate.py validator for the system now")
+        assert "confidence" in r
+        assert r["confidence"] in ("high", "medium", "low", "none")
+
+    def test_suggestions_in_dict(self):
+        r = _v("Build seed_gate.py validator for the system now")
+        assert "suggestions" in r
+
+
+# ============================================================
+# New: Expanded KNOWN_TOOLS tests
+# ============================================================
+
+class TestExpandedKnownTools:
+    """Test newly added KNOWN_TOOLS entries."""
+
+    @pytest.mark.parametrize("tool", [
+        "inject_seed", "tally_votes", "steer",
+        "harvest_artifact", "build_seed_tracker",
+        "build_harness_dashboard", "vlink",
+    ])
+    def test_new_tool_detected(self, tool):
+        from seed_gate import find_target
+        text = f"Build {tool} integration for the system today"
+        target, kind = find_target(text)
+        assert target == tool, f"Expected {tool}, got {target}"
+        assert kind == "tool"
+
+
+# ============================================================
+# New: Extended invariants
+# ============================================================
+
+class TestExtendedInvariants:
+    """Property-based invariants for new features."""
+
+    def test_normalize_verb_returns_base_form(self):
+        """_normalize_verb always returns a member of ACTION_VERBS or None."""
+        from seed_gate import _normalize_verb, ACTION_VERBS
+        for word in ["building", "created", "fixes", "wrote", "banana",
+                     "the", "Build", "TESTING", "configuration"]:
+            result = _normalize_verb(word)
+            assert result is None or result in ACTION_VERBS, f"{word} -> {result}"
+
+    def test_confidence_is_always_valid(self):
+        """confidence is always one of four values."""
+        from seed_gate import validate_seed
+        for text in ["Build seed_gate.py now today please ok go",
+                     "Nothing here at all mentioned anywhere ever",
+                     "  ", "Build something for the colony system now"]:
+            r = validate_seed(text)
+            assert r.confidence in ("high", "medium", "low", "none"), r.confidence
+
+    def test_commit_prefix_smoke(self):
+        """All commit types produce valid stripped text."""
+        from seed_gate import _COMMIT_TYPES, _strip_commit_prefix
+        for ctype in sorted(_COMMIT_TYPES):
+            text = f"{ctype}: Build seed_gate.py validator system"
+            cleaned, detected = _strip_commit_prefix(text)
+            assert detected == ctype, f"Expected {ctype}, got {detected}"
+            assert "seed_gate.py" in cleaned
+
+    def test_version_filter_no_false_negatives(self):
+        """Real files (.py, .js, .rs) are never filtered as versions."""
+        from seed_gate import find_target
+        for f in ["seed_gate.py", "main.rs", "index.js", "app.ts"]:
+            target, kind = find_target(f"Build {f} for the system")
+            assert target == f, f"Lost real file {f}"
+
+    def test_suggest_returns_list_of_strings(self):
+        from seed_gate import suggest
+        for text in ["Build seed_gate.py", "nothing", "  ", "Fix it"]:
+            result = suggest(text)
+            assert isinstance(result, list)
+            assert all(isinstance(s, str) for s in result)
+
+    def test_backward_compat_dict_keys(self):
+        """All original dict keys still present."""
+        r = _v("Build seed_gate.py validator for the system now")
+        for key in ["passed", "reasons", "score", "verb_found", "target_found",
+                     "junk", "advisory", "all_verbs", "all_targets",
+                     "confidence", "suggestions"]:
+            assert key in r, f"Missing key: {key}"

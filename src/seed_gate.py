@@ -24,10 +24,13 @@ Two public APIs -- pick whichever suits the call-site:
     for item in br.junk_items: ...
 
     # Composable helpers
-    verb   = find_verb(text)          # str | None
+    verb   = find_verb(text)          # str | None (handles inflected forms)
     target = find_target(text)        # (str, str) pair
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
+    hints  = suggest(text, tags)      # list[str] -- actionable hints
+
+    result.confidence                   # 'high' | 'medium' | 'low' | 'none'
 
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
@@ -96,8 +99,130 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
 
+
+# ---------------------------------------------------------------------------
+# Verb normalization -- explicit map + safe suffix rules (PR #252 idea)
+# ---------------------------------------------------------------------------
+
+# Explicit irregular/tricky forms that suffix rules can't handle
+_VERB_NORM_MAP: dict[str, str] = {
+    # -ing forms
+    "building": "build", "creating": "create", "designing": "design",
+    "developing": "develop", "implementing": "implement", "writing": "write",
+    "adding": "add", "deploying": "deploy", "launching": "launch",
+    "shipping": "ship", "releasing": "release", "refactoring": "refactor",
+    "optimizing": "optimize", "improving": "improve", "upgrading": "upgrade",
+    "migrating": "migrate", "porting": "port", "wiring": "wire",
+    "connecting": "connect", "hooking": "hook", "fixing": "fix",
+    "debugging": "debug", "patching": "patch", "resolving": "resolve",
+    "repairing": "repair", "testing": "test", "profiling": "profile",
+    "auditing": "audit", "scanning": "scan", "linting": "lint",
+    "generating": "generate", "computing": "compute", "simulating": "simulate",
+    "modeling": "model", "training": "train", "parsing": "parse",
+    "extracting": "extract", "converting": "convert", "compiling": "compile",
+    "monitoring": "monitor", "tracking": "track", "logging": "log",
+    "alerting": "alert", "mapping": "map", "exploring": "explore",
+    "investigating": "investigate", "analyzing": "analyze",
+    "evaluating": "evaluate", "assessing": "assess", "consolidating": "consolidate",
+    "merging": "merge", "removing": "remove", "rendering": "render",
+    "reviewing": "review", "running": "run", "scoring": "score",
+    "validating": "validate", "configuring": "configure", "automating": "automate",
+    "archiving": "archive", "injecting": "inject", "normalizing": "normalize",
+    "updating": "update", "deleting": "delete", "enabling": "enable",
+    "disabling": "disable", "installing": "install", "rewriting": "rewrite",
+    "standardizing": "standardize", "containerizing": "containerize",
+    "exposing": "expose", "wrapping": "wrap", "stubbing": "stub",
+    "mocking": "mock", "isolating": "isolate", "defining": "define",
+    "declaring": "declare", "registering": "register", "securing": "secure",
+    "cleaning": "clean", "scheduling": "schedule", "caching": "cache",
+    "publishing": "publish", "annotating": "annotate", "packaging": "package",
+    "benchmarking": "benchmark", "documenting": "document",
+    # Past tense -ed
+    "built": "build", "created": "create", "designed": "design",
+    "developed": "develop", "implemented": "implement", "deployed": "deploy",
+    "launched": "launch", "shipped": "ship", "released": "release",
+    "refactored": "refactor", "optimized": "optimize", "improved": "improve",
+    "upgraded": "upgrade", "migrated": "migrate", "wired": "wire",
+    "connected": "connect", "hooked": "hook", "fixed": "fix",
+    "debugged": "debug", "patched": "patch", "resolved": "resolve",
+    "repaired": "repair", "tested": "test", "profiled": "profile",
+    "audited": "audit", "scanned": "scan", "linted": "lint",
+    "generated": "generate", "computed": "compute", "simulated": "simulate",
+    "modeled": "model", "trained": "train", "parsed": "parse",
+    "extracted": "extract", "converted": "convert", "compiled": "compile",
+    "monitored": "monitor", "tracked": "track", "logged": "log",
+    "mapped": "map", "merged": "merge", "removed": "remove",
+    "rendered": "render", "reviewed": "review", "scored": "score",
+    "validated": "validate", "configured": "configure", "automated": "automate",
+    "archived": "archive", "injected": "inject", "normalized": "normalize",
+    "updated": "update", "deleted": "delete", "enabled": "enable",
+    "disabled": "disable", "installed": "install", "exposed": "expose",
+    "wrapped": "wrap", "stubbed": "stub", "mocked": "mock",
+    "isolated": "isolate", "defined": "define", "declared": "declare",
+    "registered": "register", "secured": "secure", "cleaned": "clean",
+    "scheduled": "schedule", "cached": "cache", "published": "publish",
+    "benchmarked": "benchmark", "documented": "document", "simplified": "simplify",
+    # Third-person -s/-es
+    "builds": "build", "creates": "create", "deploys": "deploy",
+    "tests": "test", "fixes": "fix", "runs": "run", "adds": "add",
+    "ships": "ship", "wires": "wire", "hooks": "hook", "logs": "log",
+    "scans": "scan", "tracks": "track", "merges": "merge",
+    "updates": "update", "deletes": "delete", "exposes": "expose",
+    "wraps": "wrap", "stubs": "stub", "mocks": "mock",
+    "cleans": "clean", "scores": "score", "defines": "define",
+    "optimizes": "optimize", "patches": "patch", "launches": "launch",
+    "analyzes": "analyze", "configures": "configure", "generates": "generate",
+    "compiles": "compile", "validates": "validate", "resolves": "resolve",
+    "explores": "explore", "removes": "remove", "enables": "enable",
+    "disables": "disable", "migrates": "migrate", "converts": "convert",
+    "simulates": "simulate", "automates": "automate", "publishes": "publish",
+    "consolidates": "consolidate", "evaluates": "evaluate",
+    "simplifies": "simplify", "documents": "document",
+    # Irregular past
+    "wrote": "write", "written": "write", "ran": "run",
+    "sent": "deploy",
+}
+
+
+def _normalize_verb(word: str) -> str | None:
+    """Normalize an inflected verb to its base form in ACTION_VERBS.
+
+    Uses an explicit map for safety -- no generic suffix stripping that
+    could turn nouns like 'configuration' into verbs.  Returns None if
+    the word is not a recognized verb form.
+    """
+    low = word.lower()
+    if low in ACTION_VERBS:
+        return low
+    return _VERB_NORM_MAP.get(low)
+
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+# ---------------------------------------------------------------------------
+# Commit-prefix stripping (conventional commits: "fix: ...", "feat(scope): ...")
+# ---------------------------------------------------------------------------
+
+_COMMIT_TYPES: frozenset[str] = frozenset({
+    "feat", "fix", "docs", "test", "refactor", "perf",
+    "build", "ci", "chore", "revert", "style",
+})
+
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(" + "|".join(sorted(_COMMIT_TYPES)) + r")(?:\([^)]*\))?!?:\s*",
+    re.IGNORECASE,
+)
+
+
+def _strip_commit_prefix(text: str) -> tuple[str, str]:
+    """Strip a conventional-commit prefix, returning (cleaned, commit_type).
+
+    Returns (text, "") if no prefix matched.
+    """
+    m = _COMMIT_PREFIX_RE.match(text)
+    if m:
+        return text[m.end():], m.group(1).lower()
+    return text, ""
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -105,6 +230,14 @@ CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
 # File-like: foo.py, bar_baz.rs, my-lib.js, state/agents.json
 FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
+
+# Version strings that FILE_RE would false-match (v2.0.0, 1.2.3)
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[-+.]\w+)*$", re.IGNORECASE)
+
+# Numbered references: fig.1, no.5, vol.2, ch.3, pt.1
+_NUMBERED_REF_RE = re.compile(
+    r"^(?:fig|no|vol|ch|pt|sec|eq|ref|ex)\.\d+$", re.IGNORECASE
+)
 
 # False positives that FILE_RE catches (abbreviations with periods)
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
@@ -151,6 +284,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    "inject_seed", "tally_votes", "steer", "harvest_artifact",
+    "build_seed_tracker", "build_harness_dashboard", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -266,6 +401,17 @@ class SeedGateResult:
     all_targets: tuple = ()
 
     @property
+    def confidence(self) -> str:
+        """Gate-aware confidence: 'none' when not passed, else score-based."""
+        if not self.passed:
+            return "none"
+        if self.score >= 0.7:
+            return "high"
+        if self.score >= 0.4:
+            return "medium"
+        return "low"
+
+    @property
     def verb(self) -> str:
         return self.verb_found or ""
 
@@ -284,6 +430,8 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "confidence": self.confidence,
+            "suggestions": [],
         }
 
 
@@ -327,11 +475,23 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    low = match_text.lower().rstrip(".")
+    if low in _FALSE_FILE_MATCHES:
+        return True
+    # Version strings (v2.0.0, 1.2.3) are not files
+    if _VERSION_RE.match(match_text):
+        return True
+    # Numbered references (fig.1, ch.3) are not files
+    if _NUMBERED_REF_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single or phrasal).
+
+    Supports inflected forms via _normalize_verb().
+    """
     words = text.split()
     if not words:
         return False
@@ -340,7 +500,7 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,7 +516,10 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Handles inflected forms (Building -> build, Created -> create).
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
@@ -364,8 +527,9 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
                 return _PHRASAL_FIRST[word][next_word]
-        if word in ACTION_VERBS:
-            return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
@@ -388,9 +552,10 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        normalized = _normalize_verb(word)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
     return result
 
 
@@ -459,6 +624,10 @@ def is_junk(text: str, limit: int = 0) -> str:
         return "empty or whitespace-only"
     if len(stripped) < 15:
         return "too short (%d chars)" % len(stripped)
+    # Strip commit prefix before junk checks so "fix: ..." is not flagged lowercase
+    cleaned, _ctype = _strip_commit_prefix(stripped)
+    if _ctype:
+        stripped = cleaned.strip() or stripped
     if _JUNK_EXCEPTION_RE.match(stripped):
         return ""
     for pat in _JUNK_PATTERNS:
@@ -539,7 +708,10 @@ def count_unique_targets(text: str) -> int:
     raw_targets: list[str] = []
     for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
-            raw_targets.append(m.group())
+            t = m.group()
+            if pattern is FILE_RE and _is_false_file_match(t):
+                continue
+            raw_targets.append(t)
     canonical: list[str] = []
     for t in raw_targets:
         c = canonicalize_target(t)
@@ -590,6 +762,7 @@ _is_soft_artifact = is_soft_artifact
 _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
+_normalize = _normalize_verb
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +780,10 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
+    # -- Strip conventional-commit prefix once at the top ---
+    cleaned_text, commit_type = _strip_commit_prefix(text.strip())
+    working_text = cleaned_text if commit_type else text
+
     # -- Junk check (hard fail) ---
     junk_limit = 60 if mode == "purge" else 0
     junk_reason = is_junk(text, limit=junk_limit)
@@ -616,10 +793,14 @@ def validate_seed(
             verb_found=None, target_found=None, junk=True,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target (use cleaned text so commit prefix doesn't interfere) ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb = find_verb(working_text, limit=verb_limit)
+    target, target_kind = find_target(working_text)
+
+    # -- Commit-type as fallback verb ---
+    if not verb and commit_type and commit_type in ACTION_VERBS:
+        verb = commit_type
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
@@ -630,7 +811,7 @@ def validate_seed(
 
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
+        m = _QUESTION_STEM_RE.match(working_text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
 
@@ -720,6 +901,26 @@ def validate_batch(
         failed_items=tuple(failed_items),
         junk_items=tuple(junk_items),
     )
+
+
+
+def suggest(text: str, tags: list = None) -> list[str]:
+    """Return actionable hints for improving a proposal.
+
+    If the proposal already passes the gate, returns an empty list.
+    Otherwise, returns 1-3 short suggestions.
+    """
+    result = validate_seed(text, tags or [])
+    if result.passed:
+        return []
+    hints: list[str] = []
+    if not result.verb_found:
+        hints.append("Add an action verb (build, test, refactor, deploy, ...)")
+    if not result.target_found:
+        hints.append("Name a concrete target (file.py, tool_name, #1234, ...)")
+    if result.junk:
+        hints.append("Rewrite as a clear, capitalized sentence")
+    return hints
 
 
 # ---------------------------------------------------------------------------
