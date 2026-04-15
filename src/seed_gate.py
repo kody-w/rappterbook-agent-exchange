@@ -36,9 +36,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- inflected verb normalization (-ing/-ed + irregulars),
+                  version-string false-positive filter, commit-prefix
+                  handling (preserves verb, strips noise).
 """
 from __future__ import annotations
 
@@ -98,6 +101,30 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+# Version strings -- e.g. "3.11", "v2.0.1" -- false positives for FILE_RE
+_VERSION_RE = re.compile(r"^v?\d+(?:\.\d+)+$")
+
+# Conventional commit prefixes -- feat:, fix(scope):, chore!:, etc.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?P<type>feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert)"
+    r"(?:\([^)]*\))?!?:\s*",
+    re.I,
+)
+
+# Map conventional commit types → implied action verbs
+_COMMIT_TYPE_TO_VERB: dict[str, str] = {
+    "feat": "build", "fix": "fix", "refactor": "refactor",
+    "test": "test", "docs": "document", "perf": "optimize",
+    "build": "build", "ci": "configure", "chore": "update",
+    "revert": "remove", "style": "clean",
+}
+
+# Irregular past tenses → base verb (hand-curated, not generated)
+_IRREGULAR_PAST: dict[str, str] = {
+    "built": "build", "wrote": "write", "written": "write",
+    "ran": "run", "sent": "ship", "wired": "wire", "got": "deploy",
+}
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -327,11 +354,16 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    stripped = match_text.lower().rstrip(".")
+    if stripped in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single, phrasal, or inflected)."""
     words = text.split()
     if not words:
         return False
@@ -340,7 +372,7 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    return first in ACTION_VERBS or _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -351,12 +383,69 @@ def _starts_with_file(text: str) -> bool:
     return False
 
 
+def _normalize_verb(word: str) -> str | None:
+    """Reduce an inflected English word to a base verb in ACTION_VERBS.
+
+    Handles -ing and -ed suffixes (with doubled-consonant and silent-e
+    restoration) plus a small set of irregular past tenses.
+    Deliberately skips -s/-es to avoid plural-noun false positives.
+    """
+    if word in ACTION_VERBS:
+        return word
+    if word in _IRREGULAR_PAST:
+        return _IRREGULAR_PAST[word]
+
+    candidates: list[str] = []
+
+    if word.endswith("ing") and len(word) > 4:
+        stem = word[:-3]
+        candidates.append(stem)            # building → build
+        candidates.append(stem + "e")      # creating → create
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            candidates.append(stem[:-1])   # shipping → ship
+
+    elif word.endswith("ied") and len(word) > 4:
+        candidates.append(word[:-3] + "y")  # (future-proof for -y verbs)
+
+    elif word.endswith("ed") and len(word) > 3:
+        stem = word[:-2]
+        candidates.append(stem)            # tested → test
+        candidates.append(stem + "e")      # configured → configure
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            candidates.append(stem[:-1])   # shipped → ship
+
+    for c in candidates:
+        if c in ACTION_VERBS:
+            return c
+    return None
+
+
+def _strip_commit_prefix(text: str) -> tuple[str, str | None]:
+    """Strip conventional commit prefix, returning (body, implied_verb | None).
+
+    "feat: Build X" → ("Build X", "build")
+    "fix(ui): resolve crash" → ("resolve crash", "fix")
+    "No prefix here" → ("No prefix here", None)
+    """
+    m = _COMMIT_PREFIX_RE.match(text.strip())
+    if not m:
+        return text, None
+    commit_type = m.group("type").lower()
+    body = text[m.end():].strip()
+    implied_verb = _COMMIT_TYPE_TO_VERB.get(commit_type)
+    return body if body else text, implied_verb
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Checks direct matches first, then tries inflection normalization
+    (-ing, -ed, irregular past tenses) as a fallback.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
@@ -366,11 +455,17 @@ def find_verb(text: str, limit: int = 0) -> str | None:
                 return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Includes inflected forms normalized to their base verb.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -388,9 +483,15 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        if word in ACTION_VERBS:
+            if word not in seen:
+                seen.add(word)
+                result.append(word)
+        else:
+            normalized = _normalize_verb(word)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(normalized)
     return result
 
 
@@ -607,19 +708,30 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
-    # -- Junk check (hard fail) ---
-    junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
-    if junk_reason:
-        return SeedGateResult(
-            passed=False, reasons=(junk_reason,), score=0.0,
-            verb_found=None, target_found=None, junk=True,
-        )
+    # -- Commit prefix handling (strip for junk, preserve verb) ---
+    body, commit_verb = _strip_commit_prefix(text)
 
-    # -- Verb + target ---
+    # -- Junk check on body (prefix-stripped text) ---
+    junk_limit = 60 if mode == "purge" else 0
+    junk_reason = is_junk(body, limit=junk_limit)
+    if junk_reason:
+        # Commit prefixes legitimize lowercase-starting bodies
+        if commit_verb and "starts lowercase" in junk_reason:
+            pass  # prefix provides structure; don't flag as junk
+        else:
+            return SeedGateResult(
+                passed=False, reasons=(junk_reason,), score=0.0,
+                verb_found=None, target_found=None, junk=True,
+            )
+
+    # -- Verb + target (search full text for max signal) ---
     verb_limit = 200 if mode == "purge" else 0
     verb = find_verb(text, limit=verb_limit)
     target, target_kind = find_target(text)
+
+    # -- Commit-type implied verb (fallback) ---
+    if not verb and commit_verb:
+        verb = commit_verb
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:

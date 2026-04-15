@@ -37,6 +37,10 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    _normalize_verb,
+    _strip_commit_prefix,
+    _is_false_file_match,
+    _COMMIT_TYPE_TO_VERB,
 )
 
 
@@ -1376,3 +1380,382 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ============================================================================
+# Frame: Inflected verb normalization tests
+# ============================================================================
+
+
+class TestNormalizeVerbDirect:
+    """Test _normalize_verb helper directly."""
+
+    def test_base_verbs_passthrough(self):
+        from seed_gate import _normalize_verb
+        for verb in ("build", "create", "test", "deploy", "fix"):
+            assert _normalize_verb(verb) == verb
+
+    def test_ing_regular(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("building") == "build"
+        assert _normalize_verb("testing") == "test"
+        assert _normalize_verb("deploying") == "deploy"
+        assert _normalize_verb("monitoring") == "monitor"
+        assert _normalize_verb("implementing") == "implement"
+        assert _normalize_verb("publishing") == "publish"
+
+    def test_ing_silent_e(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("creating") == "create"
+        assert _normalize_verb("writing") == "write"
+        assert _normalize_verb("wiring") == "wire"
+        assert _normalize_verb("caching") == "cache"
+        assert _normalize_verb("scheduling") == "schedule"
+        assert _normalize_verb("analyzing") == "analyze"
+        assert _normalize_verb("optimizing") == "optimize"
+        assert _normalize_verb("configuring") == "configure"
+
+    def test_ing_doubled_consonant(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("shipping") == "ship"
+        assert _normalize_verb("debugging") == "debug"
+        assert _normalize_verb("running") == "run"
+        assert _normalize_verb("scanning") == "scan"
+        assert _normalize_verb("planning") == "plan"
+        assert _normalize_verb("logging") == "log"
+        assert _normalize_verb("mocking") == "mock"
+        assert _normalize_verb("wrapping") == "wrap"
+        assert _normalize_verb("stubbing") == "stub"
+
+    def test_ed_regular(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("tested") == "test"
+        assert _normalize_verb("deployed") == "deploy"
+        assert _normalize_verb("fixed") == "fix"
+        assert _normalize_verb("implemented") == "implement"
+        assert _normalize_verb("published") == "publish"
+        assert _normalize_verb("launched") == "launch"
+
+    def test_ed_silent_e(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("created") == "create"
+        assert _normalize_verb("configured") == "configure"
+        assert _normalize_verb("cached") == "cache"
+        assert _normalize_verb("scheduled") == "schedule"
+
+    def test_ed_doubled_consonant(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("shipped") == "ship"
+        assert _normalize_verb("debugged") == "debug"
+        assert _normalize_verb("planned") == "plan"
+        assert _normalize_verb("logged") == "log"
+        assert _normalize_verb("scanned") == "scan"
+        assert _normalize_verb("wrapped") == "wrap"
+
+    def test_irregular_past(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("built") == "build"
+        assert _normalize_verb("wrote") == "write"
+        assert _normalize_verb("written") == "write"
+        assert _normalize_verb("ran") == "run"
+
+    def test_non_verbs_return_none(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("quickly") is None
+        assert _normalize_verb("module") is None
+        assert _normalize_verb("python") is None
+        assert _normalize_verb("system") is None
+        assert _normalize_verb("walking") is None  # "walk" not in ACTION_VERBS
+
+    def test_too_short_ignored(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("a") is None
+        assert _normalize_verb("ed") is None
+        assert _normalize_verb("ing") is None
+
+
+class TestInflectedVerbsInFindVerb:
+    """Test that find_verb() recognizes inflected forms."""
+
+    def test_ing_forms_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Building water_mining.py") == "build"
+        assert find_verb("Creating a new solar_array.py") == "create"
+        assert find_verb("Shipping the thermal_control module") == "ship"
+
+    def test_ed_forms_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Tested seed_gate.py thoroughly") == "test"
+        assert find_verb("Deployed the reactor module successfully") == "deploy"
+        assert find_verb("Configured thermal_control.py") == "configure"
+
+    def test_irregular_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Built water_mining.py from scratch") == "build"
+        assert find_verb("Wrote new tests for seed_gate.py") == "write"
+
+    def test_base_still_preferred(self):
+        """Base verb should be found before we try normalization."""
+        from seed_gate import find_verb
+        assert find_verb("Build and test seed_gate.py") == "build"
+
+    def test_inflected_in_find_all_verbs(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Building and testing seed_gate.py then deploying it")
+        assert "build" in verbs
+        assert "test" in verbs
+        assert "deploy" in verbs
+
+
+class TestInflectedVerbsInValidation:
+    """Test that inflected forms make proposals pass the gate."""
+
+    def test_ing_proposal_passes(self):
+        r = validate("Building water_mining.py optimizer for drilling systems")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+        assert r["verb_found"] == "build"
+
+    def test_ed_proposal_passes(self):
+        r = validate("Tested seed_gate.py with comprehensive coverage")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+        assert r["verb_found"] == "test"
+
+    def test_irregular_proposal_passes(self):
+        r = validate("Built the solar_array.py controller module")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+        assert r["verb_found"] == "build"
+
+    def test_written_proposal(self):
+        r = validate("Written new seed_gate.py validator from scratch")
+        assert r["passed"]
+        assert r["verb_found"] == "write"
+
+    def test_inflected_not_junk(self):
+        """Proposals starting with inflected verbs should not be junk."""
+        from seed_gate import is_junk
+        assert is_junk("building water_mining.py optimizer for production") == ""
+        assert is_junk("testing seed_gate.py coverage metrics daily") == ""
+
+    def test_noun_looking_word_not_false_positive(self):
+        """Words that look inflected but aren't verbs should still fail."""
+        r = validate("Something interesting happening in the universe today")
+        assert not r["passed"]
+
+
+# ============================================================================
+# Frame: Version string false-positive filter tests
+# ============================================================================
+
+
+class TestVersionStringFilter:
+    """Test that version numbers don't false-match as filenames."""
+
+    def test_bare_version_not_a_file(self):
+        from seed_gate import find_target
+        target, kind = find_target("Upgrade to Python 3.11 for performance")
+        assert target != "3.11"
+
+    def test_semver_not_a_file(self):
+        from seed_gate import find_target
+        target, kind = find_target("Migrate from v2.0.1 to v3.0.0")
+        assert target != "v2.0.1"
+        assert target != "v3.0.0"
+
+    def test_real_file_still_matches(self):
+        from seed_gate import find_target
+        target, kind = find_target("Update config.json for Python 3.11")
+        assert target == "config.json"
+        assert kind == "file"
+
+    def test_version_with_real_file(self):
+        """Version and real file in same text: file wins."""
+        r = validate("Build seed_gate.py for Python 3.11 compatibility")
+        assert r["passed"]
+        assert r["target_found"] == "seed_gate.py"
+
+    def test_version_only_no_target(self):
+        """Proposal mentioning only a version has no concrete target."""
+        from seed_gate import find_target
+        target, kind = find_target("Support Python 3.11 and 3.12")
+        # Should not match versions as files
+        assert kind != "file" or target not in ("3.11", "3.12")
+
+    def test_version_in_path_still_valid(self):
+        """docs/v2.0/migration.md is a valid path, not a bare version."""
+        from seed_gate import find_target
+        target, kind = find_target("Update docs/v2.0/migration.md guide")
+        assert kind in ("file", "path")
+
+    def test_is_false_file_match_versions(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("3.11")
+        assert _is_false_file_match("v2.0.1")
+        assert _is_false_file_match("1.0.0")
+        assert not _is_false_file_match("config.json")
+        assert not _is_false_file_match("seed_gate.py")
+
+
+# ============================================================================
+# Frame: Commit prefix handling tests
+# ============================================================================
+
+
+class TestStripCommitPrefix:
+    """Test _strip_commit_prefix helper."""
+
+    def test_feat_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat: Build seed_gate.py validator")
+        assert body == "Build seed_gate.py validator"
+        assert verb == "build"
+
+    def test_fix_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix: resolve false positive on versions")
+        assert body == "resolve false positive on versions"
+        assert verb == "fix"
+
+    def test_scoped_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix(ui): align buttons in dashboard.html")
+        assert body == "align buttons in dashboard.html"
+        assert verb == "fix"
+
+    def test_bang_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat!: Rewrite auth.py from scratch")
+        assert body == "Rewrite auth.py from scratch"
+        assert verb == "build"
+
+    def test_scoped_bang(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("refactor(core)!: Simplify state_io.py")
+        assert body == "Simplify state_io.py"
+        assert verb == "refactor"
+
+    def test_no_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("Build seed_gate.py validator module")
+        assert body == "Build seed_gate.py validator module"
+        assert verb is None
+
+    def test_case_insensitive(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("FEAT: Build seed_gate.py now")
+        assert body == "Build seed_gate.py now"
+        assert verb == "build"
+
+    def test_empty_body_returns_original(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix:")
+        # Empty body after strip → return original text
+        assert body == "fix:"
+
+    def test_all_commit_types(self):
+        from seed_gate import _strip_commit_prefix, _COMMIT_TYPE_TO_VERB
+        for ctype in ("feat", "fix", "chore", "docs", "refactor", "test",
+                       "ci", "build", "perf", "style", "revert"):
+            body, verb = _strip_commit_prefix(f"{ctype}: do something with file.py")
+            assert verb == _COMMIT_TYPE_TO_VERB[ctype], f"Failed for {ctype}"
+
+
+class TestCommitPrefixInValidation:
+    """Test that commit-prefixed proposals pass the gate correctly."""
+
+    def test_feat_with_file_passes(self):
+        r = validate("feat: Build seed_gate.py specificity validator")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+
+    def test_fix_with_file_passes(self):
+        r = validate("fix: Resolve false positive in thermal_control.py")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+
+    def test_refactor_scoped_passes(self):
+        r = validate("refactor(core): Simplify state_io.py save logic")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+
+    def test_commit_prefix_not_junk(self):
+        """Commit-prefixed text should not be flagged as junk for lowercase start."""
+        r = validate("feat: Build the new water_mining.py extraction module")
+        assert not r["junk"]
+
+    def test_commit_verb_as_fallback(self):
+        """If body has no verb, commit type provides it."""
+        r = validate("fix: the false positive in seed_gate.py validation")
+        assert r["passed"], f"Should pass but got: {r['reasons']}"
+        assert r["verb_found"] == "fix"
+
+    def test_body_verb_preferred(self):
+        """If body has its own verb, it takes precedence over commit type."""
+        r = validate("feat: Optimize water_mining.py drilling algorithm")
+        assert r["passed"]
+        # "optimize" from body found before "build" from commit type
+        assert r["verb_found"] == "optimize"
+
+    def test_prefix_only_too_short(self):
+        """Commit prefix with empty/tiny body should fail."""
+        r = validate("fix: x")
+        assert not r["passed"]
+
+    def test_docs_prefix(self):
+        r = validate("docs: Document the seed_gate.py API reference")
+        assert r["passed"]
+
+    def test_test_prefix(self):
+        r = validate("test: Add coverage for thermal_control.py edge cases")
+        assert r["passed"]
+
+
+# ============================================================================
+# Frame: Property invariants for new features
+# ============================================================================
+
+
+class TestNewFeaturePropertyInvariants:
+    """Property-based invariants for inflection, version filter, commit prefix."""
+
+    def test_normalize_verb_only_returns_known_verbs(self):
+        """_normalize_verb can only return verbs in ACTION_VERBS or None."""
+        from seed_gate import _normalize_verb
+        test_words = [
+            "building", "creating", "shipping", "testing", "running",
+            "deployed", "fixed", "configured", "built", "wrote",
+            "walking", "sleeping", "eating", "python", "module",
+            "interesting", "something", "nothing", "everything",
+        ]
+        for word in test_words:
+            result = _normalize_verb(word)
+            assert result is None or result in ACTION_VERBS, (
+                f"_normalize_verb({word!r}) returned {result!r} which is not in ACTION_VERBS"
+            )
+
+    def test_inflected_score_never_negative(self):
+        """Score for inflected proposals should be >= 0."""
+        inflected_proposals = [
+            "Building water_mining.py optimizer",
+            "Created thermal_control.py system",
+            "Shipped seed_gate.py validator",
+            "Testing fuel_cell.py integration",
+        ]
+        for text in inflected_proposals:
+            r = validate(text)
+            assert r["score"] >= 0.0, f"Negative score for: {text}"
+
+    def test_commit_prefix_doesnt_change_target(self):
+        """Adding a commit prefix should not change target detection."""
+        from seed_gate import find_target
+        base = "Build seed_gate.py validator"
+        prefixed = "feat: Build seed_gate.py validator"
+        _, kind1 = find_target(base)
+        _, kind2 = find_target(prefixed)
+        assert kind1 == kind2
+
+    def test_version_filter_never_rejects_real_files(self):
+        """Real filenames with extensions should never be filtered as versions."""
+        from seed_gate import _is_false_file_match
+        real_files = [
+            "seed_gate.py", "config.json", "README.md", "bundle.sh",
+            "style.css", "app.js", "Cargo.toml", "schema.sql",
+        ]
+        for f in real_files:
+            assert not _is_false_file_match(f), f"{f} incorrectly filtered"
