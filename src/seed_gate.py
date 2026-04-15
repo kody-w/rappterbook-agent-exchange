@@ -13,7 +13,7 @@ Two public APIs -- pick whichever suits the call-site:
     if not gate["passed"]: ...
 
     # Dataclass API
-    result = validate_seed_result(text, tags)  # -> SeedGateResult
+    result = validate_seed(text, tags)      # -> SeedGateResult
     if not result.passes: ...
 
     # Bool convenience
@@ -102,22 +102,45 @@ _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 class SeedGateResult:
     """Immutable result of seed-gate validation."""
 
-    passes: bool
-    reasons: list[str]
-    score: int          # 0-10 specificity score (informational)
-    verb: str           # first detected verb, or ""
-    target: str         # first detected target, or ""
-    code: str           # machine-readable result code
+    passed: bool
+    reasons: list        # empty if passed; join-able with '; '
+    score: int           # 0-10 specificity score
+    verb_found: object   # first detected verb (str), or None
+    target_found: object # first detected target (str), or None
+    junk: bool           # True if proposal is junk/fragment
+    code: str            # "pass", "no_verb", "no_target", "junk"
 
-    def to_dict(self) -> dict[str, object]:
-        """Return the dict shape that propose_seed.py expects."""
+    @property
+    def passes(self) -> bool:
+        """Alias for passed."""
+        return self.passed
+
+    @property
+    def verb(self) -> str:
+        """Alias for verb_found, always str."""
+        return self.verb_found or ""
+
+    @property
+    def target(self) -> str:
+        """Alias for target_found, always str."""
+        return self.target_found or ""
+
+    def to_dict(self) -> dict:
+        """Return the dict shape that propose_seed.py expects.
+
+        Includes both short keys (verb, target) and long keys
+        (verb_found, target_found) for compatibility.
+        """
         return {
-            "passed": self.passes,
+            "passed": self.passed,
             "reasons": list(self.reasons),
             "score": self.score,
-            "verb": self.verb,
-            "target": self.target,
+            "verb": self.verb_found or "",
+            "target": self.target_found or "",
             "code": self.code,
+            "verb_found": self.verb_found,
+            "target_found": self.target_found,
+            "junk": self.junk,
         }
 
 
@@ -136,7 +159,7 @@ def _detect_verb(text: str, limit: int | None = None) -> str:
 
 
 def _detect_target(text: str) -> tuple[str, str]:
-    """Return (target_string, target_kind) or ('', '')."""
+    """Return (target_string, target_kind) or empty pair."""
     # Order matters -- most specific first
     m = FILE_RE.search(text)
     if m:
@@ -176,7 +199,7 @@ def _is_junk(text: str, limit: int | None = None) -> str | None:
 
 
 def _score(text: str, verb: str, target: str, target_kind: str) -> int:
-    """Compute a 0-10 specificity score (informational only)."""
+    """Compute a 0-10 specificity score."""
     s = 0
     if verb:
         s += 3
@@ -198,6 +221,17 @@ def _score(text: str, verb: str, target: str, target_kind: str) -> int:
     if (file_count + tool_count) >= 2:
         s += 1
     return min(s, 10)
+
+
+def _derive_code(passed: bool, junk: bool, verb: str, target: str) -> str:
+    """Derive a reason code from validation state."""
+    if junk:
+        return "junk"
+    if not verb:
+        return "no_verb"
+    if not target:
+        return "no_target"
+    return "pass"
 
 
 # ---------------------------------------------------------------------------
@@ -224,46 +258,58 @@ def validate_seed(
     tags = tags or []
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
-    reasons: list[str] = []
 
     # -- Junk check ---------------------------------------------------------
     junk_limit = 60 if mode == "purge" else None
-    junk = _is_junk(text, limit=junk_limit)
-    if junk:
+    junk_reason = _is_junk(text, limit=junk_limit)
+    is_junk_flag = junk_reason is not None
+
+    if is_junk_flag:
         return SeedGateResult(
-            passes=False,
-            reasons=[f"Rejected: {junk}"],
-            score=0, verb="", target="", code="junk",
+            passed=False,
+            reasons=[junk_reason],
+            score=0,
+            verb_found=None,
+            target_found=None,
+            junk=True,
+            code="junk",
         )
 
     # -- Verb check ---------------------------------------------------------
     verb_limit = 200 if mode == "purge" else None
     verb = _detect_verb(text, limit=verb_limit)
-    if not verb:
-        reasons.append("No action verb found")
 
     # -- Target check -------------------------------------------------------
     target, target_kind = _detect_target(text)
-    if not target and not is_exempt:
-        reasons.append("No concrete target (file, tool, or ref)")
 
     # -- Decision -----------------------------------------------------------
-    passes = len(reasons) == 0
-    if not passes and is_exempt and verb:
-        # Exempt tags + verb -> pass even without target
-        passes = True
-        reasons = [f"Exempt via tag ({', '.join(sorted(tag_set & EXEMPT_TAGS))})"]
+    if mode == "purge":
+        # Purge mode: only junk check matters for pass/fail
+        passed = True
+    else:
+        # Admission mode: require verb + (target or exempt)
+        passed = bool(verb) and (bool(target) or is_exempt)
+
+    reasons: list[str] = []
+    if not passed:
+        if not verb:
+            reasons.append("No action verb found")
+        if not target and not is_exempt:
+            reasons.append("No concrete target (filename, tool, or reference)")
 
     specificity = _score(text, verb, target, target_kind)
-
-    code = "pass" if passes else "no_verb" if not verb else "no_target"
+    code = _derive_code(passed, False, verb, target)
+    # Override: if passed is True (e.g. purge mode, exempt), code = "pass"
+    if passed:
+        code = "pass"
 
     return SeedGateResult(
-        passes=passes,
+        passed=passed,
         reasons=reasons,
         score=specificity,
-        verb=verb,
-        target=target,
+        verb_found=verb or None,
+        target_found=target or None,
+        junk=False,
         code=code,
     )
 
@@ -275,10 +321,10 @@ def validate(
 ) -> dict[str, object]:
     """Dict API -- the shape expected by ``propose_seed.py``.
 
-    Returns ``{"passed": bool, "reasons": [...], "score": int,
-    "verb": str, "target": str, "code": str}``.
+    Returns a dict with keys: passed, reasons, score, verb, target,
+    code, verb_found, target_found, junk.
     """
-    return validate_seed(text, tags, mode).to_dict()
+    return validate_seed(text, tags, mode=mode).to_dict()
 
 
 def passes_gate(
@@ -287,7 +333,7 @@ def passes_gate(
     mode: str = "admission",
 ) -> bool:
     """Convenience: return True iff the proposal passes the gate."""
-    return validate_seed(text, tags, mode).passes
+    return validate_seed(text, tags, mode=mode).passed
 
 
 # ---------------------------------------------------------------------------
