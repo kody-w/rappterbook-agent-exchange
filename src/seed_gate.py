@@ -29,6 +29,11 @@ Two public APIs -- pick whichever suits the call-site:
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
+    # Diagnostics
+    breakdown = score_breakdown(text, tags)  # -> dict
+    one_liner = explain(text, tags)          # -> str
+    tips      = suggest(text, tags)          # -> list[str]
+
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
@@ -45,6 +50,9 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- negation detection (construction-based: don't/never/stop/
+                  avoid); score_breakdown() diagnostics; explain() API;
+                  target_kind in SeedGateResult; 575+ tests.
 """
 from __future__ import annotations
 
@@ -301,6 +309,43 @@ _FILE_START_RE = re.compile(r"^[\w./-]*\w+\.\w{1,8}\b")
 
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 
+# ---------------------------------------------------------------------------
+# Negation detection -- construction-based (PR #272)
+# ---------------------------------------------------------------------------
+# Matches specific syntactic constructions where a negation word directly
+# modifies the action verb.  Does NOT fire on subordinate clauses like
+# "Fix the module that doesn't compile".
+
+# Contraction patterns: don't/doesn't/didn't/won't/wouldn't/shouldn't/can't/cannot
+_NEGATION_CONTRACTION_RE = re.compile(
+    r"\b(?:don['\u2019]t|doesn['\u2019]t|didn['\u2019]t"
+    r"|won['\u2019]t|wouldn['\u2019]t|shouldn['\u2019]t"
+    r"|can['\u2019]t|cannot|must\s*n['\u2019]t)\b",
+    re.I,
+)
+
+# Split negation: "do not", "does not", "did not", "will not", "should not"
+_NEGATION_SPLIT_RE = re.compile(
+    r"\b(?:do\s+not|does\s+not|did\s+not|will\s+not|should\s+not"
+    r"|must\s+not|shall\s+not)\b",
+    re.I,
+)
+
+# Anti-action verbs that negate the following verb: "stop VERBing", "avoid VERBing"
+_ANTI_ACTION_RE = re.compile(
+    r"\b(?:stop|avoid|prevent|cease|quit|halt)\b",
+    re.I,
+)
+
+# "never" directly before a verb
+_NEVER_RE = re.compile(r"\bnever\b", re.I)
+
+# Subordinate clause markers — negation after these should NOT negate the main verb
+_SUBORDINATE_MARKERS = frozenset({
+    "that", "which", "who", "where", "when", "because", "since",
+    "although", "though", "while", "if", "unless", "until",
+})
+
 # Two-tier artifact signals (rubber-duck advised split):
 # Hard: always fail -- parser/extraction garbage
 _HARD_ARTIFACT_SIGNALS: tuple[str, ...] = (
@@ -356,6 +401,8 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    target_kind: str = ""
+    negated: bool = False
 
     @property
     def verb(self) -> str:
@@ -388,6 +435,8 @@ class SeedGateResult:
             "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "target_kind": self.target_kind,
+            "negated": self.negated,
         }
 
 
@@ -466,6 +515,65 @@ def _starts_with_file(text: str) -> bool:
     m = _FILE_START_RE.match(text.strip())
     if m:
         return not _is_false_file_match(m.group())
+    return False
+
+
+def detect_negation(text: str) -> bool:
+    """Return True if the main clause of *text* is negated.
+
+    Uses construction-based detection (don't/never/stop/avoid + verb),
+    NOT proximity-based windowing.  Negation in subordinate clauses
+    ("Fix the module that doesn't compile") does NOT trigger.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+
+    # Split into main clause vs subordinate: the main clause is
+    # everything before the first subordinate marker.
+    words = stripped.split()
+    main_end = len(words)
+    for i, w in enumerate(words):
+        if w.lower().rstrip(",.;:") in _SUBORDINATE_MARKERS and i > 0:
+            main_end = i
+            break
+    main_clause = " ".join(words[:main_end])
+
+    # Check contraction negations in main clause
+    if _NEGATION_CONTRACTION_RE.search(main_clause):
+        return True
+
+    # Check split negations in main clause
+    if _NEGATION_SPLIT_RE.search(main_clause):
+        return True
+
+    # Check "never" in main clause
+    if _NEVER_RE.search(main_clause):
+        return True
+
+    # Check anti-action verbs (stop/avoid/prevent/cease/quit/halt)
+    # These negate the action when they ARE the leading verb (imperative form).
+    # Do NOT trigger in questions ("Should we stop?") or mid-sentence contexts.
+    anti_match = _ANTI_ACTION_RE.search(main_clause)
+    if anti_match:
+        anti_word = anti_match.group().lower()
+        # Only negate if the anti-action word is in imperative position
+        # (first significant word), not in a question or subordinate role.
+        mc_lower = main_clause.lstrip().lower()
+        question_start = mc_lower.startswith(("should", "could", "would",
+                                               "can", "will", "what", "how",
+                                               "why", "do we", "shall"))
+        if not question_start:
+            first_verb_pos = None
+            for m in re.finditer(r"[a-zA-Z]+", main_clause.lower()):
+                w = m.group()
+                if w in ACTION_VERBS or w in _INFLECTION_MAP:
+                    if w != anti_word:
+                        first_verb_pos = m.start()
+                        break
+            if first_verb_pos is None or anti_match.start() < first_verb_pos:
+                return True
+
     return False
 
 
@@ -704,6 +812,42 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _compute_score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict:
+    """Compute detailed score breakdown -- shared logic for compute_score & score_breakdown."""
+    components: dict[str, float] = {}
+    if verb:
+        components["verb"] = 2.5
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    if target:
+        components["target"] = kind_scores.get(target_kind, 1.5)
+    words = text.split()
+    if len(words) >= 15:
+        components["length"] = 1.5
+    elif len(words) >= 8:
+        components["length"] = 0.5
+    unique = count_unique_targets(text)
+    if unique >= 2:
+        components["multi_target"] = 1.0
+    if verb and _starts_with_verb(text):
+        components["imperative"] = 0.5
+    total_raw = sum(components.values())
+    normalized = min(total_raw / 10.0, 1.0)
+    return {
+        **components,
+        "total_raw": total_raw,
+        "normalized": normalized,
+    }
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -711,28 +855,39 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    return _compute_score_breakdown(text, verb, target, target_kind)["normalized"]
+
+
+def score_breakdown(
+    text: str,
+    tags: list = None,
+    *,
+    mode: str = "admission",
+) -> dict:
+    """Return a dict showing where score points came from.
+
+    Uses the same validation path as validate_seed() to ensure consistency.
+    Keys: verb, target, length, multi_target, imperative (each float),
+    total_raw, normalized, verb_found, target_found, target_kind, passed.
+    """
+    result = validate_seed(text, tags, mode=mode)
+    # For junk/failed items, use the score from validate_seed (may be 0.0)
+    if result.junk or not result.passed:
+        breakdown = _compute_score_breakdown(
+            text, result.verb_found, result.target_found, result.target_kind,
+        )
+        # Override normalized to match the actual validation score
+        breakdown["normalized"] = result.score
+    else:
+        breakdown = _compute_score_breakdown(
+            text, result.verb_found, result.target_found, result.target_kind,
+        )
+    breakdown["verb_found"] = result.verb_found
+    breakdown["target_found"] = result.target_found
+    breakdown["target_kind"] = result.target_kind
+    breakdown["passed"] = result.passed
+    breakdown["negated"] = result.negated
+    return breakdown
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -745,6 +900,10 @@ def suggest(text: str, tags: list = None) -> list[str]:
     if result.passed:
         return []
     suggestions: list[str] = []
+    if result.negated:
+        suggestions.append(
+            "Rewrite as a positive action (e.g. 'Build X' instead of 'Don't break X')"
+        )
     if not result.verb_found:
         suggestions.append(
             "Start with an action verb (build, fix, test, deploy, refactor, ...)"
@@ -761,6 +920,40 @@ def suggest(text: str, tags: list = None) -> list[str]:
     return suggestions
 
 
+def explain(text: str, tags: list = None, *, mode: str = "admission") -> str:
+    """Return a human-readable one-liner explaining the gate verdict.
+
+    Examples:
+        "Passed: verb 'build' + file 'water_mining.py' (score 0.70, high)"
+        "Failed: no action verb found, no concrete target"
+        "Failed: negated instruction (don't)"
+    """
+    result = validate_seed(text, tags, mode=mode)
+    if result.junk:
+        return "Rejected: junk (%s)" % (result.reasons[0] if result.reasons else "unknown")
+
+    parts: list[str] = []
+    if result.verb_found:
+        parts.append("verb '%s'" % result.verb_found)
+    if result.target_found:
+        kind_label = result.target_kind or "target"
+        parts.append("%s '%s'" % (kind_label, result.target_found))
+    if result.negated:
+        parts.append("negated instruction")
+
+    if result.passed:
+        detail = " + ".join(parts) if parts else "exempt"
+        conf = result.confidence or "?"
+        return "Passed: %s (score %.2f, %s)" % (detail, result.score, conf)
+    else:
+        if not parts:
+            return "Failed: %s" % "; ".join(result.reasons)
+        reasons = list(result.reasons)
+        if result.negated:
+            reasons.insert(0, "negated instruction")
+        return "Failed: %s" % "; ".join(reasons)
+
+
 # Backward-compat aliases
 _detect_verb = find_verb
 _detect_target = find_target
@@ -770,6 +963,7 @@ _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
 _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
+_detect_negation = detect_negation
 
 
 # ---------------------------------------------------------------------------
@@ -814,6 +1008,9 @@ def validate_seed(
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
 
+    # -- Negation detection (PR #272) ---
+    negated = detect_negation(text) if mode != "purge" else False
+
     # -- Rich match info (#12521) ---
     all_verbs = tuple(find_all_verbs(text))
     all_targets = _find_all_targets(text)
@@ -825,6 +1022,7 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            target_kind=target_kind, negated=negated,
         )
 
     # -- Decision ---
@@ -832,17 +1030,20 @@ def validate_seed(
         passed = True
         specificity = 0.5
     else:
-        passed = bool(verb) and (bool(target) or is_exempt)
+        passed = bool(verb) and (bool(target) or is_exempt) and not negated
         specificity = compute_score(text, verb, target, target_kind)
 
     reasons: list[str] = []
     advisory = ""
     if not passed:
+        if negated:
+            reasons.append("Negated instruction — rewrite as a positive action")
+            advisory = "rewrite-positive"
         if not verb:
             reasons.append("No action verb found")
         if not target and not is_exempt:
             reasons.append("No concrete target (filename, tool, or reference)")
-        if verb and not target and not is_exempt:
+        if verb and not target and not is_exempt and not negated:
             advisory = "needs-specificity"
     elif verb and not target:
         advisory = "needs-specificity"
@@ -851,6 +1052,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        target_kind=target_kind, negated=negated,
     )
 
 

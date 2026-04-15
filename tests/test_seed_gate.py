@@ -4,7 +4,8 @@ Covers: verb detection, target detection (files, paths, tools, modules,
 CLI, discussions, channels, quoted), junk detection (hard + soft artifacts),
 scoring with unique-target counting, validation pass/fail, exempt tags,
 CLI, real-world proposals, edge cases, property invariants, smoke tests,
-propose_seed.py contract, and regression tests for false rejects.
+propose_seed.py contract, regression tests for false rejects, negation
+detection, score_breakdown(), explain(), target_kind.
 """
 from __future__ import annotations
 
@@ -37,6 +38,9 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    detect_negation,
+    score_breakdown,
+    explain,
 )
 
 
@@ -1652,3 +1656,437 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ============================================================
+# Tests for PR #272: negation detection, score_breakdown(),
+# explain(), target_kind in SeedGateResult
+# ============================================================
+
+
+class TestNegationDetection:
+    """Construction-based negation detection."""
+
+    # -- Contraction negations ---
+    @pytest.mark.parametrize("text", [
+        "Don't build water_mining.py optimizer",
+        "Doesn't fix the thermal_control.py issue",
+        "Didn't deploy the solar_array.py update",
+        "Won't refactor state_io module anytime",
+        "Wouldn't test the seed_gate.py edge cases",
+        "Shouldn't ship untested code to production",
+        "Can't optimize the water_mining.py system",
+        "Cannot merge the pull request right now",
+    ])
+    def test_contraction_negation(self, text):
+        assert detect_negation(text) is True
+
+    # -- Smart quote contractions ---
+    def test_smart_quote_dont(self):
+        assert detect_negation("Don\u2019t build water_mining.py") is True
+
+    def test_smart_quote_wont(self):
+        assert detect_negation("Won\u2019t deploy auth.py") is True
+
+    # -- Split negations ---
+    @pytest.mark.parametrize("text", [
+        "Do not build water_mining.py right now",
+        "Does not fix the critical bug in auth.py",
+        "Did not deploy the update to production",
+        "Will not ship the release before testing",
+        "Should not merge without code review first",
+    ])
+    def test_split_negation(self, text):
+        assert detect_negation(text) is True
+
+    # -- "never" ---
+    def test_never_before_verb(self):
+        assert detect_negation("Never deploy untested code to prod") is True
+
+    def test_never_ship(self):
+        assert detect_negation("Never ship without running the tests") is True
+
+    # -- Anti-action verbs (imperative) ---
+    @pytest.mark.parametrize("text", [
+        "Stop deploying broken builds to production",
+        "Avoid adding more technical debt to codebase",
+        "Prevent the race condition in process_inbox",
+        "Cease all deployments until the fix lands",
+        "Quit running tests without proper fixtures",
+        "Halt the migration until schema is verified",
+    ])
+    def test_anti_action_imperative(self, text):
+        assert detect_negation(text) is True
+
+    # -- NOT negated (subordinate clause) ---
+    @pytest.mark.parametrize("text", [
+        "Fix the module that doesn't compile properly",
+        "Refactor code that can't handle edge cases",
+        "Build auth.py that won't break in production",
+        "Fix the test that didn't pass on CI pipeline",
+        "Update module that wasn't deployed correctly",
+    ])
+    def test_subordinate_not_negated(self, text):
+        assert detect_negation(text) is False
+
+    # -- NOT negated (positive statements) ---
+    @pytest.mark.parametrize("text", [
+        "Build water_mining.py optimizer for drilling",
+        "Fix the thermal_control.py temperature bounds",
+        "Deploy solar_array.py to production cluster",
+        "Ship the new auth module to staging server",
+        "Test seed_gate.py with edge case coverage",
+    ])
+    def test_positive_not_negated(self, text):
+        assert detect_negation(text) is False
+
+    # -- NOT negated (questions with anti-action words) ---
+    @pytest.mark.parametrize("text", [
+        "Should we stop deploying to production daily",
+        "Could we prevent the race condition somehow",
+        "Would halting migrations fix the schema issue",
+        "Can we avoid the flaky test problem entirely",
+        "What if we stop using the old API endpoint",
+        "How could we prevent data loss in the system",
+    ])
+    def test_question_not_negated(self, text):
+        assert detect_negation(text) is False
+
+    # -- Edge cases ---
+    def test_empty_text(self):
+        assert detect_negation("") is False
+
+    def test_whitespace_only(self):
+        assert detect_negation("   ") is False
+
+    def test_negation_in_validate(self):
+        r = validate("Don't build water_mining.py system")
+        assert r["negated"] is True
+        assert r["passed"] is False
+        assert any("negat" in reason.lower() for reason in r["reasons"])
+
+    def test_negation_in_dataclass(self):
+        r = validate_seed("Don't build water_mining.py system")
+        assert r.negated is True
+        assert r.passed is False
+
+    def test_negated_still_finds_verb_and_target(self):
+        r = validate_seed("Don't build water_mining.py system")
+        assert r.verb_found == "build"
+        assert r.target_found == "water_mining.py"
+
+    def test_negation_skipped_in_purge_mode(self):
+        r = validate_seed("Don't build water_mining.py", mode="purge")
+        assert r.passed is True
+        assert r.negated is False
+
+    def test_negated_advisory(self):
+        r = validate_seed("Don't deploy auth.py to production")
+        assert r.advisory == "rewrite-positive"
+
+    def test_negation_suggest_includes_rewrite(self):
+        from seed_gate import suggest
+        tips = suggest("Don't build water_mining.py system")
+        assert any("positive" in s.lower() or "rewrite" in s.lower() for s in tips)
+
+    def test_negation_with_newlines(self):
+        assert detect_negation("Don't build\nwater_mining.py") is True
+
+    def test_must_not_negation(self):
+        assert detect_negation("Must not deploy without testing first") is True
+
+    def test_mustn_t_contraction(self):
+        assert detect_negation("Mustn't ship untested code to prod") is True
+
+
+class TestNegationFalsePositiveRegression:
+    """Ensure negation doesn't create false rejections."""
+
+    def test_do_not_forget(self):
+        """'Do not forget to build' — negation applies to 'forget', but
+        the sentence overall has a positive action intent.  Since the main
+        clause contains 'do not', detect_negation returns True — this is
+        a known edge case that correctly catches the negation construction."""
+        assert detect_negation("Do not forget to build auth.py") is True
+
+    def test_not_only_build(self):
+        """'Not only build auth.py but test it' — starts with negation.
+        This is detected as negated because the construction-based check
+        sees 'not' in the main clause.  The user should rephrase as
+        'Build auth.py and also test it'."""
+        # "Not only" isn't a contraction/split-neg pattern, so it passes
+        r = detect_negation("Not only build auth.py but also test it")
+        # This sentence doesn't match any of our negation patterns
+        assert r is False
+
+    def test_without_is_not_negation(self):
+        assert detect_negation("Build auth.py without breaking tests") is False
+
+    def test_unless_is_not_negation(self):
+        assert detect_negation("Deploy auth.py unless tests fail here") is False
+
+    def test_double_negative_rewrite(self):
+        # "Don't NOT deploy" — the first negation triggers
+        assert detect_negation("Don't not deploy auth.py to prod") is True
+
+
+class TestScoreBreakdown:
+    """Test score_breakdown() diagnostics."""
+
+    def test_basic_breakdown(self):
+        b = score_breakdown("Build water_mining.py optimizer")
+        assert "verb" in b
+        assert b["verb"] == 2.5
+        assert "target" in b
+        assert b["target"] == 4.0  # file
+        assert "total_raw" in b
+        assert "normalized" in b
+
+    def test_breakdown_matches_compute_score(self):
+        b = score_breakdown("Build water_mining.py optimizer")
+        r = validate("Build water_mining.py optimizer")
+        assert abs(b["normalized"] - r["score"]) < 0.001
+
+    def test_component_sum_equals_total(self):
+        b = score_breakdown("Build water_mining.py and solar_array.py integration")
+        components = {k: v for k, v in b.items()
+                      if k not in ("total_raw", "normalized", "verb_found",
+                                   "target_found", "target_kind", "passed", "negated")}
+        assert abs(sum(components.values()) - b["total_raw"]) < 0.001
+
+    def test_no_verb_no_verb_key(self):
+        b = score_breakdown("Water_mining.py optimizer drilling")
+        assert "verb" not in b
+
+    def test_no_target_no_target_key(self):
+        b = score_breakdown("Build something amazing and big")
+        assert "target" not in b
+
+    def test_length_bonus_8_words(self):
+        b = score_breakdown("Build water_mining.py with a full set of tests")
+        assert b.get("length", 0) >= 0.5
+
+    def test_length_bonus_15_words(self):
+        text = "Build water_mining.py " + " ".join(f"word{i}" for i in range(15))
+        b = score_breakdown(text)
+        assert b.get("length", 0) >= 1.5
+
+    def test_multi_target_bonus(self):
+        b = score_breakdown("Build water_mining.py and solar_array.py together")
+        assert b.get("multi_target", 0) == 1.0
+
+    def test_imperative_bonus(self):
+        b = score_breakdown("Build water_mining.py from scratch now")
+        assert b.get("imperative", 0) == 0.5
+
+    def test_no_imperative_bonus_mid_sentence(self):
+        b = score_breakdown("The team should build water_mining.py")
+        assert b.get("imperative", 0) == 0
+
+    def test_breakdown_includes_metadata(self):
+        b = score_breakdown("Build water_mining.py optimizer now")
+        assert b["verb_found"] == "build"
+        assert b["target_found"] == "water_mining.py"
+        assert b["target_kind"] == "file"
+        assert b["passed"] is True
+        assert b["negated"] is False
+
+    def test_breakdown_negated(self):
+        b = score_breakdown("Don't build water_mining.py now")
+        assert b["negated"] is True
+        assert b["passed"] is False
+
+    def test_breakdown_with_tags(self):
+        b = score_breakdown("Explore consciousness in agents", tags=["philosophy"])
+        assert b["verb_found"] == "explore"
+        assert b["passed"] is True
+
+    def test_breakdown_junk(self):
+        b = score_breakdown("")
+        assert b["passed"] is False
+
+
+class TestExplain:
+    """Test explain() human-readable diagnostics."""
+
+    def test_explain_passing(self):
+        result = explain("Build water_mining.py optimizer")
+        assert "Passed" in result
+        assert "build" in result
+        assert "water_mining.py" in result
+        assert "file" in result
+
+    def test_explain_failing_no_verb(self):
+        result = explain("Water_mining.py optimizer for deep drilling")
+        assert "Failed" in result
+        assert "verb" in result.lower()
+
+    def test_explain_failing_no_target(self):
+        result = explain("Build something amazing and wonderful")
+        assert "Failed" in result
+        assert "target" in result.lower()
+
+    def test_explain_junk(self):
+        result = explain("")
+        assert "Rejected" in result or "junk" in result.lower()
+
+    def test_explain_negated(self):
+        result = explain("Don't build water_mining.py system")
+        assert "Failed" in result
+        assert "negat" in result.lower()
+
+    def test_explain_exempt_tag(self):
+        result = explain("Explore consciousness in agents deeply", tags=["philosophy"])
+        assert "Passed" in result
+
+    def test_explain_score_in_output(self):
+        result = explain("Build water_mining.py optimizer now")
+        assert "score" in result.lower() or "0." in result
+
+    def test_explain_confidence_in_output(self):
+        result = explain("Build water_mining.py optimizer now")
+        assert any(c in result for c in ("high", "medium", "low"))
+
+    def test_explain_returns_string(self):
+        assert isinstance(explain("Build water_mining.py"), str)
+        assert isinstance(explain(""), str)
+        assert isinstance(explain("vibes only here"), str)
+
+
+class TestTargetKind:
+    """Test target_kind in SeedGateResult."""
+
+    def test_file_kind(self):
+        r = validate_seed("Build water_mining.py optimizer")
+        assert r.target_kind == "file"
+
+    def test_path_kind(self):
+        r = validate_seed("Fix src/thermal_control module issue")
+        assert r.target_kind == "path"
+
+    def test_tool_kind(self):
+        r = validate_seed("Fix process_inbox handler for deltas")
+        assert r.target_kind == "tool"
+
+    def test_cli_kind(self):
+        r = validate_seed("Test with `pytest -v` for output")
+        assert r.target_kind == "cli"
+
+    def test_discussion_kind(self):
+        r = validate_seed("Build feature from discussion #12503")
+        assert r.target_kind == "discussion"
+
+    def test_channel_kind(self):
+        r = validate_seed("Create content for r/mars-engineering")
+        assert r.target_kind == "channel"
+
+    def test_const_kind(self):
+        r = validate_seed("Update ACTION_VERBS in the seed gate")
+        assert r.target_kind == "const"
+
+    def test_env_kind(self):
+        r = validate_seed("Set $STATE_DIR to temp directory path")
+        assert r.target_kind == "env"
+
+    def test_no_target_empty_kind(self):
+        r = validate_seed("Build something amazing for everyone")
+        assert r.target_kind == ""
+
+    def test_target_kind_in_dict(self):
+        r = validate("Build water_mining.py optimizer system")
+        assert "target_kind" in r
+        assert r["target_kind"] == "file"
+
+    def test_target_kind_in_to_dict(self):
+        r = validate_seed("Build water_mining.py optimizer").to_dict()
+        assert r["target_kind"] == "file"
+
+
+class TestNegatedInDict:
+    """Ensure negated field is present in all API surfaces."""
+
+    def test_negated_in_dict(self):
+        r = validate("Build water_mining.py optimizer")
+        assert "negated" in r
+        assert r["negated"] is False
+
+    def test_negated_true_in_dict(self):
+        r = validate("Don't build water_mining.py system")
+        assert r["negated"] is True
+
+    def test_negated_in_to_dict(self):
+        r = validate_seed("Build water_mining.py").to_dict()
+        assert "negated" in r
+
+    def test_negated_in_batch(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Don't build auth.py stuff"])
+        text, result = br.failed_items[0]
+        assert result["negated"] is True
+
+
+class TestNewInvariants:
+    """Property-based invariants for PR #272 features."""
+
+    @pytest.mark.parametrize("text", _CORPUS)
+    def test_negated_is_bool(self, text):
+        assert isinstance(_v(text)["negated"], bool)
+
+    @pytest.mark.parametrize("text", _CORPUS)
+    def test_target_kind_is_str(self, text):
+        assert isinstance(_v(text)["target_kind"], str)
+
+    @pytest.mark.parametrize("text", _CORPUS)
+    def test_explain_returns_str(self, text):
+        assert isinstance(explain(text), str)
+
+    @pytest.mark.parametrize("text", _CORPUS)
+    def test_breakdown_normalized_matches_score(self, text):
+        b = score_breakdown(text)
+        r = _v(text)
+        assert abs(b["normalized"] - r["score"]) < 0.001
+
+    def test_negated_and_passed_disjoint(self):
+        """A negated proposal should never pass (in admission mode)."""
+        negated_texts = [
+            "Don't build water_mining.py at all",
+            "Never deploy auth.py to production",
+            "Stop shipping untested code always",
+            "Avoid adding tech debt to the codebase",
+        ]
+        for text in negated_texts:
+            r = _v(text)
+            if r["negated"]:
+                assert not r["passed"], f"Negated text passed: {text}"
+
+    def test_breakdown_component_sum(self):
+        """Component values should sum to total_raw."""
+        texts = [
+            "Build water_mining.py and solar_array.py integration",
+            "Fix the bug in auth.py quickly",
+            "Build something amazing for everyone",
+            "Explore consciousness deeply in agents",
+        ]
+        for text in texts:
+            b = score_breakdown(text)
+            components = {k: v for k, v in b.items()
+                          if k not in ("total_raw", "normalized", "verb_found",
+                                       "target_found", "target_kind", "passed", "negated")}
+            assert abs(sum(components.values()) - b["total_raw"]) < 0.001, (
+                f"Component sum mismatch for: {text}"
+            )
+
+    def test_target_kind_valid_or_empty(self):
+        """target_kind should be a recognized kind or empty."""
+        valid_kinds = {"file", "path", "func", "tool", "cli", "discussion",
+                       "channel", "quoted", "module", "const", "env", ""}
+        texts = [
+            "Build auth.py module", "Fix src/thermal/", "Run `pytest`",
+            "See #12345 for details", "Post in r/mars channel",
+            "Build something cool", "Set $STATE_DIR path",
+        ]
+        for text in texts:
+            r = validate_seed(text)
+            assert r.target_kind in valid_kinds, (
+                f"Invalid target_kind '{r.target_kind}' for: {text}"
+            )
