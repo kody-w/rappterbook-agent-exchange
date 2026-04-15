@@ -45,6 +45,14 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- final consolidation of frames 445-446 agent work:
+                  find_verb_with_position() (#264); score_breakdown()
+                  (#264); explain() diagnostics (#257/#264);
+                  _strip_commit_prefix() for conventional commits
+                  (#258/#262); --batch CLI pipeline (#263/#268);
+                  is_imperative property on SeedGateResult; expanded
+                  _FALSE_FILE_MATCHES (Ph.D, U.S, etc.); _NUMBERED_REF_RE
+                  filter for false file matches.
 """
 from __future__ import annotations
 
@@ -193,10 +201,29 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 # False positives that FILE_RE catches (abbreviations with periods)
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
     "e.g", "i.e", "a.m", "p.m", "vs.",
+    "ph.d", "u.s", "u.k", "u.n",
 })
 
 # Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
+
+# Numbered references: fig.1, vol.2, ch.3, no.5, eq.1 -- not file targets
+_NUMBERED_REF_RE = re.compile(r"^(?:fig|vol|ch|no|eq|pt|sec)\.\d+$", re.I)
+
+# Conventional commit prefixes -- feat:, fix(scope):, chore!:, etc.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?P<type>feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert)"
+    r"(?:\([^)]*\))?!?:\s*",
+    re.I,
+)
+
+# Map conventional commit types → implied action verbs
+_COMMIT_TYPE_TO_VERB: dict[str, str] = {
+    "feat": "build", "fix": "fix", "refactor": "refactor",
+    "test": "test", "docs": "document", "perf": "optimize",
+    "build": "build", "ci": "configure", "chore": "update",
+    "revert": "remove", "style": "clean",
+}
 
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
@@ -356,6 +383,8 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    verb_position: int = -1
+    commit_prefix: str | None = None
 
     @property
     def verb(self) -> str:
@@ -364,6 +393,11 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def is_imperative(self) -> bool:
+        """True if the verb appears in the first 3 words (direct command)."""
+        return 0 <= self.verb_position < 3
 
     @property
     def confidence(self) -> str | None:
@@ -386,6 +420,9 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "is_imperative": self.is_imperative,
+            "verb_position": self.verb_position,
+            "commit_prefix": self.commit_prefix,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -432,12 +469,15 @@ class BatchResult:
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive.
 
-    Catches abbreviations (e.g., i.e.) and bare version strings (2.0.1).
+    Catches abbreviations (e.g., i.e.), bare version strings (2.0.1),
+    and numbered references (fig.1, vol.2, ch.3).
     """
     stripped = match_text.lower().rstrip(".")
     if stripped in _FALSE_FILE_MATCHES:
         return True
     if _VERSION_RE.match(match_text):
+        return True
+    if _NUMBERED_REF_RE.match(match_text):
         return True
     return False
 
@@ -469,6 +509,28 @@ def _starts_with_file(text: str) -> bool:
     return False
 
 
+def _strip_commit_prefix(text: str) -> tuple[str, str | None]:
+    """Strip conventional commit prefix, returning (body, implied_verb | None).
+
+    Only exact conventional-commit syntax is matched (fixed allowlist).
+    The implied verb comes from _COMMIT_TYPE_TO_VERB, not the prefix text.
+
+    Examples::
+
+        "feat: Build water_mining.py" → ("Build water_mining.py", "build")
+        "fix(parser)!: resolve crash"  → ("resolve crash", "fix")
+        "feature: Build X"             → ("feature: Build X", None)  # not a valid prefix
+        "No prefix here"              → ("No prefix here", None)
+    """
+    m = _COMMIT_PREFIX_RE.match(text.strip())
+    if not m:
+        return text, None
+    commit_type = m.group("type").lower()
+    body = text[m.end():].strip()
+    implied_verb = _COMMIT_TYPE_TO_VERB.get(commit_type)
+    return body if body else text, implied_verb
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
@@ -493,6 +555,32 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             return word
         if word in _INFLECTION_MAP:
             return _INFLECTION_MAP[word]
+    return None
+
+
+def find_verb_with_position(text: str) -> tuple[str, int] | None:
+    """Return (verb, word_index) for the first action verb, or None.
+
+    Word index is 0-based using the same tokenizer as find_verb().
+    Phrasal verbs report the index of the first word in the phrase.
+    Useful for imperative scoring — verbs at position 0-2 signal
+    a direct command style.
+
+    Tag-implied or question-stem verbs are NOT found here; they
+    have no textual position and should use verb_position=-1.
+    """
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word], i
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return _PHRASAL_INFLECTED[word][next_word], i
+        if word in ACTION_VERBS:
+            return word, i
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word], i
     return None
 
 
@@ -704,35 +792,73 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+# Target-kind score weights (shared by compute_score and score_breakdown)
+_KIND_SCORES: dict[str, float] = {
+    "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+    "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+    "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+}
+
+
+def score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict:
+    """Decomposed scoring dict showing each component's contribution.
+
+    Returns::
+
+        {
+            "verb": 2.5,           # points from action verb
+            "target": 4.0,         # points from target (by kind)
+            "length": 1.5,         # points from word count
+            "multi_target": 1.0,   # bonus for 2+ unique targets
+            "imperative": 0.5,     # bonus for verb-initial text
+            "raw_total": 9.5,      # sum of all components
+            "score": 0.95,         # normalized to 0.0-1.0
+        }
+    """
+    verb_pts = 2.5 if verb else 0.0
+    target_pts = _KIND_SCORES.get(target_kind, 1.5) if target else 0.0
+
+    words = text.split()
+    length_pts = 0.0
+    if len(words) >= 8:
+        length_pts += 0.5
+    if len(words) >= 15:
+        length_pts += 1.0
+
+    unique = count_unique_targets(text)
+    multi_pts = 1.0 if unique >= 2 else 0.0
+
+    imperative_pts = 0.5 if (verb and _starts_with_verb(text)) else 0.0
+
+    raw_total = verb_pts + target_pts + length_pts + multi_pts + imperative_pts
+    return {
+        "verb": verb_pts,
+        "target": target_pts,
+        "length": length_pts,
+        "multi_target": multi_pts,
+        "imperative": imperative_pts,
+        "raw_total": raw_total,
+        "score": min(raw_total / 10.0, 1.0),
+    }
+
+
 def compute_score(
     text: str,
     verb: str | None,
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    """Compute a 0.0-1.0 specificity score.
+
+    Delegates to score_breakdown() internally -- same scoring logic,
+    but returns only the normalized float.
+    """
+    return score_breakdown(text, verb, target, target_kind)["score"]
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -761,6 +887,70 @@ def suggest(text: str, tags: list = None) -> list[str]:
     return suggestions
 
 
+def explain(text: str, tags: list = None, *, mode: str = "admission") -> str:
+    """Human-readable diagnostic string for a seed proposal.
+
+    Composes output from validate_seed(), find_verb_with_position(),
+    and score_breakdown() so no logic is duplicated.  Useful for
+    CLI debugging, agent feedback, and test diagnostics.
+
+    Returns a multi-line string like::
+
+        [PASS] score=0.85 confidence=high
+          verb: build (position 0, imperative)
+          target: seed_gate.py (file)
+          breakdown: verb=2.5 + target=4.0 + imperative=0.5 → 7.0/10
+    """
+    result = validate_seed(text, tags, mode=mode)
+    target, target_kind = find_target(text)
+    vp = find_verb_with_position(text)
+    verb_pos = vp[1] if vp else -1
+    bd = score_breakdown(text, result.verb_found, target, target_kind)
+
+    lines: list[str] = []
+    status = "PASS" if result.passed else ("JUNK" if result.junk else "FAIL")
+    lines.append(
+        "[%s] score=%.2f confidence=%s" % (status, result.score, result.confidence)
+    )
+
+    if result.verb_found:
+        pos_note = ""
+        if verb_pos >= 0:
+            imp = " imperative" if result.is_imperative else ""
+            pos_note = " (position %d%s)" % (verb_pos, imp)
+        lines.append("  verb: %s%s" % (result.verb_found, pos_note))
+    else:
+        lines.append("  verb: (none)")
+
+    if result.target_found:
+        lines.append("  target: %s (%s)" % (result.target_found, target_kind))
+    else:
+        lines.append("  target: (none)")
+
+    if result.reasons:
+        lines.append("  reasons: %s" % "; ".join(result.reasons))
+    if result.advisory:
+        lines.append("  advisory: %s" % result.advisory)
+
+    # Score breakdown
+    parts = []
+    for key in ("verb", "target", "length", "multi_target", "imperative"):
+        val = bd[key]
+        if val > 0:
+            parts.append("%s=%.1f" % (key, val))
+    lines.append(
+        "  breakdown: %s → %.1f/10" % (" + ".join(parts) or "(empty)", bd["raw_total"])
+    )
+
+    if result.all_verbs:
+        lines.append("  all_verbs: %s" % ", ".join(result.all_verbs))
+    if result.all_targets:
+        targets_str = ", ".join("%s (%s)" % (t, k) for t, k in result.all_targets)
+        lines.append("  all_targets: %s" % targets_str)
+
+    return "\n".join(lines)
+
+
 # Backward-compat aliases
 _detect_verb = find_verb
 _detect_target = find_target
@@ -787,19 +977,32 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
-    # -- Junk check (hard fail) ---
+    # -- Strip conventional commit prefix (feat:, fix:, etc.) ---
+    normalized, commit_implied_verb = _strip_commit_prefix(text)
+    commit_prefix = text[:len(text) - len(normalized)].strip() if normalized != text else None
+
+    # -- Junk check on normalized text (hard fail) ---
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
+    junk_reason = is_junk(normalized, limit=junk_limit)
     if junk_reason:
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            commit_prefix=commit_prefix,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target on normalized text ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb = find_verb(normalized, limit=verb_limit)
+    target, target_kind = find_target(normalized)
+
+    # -- Verb position in normalized text ---
+    vp = find_verb_with_position(normalized)
+    verb_pos = vp[1] if vp else -1
+
+    # -- Commit-prefix implied verb (fallback only) ---
+    if not verb and commit_implied_verb:
+        verb = commit_implied_verb
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
@@ -810,21 +1013,22 @@ def validate_seed(
 
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
+        m = _QUESTION_STEM_RE.match(normalized.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
 
     # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
+    all_verbs = tuple(find_all_verbs(normalized))
+    all_targets = _find_all_targets(normalized)
 
     # -- Soft artifact check ---
-    if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+    if is_soft_artifact(normalized) and not (verb and target) and not is_exempt:
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            verb_position=verb_pos, commit_prefix=commit_prefix,
         )
 
     # -- Decision ---
@@ -833,7 +1037,7 @@ def validate_seed(
         specificity = 0.5
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        specificity = compute_score(normalized, verb, target, target_kind)
 
     reasons: list[str] = []
     advisory = ""
@@ -851,6 +1055,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        verb_position=verb_pos, commit_prefix=commit_prefix,
     )
 
 
@@ -907,12 +1112,48 @@ def validate_batch(
 # ---------------------------------------------------------------------------
 
 def _cli() -> None:  # pragma: no cover
+    import json as _json
+    if len(sys.argv) >= 2 and sys.argv[1] == "--batch":
+        # Pipeline mode: stdin JSON array → stdout JSON results
+        tags = sys.argv[2:] if len(sys.argv) > 2 else []
+        try:
+            raw = _json.load(sys.stdin)
+        except (ValueError, _json.JSONDecodeError):
+            print('{"error": "malformed JSON on stdin"}', file=sys.stderr)
+            sys.exit(2)
+        if not isinstance(raw, list):
+            print('{"error": "expected JSON array"}', file=sys.stderr)
+            sys.exit(2)
+        proposals = [str(x) for x in raw]
+        br = validate_batch(proposals, tags)
+        output = {
+            "stats": dataclasses.asdict(br.stats),
+            "results": [
+                {"text": t, "result": r}
+                for items in (br.passed_items, br.failed_items, br.junk_items)
+                for t, r in items
+            ],
+        }
+        print(_json.dumps(output, indent=2))
+        sys.exit(0 if br.stats.failed == 0 and br.stats.junk == 0 else 1)
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--explain":
+        # Diagnostic mode: human-readable explanation
+        if len(sys.argv) < 3:
+            print("Usage: python -m seed_gate --explain '<proposal text>' [tag1 ...]")
+            sys.exit(1)
+        text = sys.argv[2]
+        tags = sys.argv[3:] if len(sys.argv) > 3 else []
+        print(explain(text, tags))
+        sys.exit(0)
+
     if len(sys.argv) < 2:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --batch [tag1 ...] < proposals.json")
+        print("       python -m seed_gate --explain '<proposal text>' [tag1 ...]")
         sys.exit(1)
     text = sys.argv[1]
     tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)

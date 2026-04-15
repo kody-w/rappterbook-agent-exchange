@@ -37,6 +37,12 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    find_verb_with_position,
+    score_breakdown,
+    explain,
+    _strip_commit_prefix,
+    _NUMBERED_REF_RE,
+    _KIND_SCORES,
 )
 
 
@@ -1652,3 +1658,535 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# PR #272: find_verb_with_position
+# ===================================================================
+
+class TestFindVerbWithPosition:
+    def test_imperative_position_zero(self):
+        result = find_verb_with_position("Build auth.py from scratch")
+        assert result == ("build", 0)
+
+    def test_verb_after_preamble(self):
+        result = find_verb_with_position("We should build auth.py")
+        assert result is not None
+        assert result[0] == "build"
+        assert result[1] > 0
+
+    def test_phrasal_verb_position(self):
+        result = find_verb_with_position("Set up the CI pipeline")
+        assert result is not None
+        assert result[0] == "set up"
+        assert result[1] == 0
+
+    def test_inflected_verb_position(self):
+        result = find_verb_with_position("Building water_mining.py optimizer")
+        assert result is not None
+        assert result[0] == "build"
+        assert result[1] == 0
+
+    def test_no_verb(self):
+        result = find_verb_with_position("Just some random text here")
+        assert result is None
+
+    def test_empty_text(self):
+        result = find_verb_with_position("")
+        assert result is None
+
+    def test_second_word_verb(self):
+        result = find_verb_with_position("Please fix the auth.py bug")
+        assert result is not None
+        assert result[0] == "fix"
+        assert result[1] == 1
+
+    def test_inflected_phrasal_position(self):
+        result = find_verb_with_position("Setting up the database connection")
+        assert result is not None
+        assert result[0] == "set up"
+        assert result[1] == 0
+
+
+# ===================================================================
+# PR #272: score_breakdown
+# ===================================================================
+
+class TestScoreBreakdown:
+    def test_returns_dict_keys(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        for key in ("verb", "target", "length", "multi_target", "imperative", "raw_total", "score"):
+            assert key in bd
+
+    def test_verb_points(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["verb"] == 2.5
+
+    def test_no_verb_no_points(self):
+        bd = score_breakdown("Some text here", None, "auth.py", "file")
+        assert bd["verb"] == 0.0
+
+    def test_file_target_points(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["target"] == 4.0
+
+    def test_channel_target_points(self):
+        bd = score_breakdown("Build stuff for r/mars-engineering channel", "build", "r/mars-engineering", "channel")
+        assert bd["target"] == 2.0
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build auth.py from scratch", "build", "auth.py", "file")
+        assert bd["imperative"] == 0.5
+
+    def test_no_imperative_without_verb(self):
+        bd = score_breakdown("Some text auth.py", None, "auth.py", "file")
+        assert bd["imperative"] == 0.0
+
+    def test_length_bonus_short(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["length"] == 0.0
+
+    def test_length_bonus_medium(self):
+        text = "Build auth.py " + "word " * 6
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert bd["length"] == 0.5
+
+    def test_length_bonus_long(self):
+        text = "Build auth.py " + "word " * 14
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert bd["length"] == 1.5
+
+    def test_multi_target_bonus(self):
+        text = "Build auth.py and fix router.py in the system"
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert bd["multi_target"] == 1.0
+
+    def test_raw_total_sums_components(self):
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["raw_total"] - expected) < 0.001
+
+    def test_score_matches_compute_score(self):
+        from seed_gate import compute_score, find_verb, find_target
+        for text in [
+            "Build auth.py", "Fix the router.py and test_main.py bugs",
+            "Explore philosophical implications of consciousness",
+        ]:
+            verb = find_verb(text)
+            target, kind = find_target(text)
+            bd = score_breakdown(text, verb, target, kind)
+            cs = compute_score(text, verb, target, kind)
+            assert abs(bd["score"] - cs) < 0.001, f"Mismatch for: {text}"
+
+    def test_score_capped_at_one(self):
+        text = "Build auth.py and fix router.py " + "word " * 20
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert bd["score"] <= 1.0
+
+    def test_all_target_kinds_have_scores(self):
+        for kind in _KIND_SCORES:
+            bd = score_breakdown("Build X", "build", "X", kind)
+            assert bd["target"] > 0
+
+
+# ===================================================================
+# PR #272: _strip_commit_prefix
+# ===================================================================
+
+class TestStripCommitPrefix:
+    def test_feat_prefix(self):
+        body, verb = _strip_commit_prefix("feat: Build water_mining.py")
+        assert body == "Build water_mining.py"
+        assert verb == "build"
+
+    def test_fix_prefix(self):
+        body, verb = _strip_commit_prefix("fix: Resolve crash in auth.py")
+        assert body == "Resolve crash in auth.py"
+        assert verb == "fix"
+
+    def test_scoped_prefix(self):
+        body, verb = _strip_commit_prefix("fix(parser)!: Resolve crash")
+        assert body == "Resolve crash"
+        assert verb == "fix"
+
+    def test_docs_prefix(self):
+        body, verb = _strip_commit_prefix("docs: Document the API contract")
+        assert body == "Document the API contract"
+        assert verb == "document"
+
+    def test_chore_prefix(self):
+        body, verb = _strip_commit_prefix("chore: Update dependencies list")
+        assert body == "Update dependencies list"
+        assert verb == "update"
+
+    def test_refactor_prefix(self):
+        body, verb = _strip_commit_prefix("refactor: Simplify scoring logic")
+        assert body == "Simplify scoring logic"
+        assert verb == "refactor"
+
+    def test_no_prefix(self):
+        body, verb = _strip_commit_prefix("Build water_mining.py optimizer")
+        assert body == "Build water_mining.py optimizer"
+        assert verb is None
+
+    def test_invalid_prefix_not_stripped(self):
+        body, verb = _strip_commit_prefix("feature: Build seed_gate.py")
+        assert body == "feature: Build seed_gate.py"
+        assert verb is None
+
+    def test_case_insensitive(self):
+        body, verb = _strip_commit_prefix("FEAT: Build auth.py")
+        assert body == "Build auth.py"
+        assert verb == "build"
+
+    def test_all_commit_types(self):
+        from seed_gate import _COMMIT_TYPE_TO_VERB
+        for ctype, expected_verb in _COMMIT_TYPE_TO_VERB.items():
+            body, verb = _strip_commit_prefix(f"{ctype}: Do something specific")
+            assert verb == expected_verb, f"Failed for {ctype}"
+            assert body == "Do something specific"
+
+    def test_commit_prefix_proposal_passes_gate(self):
+        """feat: Build water_mining.py should pass the gate."""
+        result = _vs("feat: Build water_mining.py")
+        assert result.passed
+        assert result.verb_found == "build"
+        assert result.commit_prefix is not None
+
+    def test_plain_proposal_no_commit_prefix(self):
+        result = _vs("Build water_mining.py")
+        assert result.commit_prefix is None
+
+    def test_commit_prefix_implied_verb_fallback(self):
+        """fix: something about auth.py — commit type provides implied verb."""
+        result = _vs("fix: Something about auth.py things")
+        assert result.passed
+        assert result.commit_prefix is not None
+
+
+# ===================================================================
+# PR #272: is_imperative property
+# ===================================================================
+
+class TestIsImperative:
+    def test_imperative_when_verb_first(self):
+        result = _vs("Build auth.py from scratch here")
+        assert result.is_imperative is True
+
+    def test_not_imperative_when_verb_later(self):
+        result = _vs("We should definitely build auth.py from scratch")
+        assert result.is_imperative is False
+
+    def test_not_imperative_when_no_verb(self):
+        result = _vs("Some random text without action verbs here now")
+        assert result.is_imperative is False
+
+    def test_imperative_at_position_two(self):
+        result = _vs("Please now fix auth.py bug immediately")
+        assert result.verb_position <= 2
+        assert result.is_imperative is True
+
+    def test_tag_implied_verb_no_imperative(self):
+        result = _vs("The auth.py module needs work and improvement", tags=["code"])
+        assert result.verb_found is not None
+        assert result.is_imperative is False
+        assert result.verb_position == -1
+
+    def test_imperative_affects_score(self):
+        imp = _vs("Build auth.py from scratch here")
+        non = _vs("We should definitely build auth.py from scratch")
+        assert imp.score > non.score
+
+    def test_imperative_in_dict(self):
+        d = _v("Build auth.py from scratch here")
+        assert "is_imperative" in d
+        assert d["is_imperative"] is True
+
+
+# ===================================================================
+# PR #272: explain() diagnostics
+# ===================================================================
+
+class TestExplain:
+    def test_pass_shows_pass(self):
+        output = explain("Build auth.py from scratch here")
+        assert "[PASS]" in output
+
+    def test_fail_shows_fail(self):
+        output = explain("Something vague about things and stuff here")
+        assert "[FAIL]" in output
+
+    def test_junk_shows_junk(self):
+        output = explain("x")
+        assert "[JUNK]" in output
+
+    def test_contains_verb(self):
+        output = explain("Build auth.py from scratch here")
+        assert "verb: build" in output
+
+    def test_contains_target(self):
+        output = explain("Build auth.py from scratch here")
+        assert "auth.py" in output
+
+    def test_contains_breakdown(self):
+        output = explain("Build auth.py from scratch here")
+        assert "breakdown:" in output
+
+    def test_contains_score(self):
+        output = explain("Build auth.py from scratch here")
+        assert "score=" in output
+
+    def test_contains_confidence(self):
+        output = explain("Build auth.py from scratch here")
+        assert "confidence=" in output
+
+    def test_no_verb_shows_none(self):
+        output = explain("Something vague about things and stuff here")
+        assert "verb: (none)" in output
+
+    def test_imperative_noted(self):
+        output = explain("Build auth.py from scratch here")
+        assert "imperative" in output
+
+    def test_reasons_shown_on_fail(self):
+        output = explain("Something vague about things and stuff here")
+        assert "reasons:" in output
+
+    def test_mode_parameter(self):
+        output = explain("Build auth.py from scratch", mode="admission")
+        assert "[PASS]" in output
+
+    def test_returns_string(self):
+        result = explain("Build auth.py from scratch here")
+        assert isinstance(result, str)
+
+    def test_multiline_output(self):
+        result = explain("Build auth.py from scratch here")
+        assert "\n" in result
+
+
+# ===================================================================
+# PR #272: Numbered reference filter
+# ===================================================================
+
+class TestNumberedRefFilter:
+    def test_fig_not_file(self):
+        assert _NUMBERED_REF_RE.match("fig.1")
+
+    def test_vol_not_file(self):
+        assert _NUMBERED_REF_RE.match("vol.2")
+
+    def test_ch_not_file(self):
+        assert _NUMBERED_REF_RE.match("ch.3")
+
+    def test_no_not_file(self):
+        assert _NUMBERED_REF_RE.match("no.5")
+
+    def test_eq_not_file(self):
+        assert _NUMBERED_REF_RE.match("eq.1")
+
+    def test_real_file_not_caught(self):
+        assert not _NUMBERED_REF_RE.match("auth.py")
+
+    def test_case_insensitive(self):
+        assert _NUMBERED_REF_RE.match("Fig.1")
+        assert _NUMBERED_REF_RE.match("FIG.1")
+
+    def test_numbered_ref_not_target(self):
+        """A proposal mentioning fig.1 should not count it as a file target."""
+        from seed_gate import find_target
+        target, kind = find_target("Build the diagram shown in fig.1 and fig.2")
+        assert target != "fig.1"
+        assert target != "fig.2"
+
+
+# ===================================================================
+# PR #272: Expanded false-file matches
+# ===================================================================
+
+class TestExpandedFalseFileMatches:
+    def test_phd_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("Ph.D")
+
+    def test_us_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("U.S")
+
+    def test_uk_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("U.K")
+
+    def test_un_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("U.N")
+
+
+# ===================================================================
+# PR #272: verb_position and commit_prefix in dict API
+# ===================================================================
+
+class TestNewDictFields:
+    def test_verb_position_in_dict(self):
+        d = _v("Build auth.py from scratch here")
+        assert "verb_position" in d
+        assert d["verb_position"] == 0
+
+    def test_commit_prefix_in_dict(self):
+        d = _v("feat: Build auth.py from scratch")
+        assert "commit_prefix" in d
+        assert d["commit_prefix"] is not None
+
+    def test_commit_prefix_none_when_absent(self):
+        d = _v("Build auth.py from scratch here")
+        assert d["commit_prefix"] is None
+
+    def test_is_imperative_in_dict(self):
+        d = _v("Build auth.py from scratch here")
+        assert "is_imperative" in d
+
+
+# ===================================================================
+# PR #272: Batch CLI
+# ===================================================================
+
+class TestBatchCLI:
+    def test_batch_all_pass(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input='["Build auth.py module from scratch", "Fix router.py bug immediately"]',
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["stats"]["passed"] == 2
+        assert data["stats"]["junk"] == 0
+
+    def test_batch_mixed(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input='["Build auth.py module now", "vibes only bro"]',
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        assert result.returncode == 1
+        data = json.loads(result.stdout)
+        assert data["stats"]["total"] == 2
+
+    def test_batch_malformed_input(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input="not valid json",
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        assert result.returncode == 2
+
+    def test_batch_with_tags(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch", "mars"],
+            input='["Build auth.py module now"]',
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        assert result.returncode == 0
+
+    def test_batch_non_string_elements(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input='["Build auth.py module now", 42, true]',
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        data = json.loads(result.stdout)
+        assert data["stats"]["total"] == 3
+
+
+# ===================================================================
+# PR #272: Explain CLI
+# ===================================================================
+
+class TestExplainCLI:
+    def test_explain_cli_output(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--explain",
+             "Build auth.py module from scratch"],
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        assert result.returncode == 0
+        assert "[PASS]" in result.stdout
+
+    def test_explain_cli_fail(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--explain",
+             "Something vague about things and stuff"],
+            capture_output=True, text=True,
+            cwd=str(REPO_ROOT / "src"),
+        )
+        assert result.returncode == 0
+        assert "[FAIL]" in result.stdout
+
+
+# ===================================================================
+# PR #272: Cross-feature invariants
+# ===================================================================
+
+class TestConsolidationInvariants:
+    """Property-based checks ensuring new features don't contradict each other."""
+
+    SAMPLE_PROPOSALS = [
+        "Build auth.py", "Fix the router.py bug", "feat: Test water_mining.py",
+        "Set up CI/CD pipeline for deployment here",
+        "We should explore the implications of consciousness",
+        "Something vague about nothing in particular here now",
+        "x", "fix(ui)!: Resolve crash in render.py module",
+    ]
+
+    def test_explain_consistent_with_validate(self):
+        for text in self.SAMPLE_PROPOSALS:
+            result = validate_seed(text)
+            output = explain(text)
+            if result.passed:
+                assert "[PASS]" in output
+            elif result.junk:
+                assert "[JUNK]" in output
+            else:
+                assert "[FAIL]" in output
+
+    def test_verb_position_consistent_with_find_verb(self):
+        from seed_gate import find_verb
+        for text in self.SAMPLE_PROPOSALS:
+            result = validate_seed(text)
+            vp = find_verb_with_position(text)
+            if vp:
+                assert result.verb_found is not None or result.junk
+
+    def test_score_breakdown_consistent_with_score(self):
+        from seed_gate import find_verb, find_target, compute_score
+        for text in self.SAMPLE_PROPOSALS:
+            verb = find_verb(text)
+            target, kind = find_target(text)
+            bd = score_breakdown(text, verb, target, kind)
+            cs = compute_score(text, verb, target, kind)
+            assert abs(bd["score"] - cs) < 0.001
+
+    def test_imperative_only_when_verb_early(self):
+        for text in self.SAMPLE_PROPOSALS:
+            result = validate_seed(text)
+            if result.is_imperative:
+                assert result.verb_position >= 0
+                assert result.verb_position < 3
+
+    def test_commit_prefix_stripping_transparent(self):
+        """Commit-prefixed proposal should get same target as plain version."""
+        from seed_gate import find_target
+        for prefix in ("feat", "fix", "docs", "refactor"):
+            prefixed = f"{prefix}: Build water_mining.py optimizer"
+            plain = "Build water_mining.py optimizer"
+            t1, _ = find_target(prefixed)
+            t2, _ = find_target(plain)
+            # Both should find water_mining.py
+            assert "water_mining.py" in (t1 or "")
+            assert "water_mining.py" in (t2 or "")
