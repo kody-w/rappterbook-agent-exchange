@@ -36,9 +36,15 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    PR #256  -- inflected verb normalization via generated inflection
+                  map (builds->build, creating->create, deployed->deploy);
+                  inflected phrasal verbs (setting up->set up); version-
+                  string false-positive filter; confidence property;
+                  suggest() API; expanded KNOWN_TOOLS; env var targets;
+                  imperative scoring bonus.
 """
 from __future__ import annotations
 
@@ -96,6 +102,88 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
 
+# ---------------------------------------------------------------------------
+# Inflected verb map -- generated from the closed verb set at import time.
+# Maps inflected forms (builds, creating, deployed) to their base verb.
+# Only verbs in ACTION_VERBS get inflections -- no accidental stemming.
+# ---------------------------------------------------------------------------
+
+# Verbs whose final consonant doubles before -ed/-ing
+_DOUBLE_FINAL: frozenset[str] = frozenset({
+    "debug", "log", "plan", "map", "ship", "wrap", "scan", "stub",
+    "mock", "run", "plug", "ramp", "swap", "spin", "opt", "set",
+})
+
+# Irregular past tenses (not derivable by rules)
+_IRREGULAR_PAST: dict[str, str] = {
+    "built": "build", "wrote": "write", "ran": "run",
+    "sent": "send", "spent": "spend", "kept": "keep",
+    "left": "leave", "made": "make", "found": "find",
+    "got": "get", "set": "set", "cut": "cut",
+    "put": "put", "hit": "hit", "let": "let", "shut": "shut",
+}
+
+
+def _generate_inflections(base: str) -> dict[str, str]:
+    """Generate {inflected: base} for -s, -es, -ed, -d, -ing forms."""
+    forms: dict[str, str] = {}
+    # -s / -es
+    if base.endswith(("s", "sh", "ch", "x", "z")):
+        forms[base + "es"] = base
+    elif base.endswith("y") and len(base) > 1 and base[-2] not in "aeiou":
+        forms[base[:-1] + "ies"] = base
+    else:
+        forms[base + "s"] = base
+    # -ed (past tense)
+    if base.endswith("e"):
+        forms[base + "d"] = base
+    elif base in _DOUBLE_FINAL:
+        forms[base + base[-1] + "ed"] = base
+    elif base.endswith("y") and len(base) > 1 and base[-2] not in "aeiou":
+        forms[base[:-1] + "ied"] = base
+    else:
+        forms[base + "ed"] = base
+    # -ing (present participle)
+    if base.endswith("e") and not base.endswith("ee"):
+        forms[base[:-1] + "ing"] = base
+    elif base in _DOUBLE_FINAL:
+        forms[base + base[-1] + "ing"] = base
+    else:
+        forms[base + "ing"] = base
+    return forms
+
+
+def _build_inflection_map() -> dict[str, str]:
+    """Build a complete {inflected_form: base_verb} lookup at import time."""
+    result: dict[str, str] = {}
+    # Irregular past tenses
+    for form, base in _IRREGULAR_PAST.items():
+        if base in ACTION_VERBS and form not in ACTION_VERBS:
+            result[form] = base
+    # Regular inflections of single-word verbs
+    for verb in ACTION_VERBS:
+        for form, base in _generate_inflections(verb).items():
+            if form not in ACTION_VERBS:
+                result[form] = base
+    # Phrasal verb inflections -- inflect only the head word
+    for phrase, canonical in PHRASAL_VERBS.items():
+        head, particle = phrase.split()
+        for form, _base in _generate_inflections(head).items():
+            inflected_phrase = form + " " + particle
+            if inflected_phrase not in PHRASAL_VERBS:
+                result[inflected_phrase] = canonical
+    return result
+
+
+_INFLECTION_MAP: dict[str, str] = _build_inflection_map()
+
+# Phrasal inflection lookup: {inflected_head: {particle: canonical}}
+_PHRASAL_INFLECTED: dict[str, dict[str, str]] = {}
+for _inf_phrase, _inf_canonical in _INFLECTION_MAP.items():
+    if " " in _inf_phrase:
+        _inf_head, _inf_particle = _inf_phrase.split(maxsplit=1)
+        _PHRASAL_INFLECTED.setdefault(_inf_head, {})[_inf_particle] = _inf_canonical
+
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
@@ -110,6 +198,12 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
     "e.g", "i.e", "a.m", "p.m", "vs.",
 })
+
+# Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
+
+# Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
+ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -151,6 +245,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    "inject_seed", "tally_votes", "steer", "reconcile_state",
+    "run_proof", "run_python", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -273,6 +369,17 @@ class SeedGateResult:
     def target(self) -> str:
         return self.target_found or ""
 
+    @property
+    def confidence(self) -> str | None:
+        """Derive confidence band from score: high/medium/low or None."""
+        if not self.passed:
+            return None
+        if self.score >= 0.65:
+            return "high"
+        if self.score >= 0.35:
+            return "medium"
+        return "low"
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -282,6 +389,7 @@ class SeedGateResult:
             "target_found": self.target_found,
             "junk": self.junk,
             "advisory": self.advisory,
+            "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -326,21 +434,35 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Catches abbreviations (e.g., i.e.) and bare version strings (2.0.1).
+    """
+    stripped = match_text.lower().rstrip(".")
+    if stripped in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single, phrasal, or inflected)."""
     words = text.split()
     if not words:
         return False
     first = words[0].lower()
-    if first in _PHRASAL_FIRST and len(words) > 1:
+    if len(words) > 1:
         second = words[1].lower()
-        if second in _PHRASAL_FIRST[first]:
+        if first in _PHRASAL_FIRST and second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+        if first in _PHRASAL_INFLECTED and second in _PHRASAL_INFLECTED[first]:
+            return True
+    if first in ACTION_VERBS:
+        return True
+    if first in _INFLECTION_MAP:
+        return True
+    return False
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,21 +478,34 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Checks base forms first, then inflected forms (builds->build,
+    creating->create, deployed->deploy).  Phrasal verbs and their
+    inflected forms (setting up->set up) are also recognized.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
-        if word in _PHRASAL_FIRST and i + 1 < len(words):
+        if i + 1 < len(words):
             next_word = words[i + 1]
-            if next_word in _PHRASAL_FIRST[word]:
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
                 return _PHRASAL_FIRST[word][next_word]
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return _PHRASAL_INFLECTED[word][next_word]
         if word in ACTION_VERBS:
             return word
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word]
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Recognizes base forms, inflected forms, and phrasal verbs.
+    Always returns the canonical (base) form.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -379,18 +514,31 @@ def find_all_verbs(text: str) -> list[str]:
         if skip_next:
             skip_next = False
             continue
-        if word in _PHRASAL_FIRST and i + 1 < len(words):
+        if i + 1 < len(words):
             next_word = words[i + 1]
-            if next_word in _PHRASAL_FIRST[word]:
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
                 v = _PHRASAL_FIRST[word][next_word]
                 if v not in seen:
                     seen.add(v)
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                v = _PHRASAL_INFLECTED[word][next_word]
+                if v not in seen:
+                    seen.add(v)
+                    result.append(v)
+                skip_next = True
+                continue
+        if word in ACTION_VERBS:
+            if word not in seen:
+                seen.add(word)
+                result.append(word)
+        elif word in _INFLECTION_MAP:
+            base = _INFLECTION_MAP[word]
+            if base not in seen:
+                seen.add(base)
+                result.append(base)
     return result
 
 
@@ -420,6 +568,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = CHANNEL_RE.search(text)
     if m:
         return m.group(), "channel"
+    # Environment variables: $STATE_DIR, ${GITHUB_TOKEN}
+    m = ENV_VAR_RE.search(text)
+    if m:
+        return m.group(), "env"
     # SCREAMING_SNAKE_CASE constants
     m = CONST_RE.search(text)
     if m:
@@ -496,6 +648,8 @@ def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
         _add(m.group(), "func")
     for m in CHANNEL_RE.finditer(text):
         _add(m.group(), "channel")
+    for m in ENV_VAR_RE.finditer(text):
+        _add(m.group(), "env")
     for m in CONST_RE.finditer(text):
         _add(m.group(), "const")
     for m in _KNOWN_TOOL_RE.finditer(text):
@@ -537,7 +691,7 @@ def count_unique_targets(text: str) -> int:
     both appear, they count as one (PR #246).
     """
     raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    for pattern in (FILE_RE, PATH_RE, ENV_VAR_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
     canonical: list[str] = []
@@ -567,7 +721,7 @@ def compute_score(
     if target:
         kind_scores = {
             "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "const": 2.5,
+            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
         raw += kind_scores.get(target_kind, 1.5)
@@ -579,7 +733,36 @@ def compute_score(
     unique = count_unique_targets(text)
     if unique >= 2:
         raw += 1.0
+    # Imperative bonus: text that starts with a verb is more actionable
+    if verb and _starts_with_verb(text):
+        raw += 0.5
     return min(raw / 10.0, 1.0)
+
+
+def suggest(text: str, tags: list = None) -> list[str]:
+    """Return actionable suggestions for improving a rejected proposal.
+
+    Thin helper over validate_seed() -- no contract change, just
+    human-readable feedback for the rejection reasons.
+    """
+    result = validate_seed(text, tags)
+    if result.passed:
+        return []
+    suggestions: list[str] = []
+    if not result.verb_found:
+        suggestions.append(
+            "Start with an action verb (build, fix, test, deploy, refactor, ...)"
+        )
+    if not result.target_found and not (frozenset(t.lower() for t in (tags or [])) & EXEMPT_TAGS):
+        suggestions.append(
+            "Name a concrete target: a filename (auth.py), tool (state_io), "
+            "path (src/thermal/), or reference (#12345)"
+        )
+    if result.junk:
+        suggestions.append(
+            "Rewrite as a complete sentence starting with a capital letter"
+        )
+    return suggestions
 
 
 # Backward-compat aliases
@@ -590,6 +773,7 @@ _is_soft_artifact = is_soft_artifact
 _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
+_normalize_verb = lambda word: _INFLECTION_MAP.get(word)
 
 
 # ---------------------------------------------------------------------------
