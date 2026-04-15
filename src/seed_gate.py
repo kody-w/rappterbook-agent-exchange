@@ -36,9 +36,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb inflection (_normalize_verb), version-string
+                  filter, commit-prefix stripping, confidence level,
+                  suggestions for failed proposals, imperative bonus.
 """
 from __future__ import annotations
 
@@ -99,6 +102,19 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
+# Version strings -- look like files but aren't (e.g. v2.0.1, 3.11)
+_VERSION_RE = re.compile(r"^v?\d+(?:\.\d+)+$")
+
+# Numbered references -- fig.1, vol.2, ch.3 (false file matches)
+_NUMBERED_REF_RE = re.compile(r"^(?:no|fig|vol|ch|pt|sec)\.\d")
+
+# Commit-message prefixes: "fix:", "feat:", "chore:", etc.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:fix|feat|chore|refactor|docs|test|ci|build|perf|style|revert)"
+    r"(?:\([^)]*\))?!?\s*:\s*",
+    re.I,
+)
+
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
 # ---------------------------------------------------------------------------
@@ -108,7 +124,7 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 
 # False positives that FILE_RE catches (abbreviations with periods)
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
-    "e.g", "i.e", "a.m", "p.m", "vs.",
+    "e.g", "i.e", "a.m", "p.m", "vs.", "ph.d", "u.s", "u.k",
 })
 
 # Special files without extensions (PR #246)
@@ -264,6 +280,8 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    confidence: str = ""
+    suggestion: str = ""
 
     @property
     def verb(self) -> str:
@@ -284,6 +302,8 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "confidence": self.confidence,
+            "suggestion": self.suggestion,
         }
 
 
@@ -327,11 +347,18 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    lower = match_text.lower().rstrip(".")
+    if lower in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    if _NUMBERED_REF_RE.match(lower):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single, phrasal, or inflected)."""
     words = text.split()
     if not words:
         return False
@@ -340,7 +367,9 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    if first in ACTION_VERBS:
+        return True
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -352,12 +381,81 @@ def _starts_with_file(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Verb normalization and commit-prefix stripping
+# ---------------------------------------------------------------------------
+
+
+def _strip_commit_prefix(text: str) -> str:
+    """Remove commit-message prefixes like 'fix:', 'feat:', etc."""
+    return _COMMIT_PREFIX_RE.sub("", text).lstrip()
+
+
+def _normalize_verb(word: str) -> str | None:
+    """Attempt to stem an inflected word back to a known ACTION_VERB.
+
+    Handles -s, -es, -ed, -ing suffixes with e-restoration and
+    doubled-consonant collapse.  Returns the canonical verb if
+    found, else None.
+    """
+    if word in ACTION_VERBS:
+        return word
+    # -ing: building->build, caching->cache, shipping->ship
+    if word.endswith("ing") and len(word) > 4:
+        stem = word[:-3]
+        if stem in ACTION_VERBS:
+            return stem
+        # doubled consonant: shipping->shipp->ship
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            short = stem[:-1]
+            if short in ACTION_VERBS:
+                return short
+        # e-restoration: caching->cach->cache, writing->writ->write
+        if stem + "e" in ACTION_VERBS:
+            return stem + "e"
+    # -ed: implemented->implement, configured->configure
+    if word.endswith("ed") and len(word) > 3:
+        stem = word[:-2]
+        if stem in ACTION_VERBS:
+            return stem
+        # e-only strip: configured->configur->configure
+        if stem + "e" in ACTION_VERBS:
+            return stem + "e"
+        # doubled consonant: shipped->shipp->ship
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            short = stem[:-1]
+            if short in ACTION_VERBS:
+                return short
+        # -ied->-y: classified->classifi->classify
+        if word.endswith("ied") and len(word) > 4:
+            stem_y = word[:-3] + "y"
+            if stem_y in ACTION_VERBS:
+                return stem_y
+    # -es: patches->patch, merges->merge, analyzes->analyze
+    if word.endswith("es") and len(word) > 3:
+        stem = word[:-2]
+        if stem in ACTION_VERBS:
+            return stem
+        if stem + "e" in ACTION_VERBS:
+            return stem + "e"
+    # -s: builds->build, tests->test (but not -es which was handled above)
+    if word.endswith("s") and not word.endswith("es") and len(word) > 2:
+        stem = word[:-1]
+        if stem in ACTION_VERBS:
+            return stem
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Strips commit prefixes and normalizes inflected forms.
+    """
     search_text = text[:limit] if limit else text
+    search_text = _strip_commit_prefix(search_text)
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
         if word in _PHRASAL_FIRST and i + 1 < len(words):
@@ -366,12 +464,19 @@ def find_verb(text: str, limit: int = 0) -> str | None:
                 return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
-    words = re.findall(r"[a-zA-Z]+", text.lower())
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Handles inflected forms and commit prefixes.
+    """
+    cleaned = _strip_commit_prefix(text)
+    words = re.findall(r"[a-zA-Z]+", cleaned.lower())
     seen: set[str] = set()
     result: list[str] = []
     skip_next = False
@@ -388,9 +493,15 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        if word in ACTION_VERBS:
+            if word not in seen:
+                seen.add(word)
+                result.append(word)
+        else:
+            normalized = _normalize_verb(word)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(normalized)
     return result
 
 
@@ -465,8 +576,10 @@ def is_junk(text: str, limit: int = 0) -> str:
         if pat.search(stripped):
             return "junk signal: %r" % pat.pattern
     # Smart lowercase handling: verb-starting or file-starting text is OK
-    if _LOWERCASE_START_RE.match(stripped):
-        if not _starts_with_verb(stripped) and not _starts_with_file(stripped):
+    # Also strip commit prefixes (fix:, feat:, etc.) before the check
+    check_text = _strip_commit_prefix(stripped) if _COMMIT_PREFIX_RE.match(stripped) else stripped
+    if _LOWERCASE_START_RE.match(check_text):
+        if not _starts_with_verb(check_text) and not _starts_with_file(check_text):
             return "starts lowercase (not a verb or file)"
     # Hard artifact signals -- always fail (first 80 chars)
     head = stripped[:80].lower()
@@ -539,6 +652,8 @@ def count_unique_targets(text: str) -> int:
     raw_targets: list[str] = []
     for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
+            if pattern is FILE_RE and _is_false_file_match(m.group()):
+                continue
             raw_targets.append(m.group())
     canonical: list[str] = []
     for t in raw_targets:
@@ -572,6 +687,11 @@ def compute_score(
         }
         raw += kind_scores.get(target_kind, 1.5)
     words = text.split()
+    # Imperative bonus: verb-first proposals are more specific
+    if verb and words and words[0].lower() in ACTION_VERBS:
+        raw += 0.5
+    elif verb and words and _normalize_verb(words[0].lower()):
+        raw += 0.5
     if len(words) >= 8:
         raw += 0.5
     if len(words) >= 15:
@@ -590,6 +710,51 @@ _is_soft_artifact = is_soft_artifact
 _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
+_normalize = _normalize_verb
+
+
+# ---------------------------------------------------------------------------
+# Confidence + suggestion helpers
+# ---------------------------------------------------------------------------
+
+
+_VERB_EXAMPLES: str = "build, test, fix, deploy, refactor, optimize"
+
+
+def _compute_confidence(
+    passed: bool, verb: str | None, target_kind: str, is_exempt: bool,
+) -> str:
+    """Rule-based confidence: high/medium/low or empty if failed."""
+    if not passed:
+        return ""
+    _HIGH = frozenset({"file", "path", "func", "module"})
+    _MED = frozenset({"tool", "cli", "const", "discussion", "channel"})
+    if verb and target_kind in _HIGH:
+        return "high"
+    if verb and (target_kind in _MED or is_exempt):
+        return "medium"
+    return "low"
+
+
+def _suggest(
+    passed: bool, verb: str | None, target: str, is_exempt: bool, junk_reason: str,
+) -> str:
+    """Generate a single actionable suggestion for failed validations."""
+    if passed:
+        return ""
+    if junk_reason:
+        if "too short" in junk_reason:
+            return "Expand the proposal to at least 15 characters with a verb and target"
+        if "lowercase" in junk_reason:
+            return "Start with an action verb (%s) or capitalize the first word" % _VERB_EXAMPLES
+        return ""
+    if not verb and not target:
+        return "Start with an action verb (%s) and name a file or tool" % _VERB_EXAMPLES
+    if verb and not target and not is_exempt:
+        return "Name a concrete target (e.g. water_mining.py, state_io, r/mars)"
+    if not verb and target:
+        return "Add an action verb (%s) before the target" % _VERB_EXAMPLES
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -611,9 +776,11 @@ def validate_seed(
     junk_limit = 60 if mode == "purge" else 0
     junk_reason = is_junk(text, limit=junk_limit)
     if junk_reason:
+        junk_suggestion = _suggest(False, None, "", False, junk_reason)
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            suggestion=junk_suggestion,
         )
 
     # -- Verb + target ---
@@ -645,6 +812,7 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            suggestion="Rewrite without parser artifacts and add a verb + target",
         )
 
     # -- Decision ---
@@ -667,10 +835,14 @@ def validate_seed(
     elif verb and not target:
         advisory = "needs-specificity"
 
+    confidence = _compute_confidence(passed, verb, target_kind, is_exempt)
+    suggestion = _suggest(passed, verb, target, is_exempt, "")
+
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        confidence=confidence, suggestion=suggestion,
     )
 
 
