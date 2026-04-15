@@ -45,6 +45,12 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- final 6-agent consolidation (#12503, #12505, #12507,
+                  #12511, #12521, #12530): verb weight categories
+                  (diagnostic metadata); score_breakdown() with component
+                  decomposition; explain() on SeedGateResult; proper noun
+                  targets as last-resort fallback; placeholder filename
+                  soft penalty; BatchResult.summary() diagnostics.
 """
 from __future__ import annotations
 
@@ -84,6 +90,55 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "secure", "clean", "schedule", "cache", "publish",
     "annotate", "version", "backup", "package",
 })
+
+# Verb weight categories (#12511 / #12530 consolidation)
+# Diagnostic metadata -- does NOT change the pass/fail gate or score.
+# Low-cost verbs activate 1-2 agents; high-cost verbs activate the full swarm.
+VERB_WEIGHTS: dict[str, str] = {}
+_LOW_COST: frozenset[str] = frozenset({
+    "test", "benchmark", "profile", "audit", "scan", "lint",
+    "fix", "debug", "patch", "resolve", "repair",
+    "review", "validate", "evaluate", "assess",
+    "document", "annotate", "log", "track",
+    "clean", "delete", "remove", "deprecate",
+    "backup", "version", "archive",
+})
+_MEDIUM_COST: frozenset[str] = frozenset({
+    "refactor", "optimize", "improve", "upgrade", "update",
+    "add", "extend", "configure", "enable", "disable",
+    "monitor", "alert", "measure", "instrument",
+    "parse", "extract", "transform", "convert", "compile",
+    "generate", "compute", "score", "normalize",
+    "explore", "investigate", "analyze",
+    "merge", "publish", "cache", "schedule",
+    "mock", "stub", "isolate", "wrap",
+    "run", "execute",
+})
+_HIGH_COST: frozenset[str] = frozenset({
+    "build", "create", "design", "develop", "implement", "write",
+    "deploy", "launch", "ship", "release",
+    "integrate", "wire", "connect", "hook",
+    "migrate", "port", "rewrite", "containerize",
+    "simulate", "model", "train",
+    "scaffold", "bootstrap", "provision",
+    "automate", "inject", "standardize",
+    "prototype", "diagram", "map",
+    "propose", "plan", "establish",
+    "consider", "debate", "discuss",
+    "expose", "define", "declare", "register",
+    "secure", "package",
+    "consolidate", "decode", "render",
+})
+for _v in _LOW_COST:
+    VERB_WEIGHTS[_v] = "low"
+for _v in _MEDIUM_COST:
+    VERB_WEIGHTS[_v] = "medium"
+for _v in _HIGH_COST:
+    VERB_WEIGHTS[_v] = "high"
+# Anything not explicitly categorized defaults to "medium"
+for _v in ACTION_VERBS:
+    if _v not in VERB_WEIGHTS:
+        VERB_WEIGHTS[_v] = "medium"
 
 # Phrasal verbs -- two-word engineering verbs (#12521)
 PHRASAL_VERBS: dict[str, str] = {
@@ -197,6 +252,37 @@ _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
 
 # Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
+
+# Placeholder / generic filenames -- soft penalty, not hard rejection (#12530)
+PLACEHOLDER_FILES: frozenset[str] = frozenset({
+    "test.py", "example.py", "temp.py", "tmp.py", "foo.py", "bar.py",
+    "example.json", "test.json", "sample.py", "demo.py", "scratch.py",
+    "untitled.py", "new_file.py", "placeholder.py",
+    "example.js", "test.js", "temp.js", "foo.js", "bar.js",
+    "example.rs", "test.rs", "foo.rs",
+    "example.go", "test.go", "foo.go",
+})
+
+# Proper noun targets -- capitalized multi-word phrases (#12503)
+# Last-resort: only used when no other target is found.
+# Guards: 2+ words, no leading stopwords, must contain a "substance" word.
+_STOPWORDS: frozenset[str] = frozenset({
+    "The", "This", "That", "A", "An", "My", "Our", "Your", "Their",
+    "Some", "Any", "Each", "Every", "No", "Its", "His", "Her",
+})
+_SUBSTANCE_SUFFIXES: frozenset[str] = frozenset({
+    "protocol", "model", "simulation", "engine", "system", "framework",
+    "algorithm", "pipeline", "validator", "processor", "controller",
+    "manager", "handler", "service", "module", "reactor", "generator",
+    "optimizer", "scheduler", "dispatcher", "compiler", "analyzer",
+    "monitor", "gateway", "bridge", "adapter", "factory", "registry",
+})
+PROPER_NOUN_RE = re.compile(
+    r"\b(?!(?:" + "|".join(re.escape(w) for w in _STOPWORDS) + r")\b)"
+    r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+"
+    r"(?:\s+(?:" + "|".join(re.escape(s) for s in _SUBSTANCE_SUFFIXES) + r"))?"
+    r"\b"
+)
 
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
@@ -356,6 +442,8 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    verb_weight: str | None = None
+    breakdown: dict = dataclasses.field(default_factory=dict)
 
     @property
     def verb(self) -> str:
@@ -376,6 +464,51 @@ class SeedGateResult:
             return "medium"
         return "low"
 
+    def explain(self) -> str:
+        """Return human-readable explanation of the gate result (#12507)."""
+        parts: list[str] = []
+        if self.passed:
+            parts.append("PASSED (score %.2f, confidence %s)" % (self.score, self.confidence))
+        else:
+            parts.append("REJECTED")
+        if self.verb_found:
+            weight = self.verb_weight or "medium"
+            parts.append("  verb: %r (weight: %s)" % (self.verb_found, weight))
+        else:
+            parts.append("  verb: MISSING — start with an action verb")
+        if self.target_found:
+            # Find the target kind from all_targets or breakdown
+            kind = ""
+            for t, k in self.all_targets:
+                if t == self.target_found:
+                    kind = k
+                    break
+            parts.append("  target: %r (%s)" % (self.target_found, kind or "unknown"))
+        else:
+            parts.append("  target: MISSING — name a file, tool, or reference")
+        if self.junk:
+            parts.append("  junk: YES — %s" % (self.reasons[0] if self.reasons else ""))
+        if self.advisory:
+            parts.append("  advisory: %s" % self.advisory)
+        if self.breakdown:
+            bd = self.breakdown
+            components = []
+            if bd.get("verb_score"):
+                components.append("verb=%.1f" % bd["verb_score"])
+            if bd.get("target_score"):
+                components.append("target=%.1f" % bd["target_score"])
+            if bd.get("length_bonus"):
+                components.append("length=+%.1f" % bd["length_bonus"])
+            if bd.get("unique_target_bonus"):
+                components.append("multi-target=+%.1f" % bd["unique_target_bonus"])
+            if bd.get("imperative_bonus"):
+                components.append("imperative=+%.1f" % bd["imperative_bonus"])
+            if bd.get("placeholder_penalty"):
+                components.append("placeholder=%.1f" % bd["placeholder_penalty"])
+            if components:
+                parts.append("  breakdown: %s" % ", ".join(components))
+        return "\n".join(parts)
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -388,6 +521,8 @@ class SeedGateResult:
             "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "verb_weight": self.verb_weight,
+            "breakdown": self.breakdown,
         }
 
 
@@ -423,6 +558,15 @@ class BatchResult:
     passed_items: tuple[tuple[str, dict], ...]
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
+
+    def summary(self) -> str:
+        """Human-readable summary for diagnostics (#12521)."""
+        s = self.stats
+        return (
+            "batch: %d total, %d passed (%.0f%%), %d failed, %d junk (%.0f%%)"
+            % (s.total, s.passed, s.pass_rate * 100,
+               s.failed, s.junk, s.junk_rate * 100)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +740,15 @@ def find_target(text: str) -> tuple[str, str]:
     m = QUOTED_RE.search(text)
     if m:
         return m.group(), "quoted"
+    # Proper noun fallback -- last resort (#12503 consolidation)
+    m = PROPER_NOUN_RE.search(text)
+    if m:
+        phrase = m.group()
+        # Extra guard: require a substance suffix OR 3+ capitalized words
+        words = phrase.split()
+        has_substance = words[-1].lower() in _SUBSTANCE_SUFFIXES
+        if has_substance or len(words) >= 3:
+            return phrase, "proper_noun"
     return "", ""
 
 
@@ -658,6 +811,12 @@ def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
         _add(m.group(), "discussion")
     for m in QUOTED_RE.finditer(text):
         _add(m.group(), "quoted")
+    for m in PROPER_NOUN_RE.finditer(text):
+        phrase = m.group()
+        words = phrase.split()
+        has_substance = words[-1].lower() in _SUBSTANCE_SUFFIXES
+        if has_substance or len(words) >= 3:
+            _add(phrase, "proper_noun")
     return tuple(found)
 
 
@@ -665,6 +824,20 @@ def is_soft_artifact(text: str) -> bool:
     """Return True if text contains soft artifact signals."""
     head = text.strip()[:80].lower()
     return any(signal in head for signal in _SOFT_ARTIFACT_SIGNALS)
+
+
+def is_placeholder_target(target: str) -> bool:
+    """Return True if *target* is a generic placeholder filename (#12530).
+
+    Used as a soft penalty in scoring, NOT a hard rejection.
+    """
+    bare = target.strip().lower()
+    # Strip path prefix
+    for prefix in ("src/", "tests/", "engine/", "state/", "docs/", "scripts/"):
+        if bare.startswith(prefix):
+            bare = bare[len(prefix):]
+            break
+    return bare in PLACEHOLDER_FILES
 
 
 def canonicalize_target(target: str) -> str:
@@ -711,28 +884,64 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
+    return score_breakdown(text, verb, target, target_kind)["score"]
+
+
+def score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict:
+    """Compute specificity score with a component breakdown (#12507).
+
+    Returns dict with 'score' (float 0-1) plus individual components:
+    verb_score, target_score, length_bonus, unique_target_bonus,
+    imperative_bonus, placeholder_penalty, verb_weight.
+    """
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+        "proper_noun": 1.5,
+    }
+
+    verb_score = 2.5 if verb else 0.0
+    target_score = kind_scores.get(target_kind, 1.5) if target else 0.0
+
     words = text.split()
+    length_bonus = 0.0
     if len(words) >= 8:
-        raw += 0.5
+        length_bonus += 0.5
     if len(words) >= 15:
-        raw += 1.0
+        length_bonus += 1.0
+
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    unique_target_bonus = 1.0 if unique >= 2 else 0.0
+
+    imperative_bonus = 0.5 if (verb and _starts_with_verb(text)) else 0.0
+
+    # Soft penalty for placeholder filenames (#12530)
+    placeholder_penalty = 0.0
+    if target and target_kind == "file" and is_placeholder_target(target):
+        placeholder_penalty = -1.0
+
+    raw = (verb_score + target_score + length_bonus
+           + unique_target_bonus + imperative_bonus + placeholder_penalty)
+
+    # Verb weight is diagnostic only -- does not change the score
+    vw = VERB_WEIGHTS.get(verb, "medium") if verb else None
+
+    return {
+        "score": min(max(raw / 10.0, 0.0), 1.0),
+        "verb_score": verb_score,
+        "target_score": target_score,
+        "length_bonus": length_bonus,
+        "unique_target_bonus": unique_target_bonus,
+        "imperative_bonus": imperative_bonus,
+        "placeholder_penalty": placeholder_penalty,
+        "verb_weight": vw,
+    }
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -831,9 +1040,17 @@ def validate_seed(
     if mode == "purge":
         passed = True
         specificity = 0.5
+        bd = {"score": 0.5, "verb_score": 0, "target_score": 0,
+              "length_bonus": 0, "unique_target_bonus": 0,
+              "imperative_bonus": 0, "placeholder_penalty": 0,
+              "verb_weight": None}
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        bd = score_breakdown(text, verb, target, target_kind)
+        specificity = bd["score"]
+
+    # Verb weight -- diagnostic metadata (#12511)
+    vw = VERB_WEIGHTS.get(verb, "medium") if verb else None
 
     reasons: list[str] = []
     advisory = ""
@@ -851,6 +1068,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        verb_weight=vw, breakdown=bd,
     )
 
 

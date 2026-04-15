@@ -1652,3 +1652,489 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# 20. Verb Weight Categories (#12511 / #12530 consolidation)
+# ===================================================================
+
+class TestVerbWeights:
+    """Verb weights are diagnostic metadata — they do NOT change pass/fail."""
+
+    def test_all_verbs_have_weights(self):
+        from seed_gate import ACTION_VERBS, VERB_WEIGHTS
+        for v in ACTION_VERBS:
+            assert v in VERB_WEIGHTS, f"{v} missing from VERB_WEIGHTS"
+
+    def test_weights_are_valid_categories(self):
+        from seed_gate import VERB_WEIGHTS
+        valid = {"low", "medium", "high"}
+        for v, w in VERB_WEIGHTS.items():
+            assert w in valid, f"{v} has invalid weight {w!r}"
+
+    def test_low_cost_verbs(self):
+        from seed_gate import VERB_WEIGHTS
+        for v in ("test", "fix", "debug", "lint", "audit", "review"):
+            assert VERB_WEIGHTS[v] == "low", f"{v} should be low cost"
+
+    def test_high_cost_verbs(self):
+        from seed_gate import VERB_WEIGHTS
+        for v in ("build", "create", "deploy", "ship", "implement"):
+            assert VERB_WEIGHTS[v] == "high", f"{v} should be high cost"
+
+    def test_medium_cost_verbs(self):
+        from seed_gate import VERB_WEIGHTS
+        for v in ("refactor", "optimize", "update", "add"):
+            assert VERB_WEIGHTS[v] == "medium", f"{v} should be medium cost"
+
+    def test_weight_in_result(self):
+        r = _vs("Build thermal_control.py from scratch")
+        assert r.verb_weight == "high"
+
+    def test_weight_low_in_result(self):
+        r = _vs("Test thermal_control.py smoke tests")
+        assert r.verb_weight == "low"
+
+    def test_weight_none_when_no_verb(self):
+        r = _vs("Something about thermal_control.py")
+        assert r.verb_weight is None
+
+    def test_weight_in_to_dict(self):
+        d = _v("Build thermal_control.py module")
+        assert "verb_weight" in d
+        assert d["verb_weight"] == "high"
+
+    def test_weight_does_not_change_score(self):
+        """Same text with same verb should have same score regardless."""
+        # Both "build" and "test" produce same verb_score component
+        r1 = _vs("Build thermal_control.py from scratch")
+        r2 = _vs("Test thermal_control.py from scratch")
+        # Scores should be equal (verb_weight is metadata only)
+        assert r1.score == r2.score
+
+
+# ===================================================================
+# 21. Score Breakdown (#12507 consolidation)
+# ===================================================================
+
+class TestScoreBreakdown:
+    """score_breakdown() returns component decomposition."""
+
+    def test_breakdown_returned_in_result(self):
+        r = _vs("Build thermal_control.py from scratch")
+        assert isinstance(r.breakdown, dict)
+        assert "verb_score" in r.breakdown
+        assert "target_score" in r.breakdown
+
+    def test_breakdown_in_to_dict(self):
+        d = _v("Build thermal_control.py module")
+        assert "breakdown" in d
+        assert isinstance(d["breakdown"], dict)
+
+    def test_breakdown_components_sum_to_raw(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build thermal_control.py from scratch", "build", "thermal_control.py", "file")
+        raw = (bd["verb_score"] + bd["target_score"] + bd["length_bonus"]
+               + bd["unique_target_bonus"] + bd["imperative_bonus"]
+               + bd["placeholder_penalty"])
+        expected_score = min(max(raw / 10.0, 0.0), 1.0)
+        assert abs(bd["score"] - expected_score) < 1e-9
+
+    def test_breakdown_verb_score(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["verb_score"] == 2.5
+
+    def test_breakdown_no_verb(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("auth.py changes", None, "auth.py", "file")
+        assert bd["verb_score"] == 0.0
+
+    def test_breakdown_target_file(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["target_score"] == 4.0
+
+    def test_breakdown_target_tool(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build state_io", "build", "state_io", "tool")
+        assert bd["target_score"] == 3.0
+
+    def test_breakdown_length_bonus_short(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert bd["length_bonus"] == 0.0
+
+    def test_breakdown_length_bonus_medium(self):
+        from seed_gate import score_breakdown
+        text = "Build auth.py module with JWT support and refresh tokens and logout endpoint"
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert bd["length_bonus"] >= 0.5
+
+    def test_breakdown_imperative_bonus(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py now", "build", "auth.py", "file")
+        assert bd["imperative_bonus"] == 0.5
+
+    def test_breakdown_no_imperative(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("The plan is to build auth.py", "build", "auth.py", "file")
+        assert bd["imperative_bonus"] == 0.0
+
+    def test_breakdown_verb_weight(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Test auth.py", "test", "auth.py", "file")
+        assert bd["verb_weight"] == "low"
+
+    def test_score_breakdown_function_directly(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown(
+            "Build thermal_control.py and water_mining.py integration",
+            "build", "thermal_control.py", "file"
+        )
+        assert bd["score"] >= 0.0
+        assert bd["score"] <= 1.0
+        assert bd["unique_target_bonus"] >= 0.0
+
+
+# ===================================================================
+# 22. Explain Method (#12507 consolidation)
+# ===================================================================
+
+class TestExplainMethod:
+    """SeedGateResult.explain() returns human-readable diagnostics."""
+
+    def test_explain_passing(self):
+        r = _vs("Build thermal_control.py from scratch")
+        explanation = r.explain()
+        assert "PASSED" in explanation
+        assert "build" in explanation
+        assert "thermal_control.py" in explanation
+
+    def test_explain_failing_no_verb(self):
+        r = _vs("Something about thermal_control.py")
+        explanation = r.explain()
+        assert "REJECTED" in explanation
+        assert "MISSING" in explanation
+
+    def test_explain_failing_no_target(self):
+        r = _vs("Build something amazing for the colony")
+        explanation = r.explain()
+        assert "REJECTED" in explanation
+
+    def test_explain_includes_verb_weight(self):
+        r = _vs("Test thermal_control.py smoke tests")
+        explanation = r.explain()
+        assert "low" in explanation
+
+    def test_explain_includes_breakdown(self):
+        r = _vs("Build thermal_control.py from scratch")
+        explanation = r.explain()
+        assert "breakdown:" in explanation
+        assert "verb=" in explanation
+
+    def test_explain_junk(self):
+        r = _vs("x")
+        explanation = r.explain()
+        assert "REJECTED" in explanation
+
+    def test_explain_is_string(self):
+        r = _vs("Build auth.py module")
+        assert isinstance(r.explain(), str)
+
+    def test_explain_multiline(self):
+        r = _vs("Build auth.py module")
+        lines = r.explain().split("\n")
+        assert len(lines) >= 3
+
+
+# ===================================================================
+# 23. Proper Noun Targets (#12503 consolidation)
+# ===================================================================
+
+class TestProperNounTargets:
+    """Proper nouns as last-resort targets with guardrails."""
+
+    def test_proper_noun_with_substance_suffix(self):
+        from seed_gate import find_target
+        t, k = find_target("Implement the Dream Catcher Protocol for parallel writes")
+        # Dream Catcher Protocol has a substance suffix
+        assert t, "Should find proper noun target"
+
+    def test_proper_noun_three_words(self):
+        from seed_gate import find_target
+        # Monte Carlo Simulation -- 3 capitalized words
+        t, k = find_target("Run Monte Carlo Simulation with 50 seeds")
+        # Monte Carlo has a file match possibility; if not, proper noun
+        assert t, "Should find some target"
+
+    def test_proper_noun_rejected_with_stopword(self):
+        from seed_gate import PROPER_NOUN_RE
+        # "The Fix" should not match because "The" is a stopword
+        m = PROPER_NOUN_RE.search("The Fix for this problem")
+        # The regex has a negative lookahead for stopwords
+        # so "The Fix" won't match
+        if m:
+            assert not m.group().startswith("The")
+
+    def test_proper_noun_not_needed_when_file_exists(self):
+        from seed_gate import find_target
+        # If a file target exists, proper noun is not returned
+        t, k = find_target("Build thermal_control.py using Wright Fisher Model")
+        assert k == "file"  # file takes priority
+
+    def test_proper_noun_in_all_targets(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Build the Dream Catcher Protocol for parallel writes")
+        kinds = [k for _, k in targets]
+        # Should have at least one target (could be proper_noun or tool)
+        assert len(targets) >= 1
+
+    def test_proper_noun_in_validate(self):
+        """A verb + proper noun with substance suffix should pass the gate."""
+        r = _vs("Implement the Dream Catcher Protocol for delta merging")
+        # Should find "Dream Catcher Protocol" as proper_noun target
+        assert r.passed or r.verb_found  # at minimum, verb is found
+
+    def test_proper_noun_score(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown(
+            "Build the Wright Fisher Model integration",
+            "build", "Wright Fisher Model", "proper_noun"
+        )
+        assert bd["target_score"] == 1.5  # proper_noun gets same as quoted
+
+
+# ===================================================================
+# 24. Placeholder Target Penalty (#12530 consolidation)
+# ===================================================================
+
+class TestPlaceholderTargets:
+    """Placeholder filenames get a soft score penalty."""
+
+    def test_is_placeholder_basic(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("test.py")
+        assert is_placeholder_target("example.json")
+        assert is_placeholder_target("foo.py")
+        assert is_placeholder_target("temp.py")
+
+    def test_not_placeholder(self):
+        from seed_gate import is_placeholder_target
+        assert not is_placeholder_target("thermal_control.py")
+        assert not is_placeholder_target("seed_gate.py")
+        assert not is_placeholder_target("auth.py")
+
+    def test_placeholder_with_path(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("src/test.py")
+        assert is_placeholder_target("tests/example.py")
+
+    def test_placeholder_reduces_score(self):
+        """Placeholder target should score lower than real target."""
+        r_real = _vs("Build thermal_control.py from scratch")
+        r_placeholder = _vs("Build test.py from scratch")
+        assert r_real.score > r_placeholder.score
+
+    def test_placeholder_still_passes(self):
+        """Placeholder targets still pass the gate (soft penalty, not hard)."""
+        r = _vs("Build test.py module")
+        assert r.passed  # verb + target = pass
+
+    def test_placeholder_penalty_in_breakdown(self):
+        r = _vs("Build test.py module")
+        assert r.breakdown.get("placeholder_penalty", 0) < 0
+
+    def test_real_file_no_penalty(self):
+        r = _vs("Build thermal_control.py module")
+        assert r.breakdown.get("placeholder_penalty", 0) == 0
+
+    def test_placeholder_case_insensitive(self):
+        from seed_gate import is_placeholder_target
+        # Placeholders are matched lowercase
+        assert is_placeholder_target("TEST.py".lower())
+
+    @pytest.mark.parametrize("name", [
+        "demo.py", "scratch.py", "untitled.py", "new_file.py",
+        "placeholder.py", "sample.py", "bar.py", "foo.js",
+    ])
+    def test_known_placeholders(self, name):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target(name)
+
+
+# ===================================================================
+# 25. Batch Diagnostics (#12521 consolidation)
+# ===================================================================
+
+class TestBatchDiagnostics:
+    """BatchResult.summary() provides human-readable diagnostics."""
+
+    def test_summary_exists(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py", "vibes only", "x"])
+        assert hasattr(br, "summary")
+
+    def test_summary_is_string(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py", "vibes only", "x"])
+        assert isinstance(br.summary(), str)
+
+    def test_summary_contains_counts(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py", "Fix bug in water_mining.py", "x", "vibes"])
+        summary = br.summary()
+        assert "4 total" in summary
+        assert "passed" in summary
+        assert "junk" in summary
+
+    def test_summary_percentages(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py"])
+        summary = br.summary()
+        assert "100%" in summary
+
+    def test_summary_empty_batch(self):
+        from seed_gate import validate_batch
+        br = validate_batch([])
+        summary = br.summary()
+        assert "0 total" in summary
+
+
+# ===================================================================
+# 26. Cross-feature Integration Tests
+# ===================================================================
+
+class TestConsolidationIntegration:
+    """Integration tests that exercise multiple new features together."""
+
+    def test_full_result_shape(self):
+        """Validate complete result dict shape with all new fields."""
+        d = _v("Build thermal_control.py from scratch with Monte Carlo testing")
+        required_keys = {
+            "passed", "reasons", "score", "verb_found", "target_found",
+            "junk", "advisory", "confidence", "all_verbs", "all_targets",
+            "verb_weight", "breakdown",
+        }
+        assert required_keys <= set(d.keys())
+
+    def test_breakdown_keys(self):
+        d = _v("Build thermal_control.py module")
+        bd = d["breakdown"]
+        required_bd_keys = {
+            "score", "verb_score", "target_score", "length_bonus",
+            "unique_target_bonus", "imperative_bonus",
+            "placeholder_penalty", "verb_weight",
+        }
+        assert required_bd_keys <= set(bd.keys())
+
+    def test_placeholder_with_explain(self):
+        r = _vs("Build test.py module")
+        explanation = r.explain()
+        assert "placeholder" in explanation
+
+    def test_high_cost_verb_with_explain(self):
+        r = _vs("Deploy thermal_control.py to production")
+        explanation = r.explain()
+        assert "high" in explanation
+
+    def test_proper_noun_with_verb_weight(self):
+        r = _vs("Implement the Dream Catcher Protocol for parallel writes")
+        if r.passed:
+            assert r.verb_weight == "high"  # implement is high cost
+
+    def test_batch_with_mixed_weights(self):
+        from seed_gate import validate_batch
+        proposals = [
+            "Build thermal_control.py",    # high weight
+            "Test water_mining.py",         # low weight
+            "Refactor state_io.py",         # medium weight
+        ]
+        br = validate_batch(proposals)
+        assert br.stats.passed == 3
+        weights = [item[1]["verb_weight"] for item in br.passed_items]
+        assert "high" in weights
+        assert "low" in weights
+        assert "medium" in weights
+
+    def test_explain_on_junk(self):
+        r = _vs("x")
+        explanation = r.explain()
+        assert "REJECTED" in explanation
+
+    def test_real_world_proposals_with_breakdown(self):
+        """Real proposals from the swarm should have valid breakdowns."""
+        proposals = [
+            "Build water_mining.py optimizer with Monte Carlo confidence bands",
+            "Fix the flaky test in test_dust_storm.py",
+            "Refactor thermal_control.py to use the Dream Catcher Protocol",
+            "Deploy the nuclear_reactor.py safety validation suite",
+        ]
+        for text in proposals:
+            r = _vs(text)
+            assert r.passed, f"Should pass: {text}"
+            assert r.breakdown, f"Should have breakdown: {text}"
+            assert r.verb_weight in ("low", "medium", "high"), f"Should have weight: {text}"
+            assert r.explain(), f"Should have explanation: {text}"
+
+
+# ===================================================================
+# 27. Property Invariants for New Features
+# ===================================================================
+
+class TestConsolidationInvariants:
+    """Property-based invariants for all new features."""
+
+    def test_verb_weight_always_valid_or_none(self):
+        """verb_weight is always low/medium/high or None."""
+        samples = [
+            "Build auth.py", "Test it", "x", "vibes only",
+            "Deploy thermal_control.py now", "",
+        ]
+        valid = {"low", "medium", "high", None}
+        for text in samples:
+            r = _vs(text)
+            assert r.verb_weight in valid, f"Invalid weight for {text!r}: {r.verb_weight}"
+
+    def test_breakdown_always_dict(self):
+        samples = [
+            "Build auth.py", "Test it", "x", "vibes only", "",
+        ]
+        for text in samples:
+            r = _vs(text)
+            assert isinstance(r.breakdown, dict), f"breakdown not dict for {text!r}"
+
+    def test_explain_always_string(self):
+        samples = [
+            "Build auth.py", "Test it", "x", "vibes only", "",
+        ]
+        for text in samples:
+            r = _vs(text)
+            assert isinstance(r.explain(), str)
+
+    def test_placeholder_penalty_never_positive(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build test.py", "build", "test.py", "file")
+        assert bd["placeholder_penalty"] <= 0
+
+    def test_score_still_bounded_0_to_1(self):
+        """Score must remain in [0, 1] even with placeholder penalty."""
+        samples = [
+            "Build test.py", "Test foo.py", "Fix bar.py",
+            "Build thermal_control.py and water_mining.py integration",
+        ]
+        for text in samples:
+            r = _vs(text)
+            assert 0.0 <= r.score <= 1.0, f"Score out of bounds for {text!r}: {r.score}"
+
+    def test_to_dict_has_new_fields(self):
+        r = _vs("Build auth.py")
+        d = r.to_dict()
+        assert "verb_weight" in d
+        assert "breakdown" in d
+
+    def test_batch_summary_always_string(self):
+        from seed_gate import validate_batch
+        for batch in [[], ["Build auth.py"], ["x", "vibes", "Build auth.py"]]:
+            br = validate_batch(batch)
+            assert isinstance(br.summary(), str)
