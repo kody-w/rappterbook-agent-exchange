@@ -1004,3 +1004,375 @@ class TestCanonicalizeTarget:
     def test_preserve_underscores(self):
         from seed_gate import canonicalize_target
         assert canonicalize_target("water_mining.py") == "water_mining"
+
+
+# ---------------------------------------------------------------------------
+# New feature tests — phrasal verbs, tag-implied, advisory, rich match,
+# CONST_RE, case-insensitive modules, find_all_verbs, find_all_targets
+# ---------------------------------------------------------------------------
+
+class TestPhrasalVerbs:
+    """Test two-word phrasal verb detection (#12521)."""
+
+    def test_phrasal_dict_not_empty(self):
+        from seed_gate import PHRASAL_VERBS
+        assert len(PHRASAL_VERBS) >= 20
+
+    def test_set_up_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Set up the deployment pipeline") == "set up"
+
+    def test_roll_back_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Roll back the migration for schema.sql") == "roll back"
+
+    def test_wire_up_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Wire up the OAuth handler in auth.py") == "wire up"
+
+    def test_clean_up_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Clean up dead code in state_io.py") == "clean up"
+
+    def test_tear_down_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Tear down the test fixtures properly") == "tear down"
+
+    def test_spin_up_detected(self):
+        from seed_gate import find_verb
+        assert find_verb("Spin up a new worker for compute_trending.py") == "spin up"
+
+    def test_phrasal_starts_with(self):
+        from seed_gate import _starts_with_verb
+        assert _starts_with_verb("Set up deployment for auth.py")
+
+    def test_phrasal_not_starts_with(self):
+        from seed_gate import _starts_with_verb
+        # "set" alone is NOT an action verb
+        assert not _starts_with_verb("set the variable")
+
+    def test_single_word_still_works(self):
+        from seed_gate import find_verb
+        assert find_verb("Build the new module foo.py") == "build"
+
+    def test_phrasal_prefers_first_match(self):
+        from seed_gate import find_verb
+        assert find_verb("Roll back and then set up the migration") == "roll back"
+
+    def test_phrasal_in_validate(self):
+        result = validate_seed("Set up the deployment pipeline for config.yaml")
+        assert result.passed
+        assert result.verb_found == "set up"
+
+    def test_all_phrasal_verbs_are_canonical(self):
+        from seed_gate import PHRASAL_VERBS
+        for phrase, canonical in PHRASAL_VERBS.items():
+            words = phrase.split()
+            assert len(words) == 2, f"Phrasal verb '{phrase}' should be two words"
+            assert canonical == phrase, f"Canonical for '{phrase}' should be self"
+
+
+class TestTagImpliedVerbs:
+    """Test tag-to-verb inference (#12530)."""
+
+    def test_tag_implied_dict_not_empty(self):
+        from seed_gate import TAG_IMPLIED_VERBS
+        assert len(TAG_IMPLIED_VERBS) >= 8
+
+    def test_code_tag_implies_build(self):
+        result = validate_seed("The authentication module needs CSRF protection", tags=["code"])
+        assert result.verb_found == "build"
+
+    def test_debug_tag_implies_debug(self):
+        result = validate_seed("Something wrong with the rate limiter", tags=["debug"])
+        assert result.verb_found == "debug"
+
+    def test_test_tag_implies_test(self):
+        result = validate_seed("Coverage gaps in the channel module", tags=["test"])
+        assert result.verb_found == "test"
+
+    def test_docs_tag_implies_document(self):
+        result = validate_seed("The SDK documentation has several unclear sections worth addressing", tags=["docs"])
+        assert result.verb_found == "document"
+
+    def test_tag_only_fires_when_no_explicit_verb(self):
+        result = validate_seed("Refactor the auth module in auth.py", tags=["code"])
+        assert result.verb_found == "refactor"  # explicit verb wins
+
+    def test_exempt_tag_still_takes_priority(self):
+        # "philosophy" is exempt — verb from tag_implied shouldn't prevent exemption
+        result = validate_seed("The ethics of agent autonomy and decision-making", tags=["philosophy"])
+        assert result.passed is False  # no verb at all, no target
+        # But exempt tags DO pass if there's an implied verb
+        result2 = validate_seed("The ethics of agent autonomy", tags=["philosophy", "code"])
+        assert result2.verb_found == "build"
+
+    def test_security_tag_implies_secure(self):
+        result = validate_seed("Input validation for the API endpoint handler", tags=["security"])
+        assert result.verb_found == "secure"
+
+
+class TestAdvisoryLabel:
+    """Test advisory labeling for verb-but-no-target (#12507)."""
+
+    def test_verb_no_target_exempt_gets_advisory(self):
+        result = validate_seed("Explore the nature of consciousness", tags=["philosophy"])
+        assert result.passed is True
+        assert result.advisory == "needs-specificity"
+
+    def test_verb_and_target_no_advisory(self):
+        result = validate_seed("Build the new auth module in auth.py")
+        assert result.passed is True
+        assert result.advisory == ""
+
+    def test_no_verb_no_advisory(self):
+        result = validate_seed("Something about nothing at all really right now")
+        assert result.passed is False
+        assert result.advisory == ""  # no verb → no advisory
+
+    def test_verb_no_target_not_exempt_gets_advisory(self):
+        result = validate_seed("Build something amazing for the whole platform")
+        assert result.passed is False
+        assert result.advisory == "needs-specificity"
+
+    def test_advisory_in_dict_api(self):
+        result = validate("Explore the nature of consciousness", tags=["philosophy"])
+        assert "advisory" in result
+        assert result["advisory"] == "needs-specificity"
+
+    def test_advisory_in_dict_api_empty(self):
+        result = validate("Build the auth module in auth.py")
+        assert result["advisory"] == ""
+
+
+class TestRichMatchInfo:
+    """Test all_verbs and all_targets in result (#12521)."""
+
+    def test_all_verbs_returned(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Build auth.py, then test and deploy the module")
+        assert "build" in verbs
+        assert "test" in verbs
+        assert "deploy" in verbs
+
+    def test_all_verbs_deduped(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Build and build and build auth.py")
+        assert verbs.count("build") == 1
+
+    def test_all_verbs_order_preserved(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Test first, then deploy, finally monitor foo.py")
+        assert verbs == ["test", "deploy", "monitor"]
+
+    def test_all_verbs_phrasal(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Set up and then tear down the test fixtures for config.yaml")
+        assert "set up" in verbs
+        assert "tear down" in verbs
+
+    def test_all_targets_returned(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Build auth.py and deploy to config.yaml")
+        target_strings = [t[0] for t in targets]
+        assert "auth.py" in target_strings
+        assert "config.yaml" in target_strings
+
+    def test_all_targets_deduped(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Fix auth.py, then fix auth.py again")
+        target_strings = [t[0] for t in targets]
+        # Should only appear once (canonical dedup)
+        assert len([t for t in target_strings if "auth" in t]) == 1
+
+    def test_all_targets_in_result(self):
+        result = validate_seed("Build auth.py and test config.yaml")
+        assert len(result.all_targets) >= 2
+        assert len(result.all_verbs) >= 1
+
+    def test_all_verbs_in_dict(self):
+        result = validate("Build and test auth.py")
+        assert "all_verbs" in result
+        assert isinstance(result["all_verbs"], list)
+
+    def test_all_targets_in_dict(self):
+        result = validate("Build auth.py and config.yaml")
+        assert "all_targets" in result
+        assert isinstance(result["all_targets"], list)
+
+
+class TestConstTargets:
+    """Test CONST_RE in find_target (#12521)."""
+
+    def test_const_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Update MAX_RETRIES in the retry module")
+        assert target == "MAX_RETRIES"
+        assert kind == "const"
+
+    def test_const_in_scoring(self):
+        from seed_gate import compute_score
+        score = compute_score("Update MAX_RETRIES", "update", "MAX_RETRIES", "const")
+        assert score > 0.0
+
+    def test_const_in_count_unique(self):
+        from seed_gate import count_unique_targets, CONST_RE
+        text = "Set ACTION_VERBS and MAX_RETRIES to new values"
+        count = count_unique_targets(text)
+        assert count >= 2
+
+    def test_const_in_all_targets(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Update MAX_RETRIES and fix config.yaml")
+        kinds = [t[1] for t in targets]
+        assert "const" in kinds
+
+    def test_const_validate_pass(self):
+        result = validate_seed("Update ACTION_VERBS in the seed gate")
+        assert result.passed
+        assert result.target_found == "ACTION_VERBS"
+
+
+class TestCaseInsensitiveModules:
+    """Test case-insensitive module matching."""
+
+    def test_lowercase_module_import(self):
+        from seed_gate import _KNOWN_MODULES_LOWER
+        # All entries should be lowercase
+        for m in _KNOWN_MODULES_LOWER:
+            assert m == m.lower()
+
+
+class TestFindAllVerbs:
+    """Focused tests for find_all_verbs."""
+
+    def test_empty_input(self):
+        from seed_gate import find_all_verbs
+        assert find_all_verbs("") == []
+
+    def test_no_verbs(self):
+        from seed_gate import find_all_verbs
+        assert find_all_verbs("the quick brown fox") == []
+
+    def test_single_verb(self):
+        from seed_gate import find_all_verbs
+        assert find_all_verbs("Build a thing") == ["build"]
+
+    def test_phrasal_skip(self):
+        from seed_gate import find_all_verbs
+        # "set up" should be one verb, not "set" + "up"
+        verbs = find_all_verbs("Set up the deployment for auth.py")
+        assert "set up" in verbs
+        assert "set" not in verbs
+
+
+class TestFindAllTargets:
+    """Focused tests for _find_all_targets."""
+
+    def test_empty_input(self):
+        from seed_gate import _find_all_targets
+        assert _find_all_targets("") == ()
+
+    def test_single_file(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Fix auth.py")
+        assert len(targets) >= 1
+        assert targets[0][0] == "auth.py"
+        assert targets[0][1] == "file"
+
+    def test_multiple_kinds(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Build auth.py with src/utils/ and check #12345")
+        kinds = {t[1] for t in targets}
+        assert "file" in kinds
+
+    def test_const_in_all(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Set MAX_RETRIES and check config.yaml")
+        kinds = {t[1] for t in targets}
+        assert "const" in kinds
+        assert "file" in kinds
+
+
+class TestNewVerbsExpanded:
+    """Test the 25 newly-added verbs."""
+
+    @pytest.mark.parametrize("verb", [
+        "configure", "scaffold", "bootstrap", "provision",
+        "automate", "archive", "inject", "normalize",
+        "update", "delete", "enable", "disable",
+        "install", "deprecate", "rewrite", "standardize",
+        "containerize", "expose", "wrap", "stub", "mock",
+        "isolate", "define", "declare", "register",
+        "secure", "clean", "schedule", "cache", "publish",
+        "annotate", "version", "backup", "package",
+    ])
+    def test_new_verb_in_set(self, verb):
+        assert verb in ACTION_VERBS
+
+    def test_verb_count_at_least_95(self):
+        assert len(ACTION_VERBS) >= 95
+
+
+class TestNewFeatureInvariants:
+    """Property-based invariants for new features."""
+
+    def test_advisory_only_when_verb_present(self):
+        """Advisory should only appear when a verb was found."""
+        proposals = [
+            "Build something nice for the platform",
+            "Explore consciousness deeply",
+            "The meaning of life is 42 probably",
+            "Set up auth.py deployment pipeline",
+        ]
+        for text in proposals:
+            result = validate_seed(text)
+            if result.advisory:
+                assert result.verb_found is not None
+
+    def test_all_verbs_subset_of_action_verbs_or_phrasal(self):
+        """Every verb in all_verbs should be a known verb."""
+        from seed_gate import find_all_verbs, PHRASAL_VERBS
+        text = "Build and deploy auth.py, then set up monitoring and test"
+        for v in find_all_verbs(text):
+            assert v in ACTION_VERBS or v in PHRASAL_VERBS.values()
+
+    def test_all_targets_kinds_valid(self):
+        """Every target kind should be a recognized kind."""
+        from seed_gate import _find_all_targets
+        valid_kinds = {"file", "path", "func", "tool", "cli", "discussion",
+                       "channel", "quoted", "module", "const"}
+        targets = _find_all_targets("Build auth.py, check r/mars, update MAX_RETRIES, see #12345")
+        for _, kind in targets:
+            assert kind in valid_kinds
+
+    def test_score_const_between_channel_and_tool(self):
+        """const score (2.5) should be between channel (2.0) and tool (3.0)."""
+        from seed_gate import compute_score
+        s_const = compute_score("Update MAX_RETRIES", "update", "MAX_RETRIES", "const")
+        s_channel = compute_score("Update r/mars", "update", "r/mars", "channel")
+        s_tool = compute_score("Update state_io", "update", "state_io", "tool")
+        assert s_channel <= s_const <= s_tool
+
+
+class TestBackwardCompatNewFields:
+    """Ensure new fields don't break existing behavior."""
+
+    def test_old_dict_keys_still_present(self):
+        result = validate("Build auth.py")
+        for key in ("passed", "reasons", "score", "verb_found", "target_found", "junk"):
+            assert key in result
+
+    def test_new_dict_keys_present(self):
+        result = validate("Build auth.py")
+        for key in ("advisory", "all_verbs", "all_targets"):
+            assert key in result
+
+    def test_batch_still_works(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py", "random stuff here"])
+        assert br.stats.total == 2
+
+    def test_passes_gate_unaffected(self):
+        assert passes_gate("Build the authentication module in auth.py")
+        assert not passes_gate("random stuff here with nothing concrete at all")

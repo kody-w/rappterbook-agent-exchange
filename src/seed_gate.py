@@ -33,9 +33,12 @@ Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
     PR #245  -- auto-discovered modules, two-tier artifacts, propose_seed wiring
-    This frame -- consolidated #245/#246/#247: false-file filter, special
+    PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
+    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+                  labeling (#12507), rich match lists (#12521), case-
+                  insensitive module matching, CONST_RE in find_target.
 """
 from __future__ import annotations
 
@@ -49,7 +52,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 70 action verbs -- frozenset for O(1) lookup  (from #12503 + main repo)
+# 95 action verbs -- frozenset for O(1) lookup
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
@@ -66,7 +69,35 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "consolidate", "decode", "establish", "execute", "extend",
     "instrument", "measure", "merge", "remove", "render",
     "review", "run", "score", "validate",
+    "configure", "scaffold", "bootstrap", "provision",
+    "automate", "archive", "inject", "normalize",
+    "update", "delete", "enable", "disable",
+    "install", "deprecate", "rewrite", "standardize",
+    "containerize", "expose", "wrap", "stub", "mock",
+    "isolate", "define", "declare", "register",
+    "secure", "clean", "schedule", "cache", "publish",
+    "annotate", "version", "backup", "package",
 })
+
+# Phrasal verbs -- two-word engineering verbs (#12521)
+PHRASAL_VERBS: dict[str, str] = {
+    "set up": "set up", "roll back": "roll back", "wire up": "wire up",
+    "clean up": "clean up", "spin up": "spin up", "tear down": "tear down",
+    "break down": "break down", "plug in": "plug in", "hook up": "hook up",
+    "scale up": "scale up", "scale down": "scale down", "lock down": "lock down",
+    "back up": "back up", "phase out": "phase out", "ramp up": "ramp up",
+    "opt in": "opt in", "opt out": "opt out", "switch out": "switch out",
+    "swap out": "swap out", "flesh out": "flesh out", "stub out": "stub out",
+    "carve out": "carve out", "pull in": "pull in",
+}
+
+_PHRASAL_FIRST: dict[str, dict[str, str]] = {}
+for _phrase, _canonical in PHRASAL_VERBS.items():
+    _first, _second = _phrase.split()
+    _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
+
+# SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
+CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -130,6 +161,12 @@ _KNOWN_TOOL_RE = re.compile(
 EXEMPT_TAGS: frozenset[str] = frozenset({
     "theme", "philosophy", "debate", "exploration", "story", "lore",
 })
+
+TAG_IMPLIED_VERBS: dict[str, str] = {
+    "code": "build", "build": "build", "test": "test", "debug": "debug",
+    "docs": "document", "refactor": "refactor", "security": "secure",
+    "deploy": "deploy", "monitor": "monitor",
+}
 
 # Question stems -- map to implicit verbs for exempt-tag proposals (PR #247)
 QUESTION_STEMS: dict[str, str] = {
@@ -208,6 +245,7 @@ def _discover_modules() -> frozenset[str]:
 
 
 KNOWN_MODULES: frozenset[str] = _discover_modules()
+_KNOWN_MODULES_LOWER: frozenset[str] = frozenset(m.lower() for m in KNOWN_MODULES)
 
 # ---------------------------------------------------------------------------
 # Dataclass results
@@ -223,6 +261,9 @@ class SeedGateResult:
     verb_found: object
     target_found: object
     junk: bool
+    advisory: str = ""
+    all_verbs: tuple = ()
+    all_targets: tuple = ()
 
     @property
     def verb(self) -> str:
@@ -240,6 +281,9 @@ class SeedGateResult:
             "verb_found": self.verb_found,
             "target_found": self.target_found,
             "junk": self.junk,
+            "advisory": self.advisory,
+            "all_verbs": list(self.all_verbs),
+            "all_targets": [list(t) for t in self.all_targets],
         }
 
 
@@ -287,9 +331,16 @@ def _is_false_file_match(match_text: str) -> bool:
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb."""
-    first_word = text.split()[0].lower() if text.split() else ""
-    return first_word in ACTION_VERBS
+    """Return True if text starts with an action verb (single or phrasal)."""
+    words = text.split()
+    if not words:
+        return False
+    first = words[0].lower()
+    if first in _PHRASAL_FIRST and len(words) > 1:
+        second = words[1].lower()
+        if second in _PHRASAL_FIRST[first]:
+            return True
+    return first in ACTION_VERBS
 
 
 def _starts_with_file(text: str) -> bool:
@@ -308,10 +359,39 @@ def find_verb(text: str, limit: int = 0) -> str | None:
     """Return the first action verb found in *text*, or None."""
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
-    for word in words:
+    for i, word in enumerate(words):
+        if word in _PHRASAL_FIRST and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
     return None
+
+
+def find_all_verbs(text: str) -> list[str]:
+    """Return all action verbs in *text* (deduped, order-preserving)."""
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    seen: set[str] = set()
+    result: list[str] = []
+    skip_next = False
+    for i, word in enumerate(words):
+        if skip_next:
+            skip_next = False
+            continue
+        if word in _PHRASAL_FIRST and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word in _PHRASAL_FIRST[word]:
+                v = _PHRASAL_FIRST[word][next_word]
+                if v not in seen:
+                    seen.add(v)
+                    result.append(v)
+                skip_next = True
+                continue
+        if word in ACTION_VERBS and word not in seen:
+            seen.add(word)
+            result.append(word)
+    return result
 
 
 def find_target(text: str) -> tuple[str, str]:
@@ -340,6 +420,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = CHANNEL_RE.search(text)
     if m:
         return m.group(), "channel"
+    # SCREAMING_SNAKE_CASE constants
+    m = CONST_RE.search(text)
+    if m:
+        return m.group(), "const"
     # Known tools first (precision), then generic TOOL_RE
     m = _KNOWN_TOOL_RE.search(text)
     if m:
@@ -359,7 +443,7 @@ def find_target(text: str) -> tuple[str, str]:
         if m:
             match_text = m.group()
             bare = match_text.strip("`").replace("import ", "").replace("from ", "").strip()
-            if bare in KNOWN_MODULES:
+            if bare.lower() in _KNOWN_MODULES_LOWER:
                 return bare, "module"
     m = QUOTED_RE.search(text)
     if m:
@@ -392,6 +476,41 @@ def is_junk(text: str, limit: int = 0) -> str:
     return ""
 
 
+def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
+    """Return all targets in *text* as ((target, kind), ...) (#12521)."""
+    found: list[tuple[str, str]] = []
+    seen_canonical: set[str] = set()
+    def _add(t: str, k: str) -> None:
+        c = canonicalize_target(t)
+        if c and c not in seen_canonical:
+            seen_canonical.add(c)
+            found.append((t, k))
+    for m in FILE_RE.finditer(text):
+        if not _is_false_file_match(m.group()):
+            _add(m.group(), "file")
+    for m in SPECIAL_FILE_RE.finditer(text):
+        _add(m.group(), "file")
+    for m in PATH_RE.finditer(text):
+        _add(m.group(), "path")
+    for m in FUNC_RE.finditer(text):
+        _add(m.group(), "func")
+    for m in CHANNEL_RE.finditer(text):
+        _add(m.group(), "channel")
+    for m in CONST_RE.finditer(text):
+        _add(m.group(), "const")
+    for m in _KNOWN_TOOL_RE.finditer(text):
+        _add(m.group(), "tool")
+    for m in TOOL_RE.finditer(text):
+        _add(m.group(), "tool")
+    for m in CLI_RE.finditer(text):
+        _add(m.group(), "cli")
+    for m in DISCUSSION_RE.finditer(text):
+        _add(m.group(), "discussion")
+    for m in QUOTED_RE.finditer(text):
+        _add(m.group(), "quoted")
+    return tuple(found)
+
+
 def is_soft_artifact(text: str) -> bool:
     """Return True if text contains soft artifact signals."""
     head = text.strip()[:80].lower()
@@ -418,7 +537,7 @@ def count_unique_targets(text: str) -> int:
     both appear, they count as one (PR #246).
     """
     raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
     canonical: list[str] = []
@@ -448,7 +567,7 @@ def compute_score(
     if target:
         kind_scores = {
             "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0,
+            "tool": 3.0, "cli": 3.0, "const": 2.5,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
         raw += kind_scores.get(target_kind, 1.5)
@@ -502,11 +621,22 @@ def validate_seed(
     verb = find_verb(text, limit=verb_limit)
     target, target_kind = find_target(text)
 
+    # -- Tag-implied verb inference (#12530) ---
+    if not verb:
+        for tag in tag_set:
+            if tag in TAG_IMPLIED_VERBS:
+                verb = TAG_IMPLIED_VERBS[tag]
+                break
+
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
         m = _QUESTION_STEM_RE.match(text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
+
+    # -- Rich match info (#12521) ---
+    all_verbs = tuple(find_all_verbs(text))
+    all_targets = _find_all_targets(text)
 
     # -- Soft artifact check ---
     if is_soft_artifact(text) and not (verb and target) and not is_exempt:
@@ -514,7 +644,7 @@ def validate_seed(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
-            junk=True,
+            junk=True, all_verbs=all_verbs, all_targets=all_targets,
         )
 
     # -- Decision ---
@@ -526,15 +656,21 @@ def validate_seed(
         specificity = compute_score(text, verb, target, target_kind)
 
     reasons: list[str] = []
+    advisory = ""
     if not passed:
         if not verb:
             reasons.append("No action verb found")
         if not target and not is_exempt:
             reasons.append("No concrete target (filename, tool, or reference)")
+        if verb and not target and not is_exempt:
+            advisory = "needs-specificity"
+    elif verb and not target:
+        advisory = "needs-specificity"
 
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
+        advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
     )
 
 
