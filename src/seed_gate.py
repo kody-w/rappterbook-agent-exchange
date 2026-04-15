@@ -29,6 +29,13 @@ Two public APIs -- pick whichever suits the call-site:
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
+    # Diagnostic / debugging
+    breakdown = score_breakdown(text, tags)  # -> dict of named score parts
+    diag = explain(text, tags)               # -> one-line diagnostic string
+
+    # Verb with position
+    vp = find_verb_with_position(text)       # -> VerbMatch | None
+
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
@@ -45,6 +52,11 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- commit-prefix stripping (feat:, fix:, chore:);
+                  numbered-ref false-positive filter (step 1.2, v2.0);
+                  VerbMatch dataclass with position+source; explain()
+                  diagnostic; score_breakdown() as scoring source of
+                  truth; is_imperative property; find_verb_with_position.
 """
 from __future__ import annotations
 
@@ -197,6 +209,19 @@ _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
 
 # Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
+
+# Numbered references: "step 1.2", "phase 2.0", "item 3.4" -- not files
+_NUMBERED_REF_RE = re.compile(
+    r"^(?:step|phase|item|section|part|chapter|figure|table|eq|v)\s*\d+\.\d+$",
+    re.I,
+)
+
+# Conventional commit prefixes: feat:, fix:, chore:, docs:, refactor:, etc.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:feat|fix|chore|docs|refactor|test|style|perf|ci|build|revert)"
+    r"(?:\([^)]*\))?:\s*",
+    re.I,
+)
 
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
@@ -356,6 +381,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    verb_match: VerbMatch | None = None
 
     @property
     def verb(self) -> str:
@@ -364,6 +390,17 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def is_imperative(self) -> bool:
+        """True when the first explicit textual verb is at position 0.
+
+        Tag-implied and question-stem verbs do NOT count — only verbs
+        actually written in the proposal text at the start.
+        """
+        if self.verb_match is None:
+            return False
+        return self.verb_match.source == "text" and self.verb_match.position == 0
 
     @property
     def confidence(self) -> str | None:
@@ -386,6 +423,7 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "is_imperative": self.is_imperative,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -432,12 +470,15 @@ class BatchResult:
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive.
 
-    Catches abbreviations (e.g., i.e.) and bare version strings (2.0.1).
+    Catches abbreviations (e.g., i.e.), bare version strings (2.0.1),
+    and numbered references (step 1.2, phase 2.0).
     """
     stripped = match_text.lower().rstrip(".")
     if stripped in _FALSE_FILE_MATCHES:
         return True
     if _VERSION_RE.match(match_text):
+        return True
+    if _NUMBERED_REF_RE.match(match_text):
         return True
     return False
 
@@ -469,6 +510,25 @@ def _starts_with_file(text: str) -> bool:
     return False
 
 
+def _strip_commit_prefix(text: str) -> str:
+    """Strip conventional commit prefixes for analysis only.
+
+    "feat: Build water_mining.py" -> "Build water_mining.py"
+    "fix(scope): Patch auth.py"   -> "Patch auth.py"
+    Raw proposal text is never mutated — only the analysis copy.
+    """
+    return _COMMIT_PREFIX_RE.sub("", text)
+
+
+@dataclasses.dataclass(frozen=True)
+class VerbMatch:
+    """Structured verb match with position and source metadata."""
+    verb: str
+    position: int | None
+    source: str  # "text", "tag", "question_stem"
+    surface: str = ""  # the original surface form (e.g. "building")
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
@@ -480,19 +540,41 @@ def find_verb(text: str, limit: int = 0) -> str | None:
     creating->create, deployed->deploy).  Phrasal verbs and their
     inflected forms (setting up->set up) are also recognized.
     """
+    match = find_verb_with_position(text, limit=limit)
+    return match.verb if match else None
+
+
+def find_verb_with_position(
+    text: str,
+    limit: int = 0,
+    *,
+    strip_prefix: bool = True,
+) -> VerbMatch | None:
+    """Return a VerbMatch with the verb, its word position, and source.
+
+    Strips conventional commit prefixes before scanning when
+    *strip_prefix* is True (default).  Returns None if no verb found.
+    """
     search_text = text[:limit] if limit else text
+    if strip_prefix:
+        search_text = _strip_commit_prefix(search_text)
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
         if i + 1 < len(words):
             next_word = words[i + 1]
             if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
-                return _PHRASAL_FIRST[word][next_word]
+                canonical = _PHRASAL_FIRST[word][next_word]
+                surface = word + " " + next_word
+                return VerbMatch(verb=canonical, position=i, source="text", surface=surface)
             if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
-                return _PHRASAL_INFLECTED[word][next_word]
+                canonical = _PHRASAL_INFLECTED[word][next_word]
+                surface = word + " " + next_word
+                return VerbMatch(verb=canonical, position=i, source="text", surface=surface)
         if word in ACTION_VERBS:
-            return word
+            return VerbMatch(verb=word, position=i, source="text", surface=word)
         if word in _INFLECTION_MAP:
-            return _INFLECTION_MAP[word]
+            base = _INFLECTION_MAP[word]
+            return VerbMatch(verb=base, position=i, source="text", surface=word)
     return None
 
 
@@ -704,34 +786,68 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+_KIND_SCORES: dict[str, float] = {
+    "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+    "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+    "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+}
+
+
+def score_breakdown(
+    text: str,
+    tags: list = None,
+    *,
+    verb: str | None = None,
+    target: str | None = None,
+    target_kind: str = "",
+) -> dict[str, float]:
+    """Decompose the specificity score into named components.
+
+    This is the single source of truth for scoring weights.
+    compute_score() is a thin wrapper that sums this.
+
+    Returns dict like {"verb": 2.5, "target": 4.0, "length": 0.5,
+    "multi_target": 1.0, "imperative": 0.5}.
+    """
+    if verb is None and target is None:
+        # Auto-detect when called standalone
+        analyzed_text = _strip_commit_prefix(text)
+        verb = find_verb(analyzed_text)
+        target, target_kind = find_target(analyzed_text)
+
+    parts: dict[str, float] = {}
+    if verb:
+        parts["verb"] = 2.5
+    if target:
+        parts["target"] = _KIND_SCORES.get(target_kind, 1.5)
+    words = text.split()
+    if len(words) >= 15:
+        parts["length"] = 1.5
+    elif len(words) >= 8:
+        parts["length"] = 0.5
+    unique = count_unique_targets(text)
+    if unique >= 2:
+        parts["multi_target"] = 1.0
+    analyzed_text = _strip_commit_prefix(text)
+    if verb and _starts_with_verb(analyzed_text):
+        parts["imperative"] = 0.5
+    return parts
+
+
 def compute_score(
     text: str,
     verb: str | None,
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
+    """Compute a 0.0-1.0 specificity score.
+
+    Delegates to score_breakdown() for weight definitions.
+    """
+    parts = score_breakdown(
+        text, verb=verb, target=target, target_kind=target_kind,
+    )
+    raw = sum(parts.values())
     return min(raw / 10.0, 1.0)
 
 
@@ -761,6 +877,50 @@ def suggest(text: str, tags: list = None) -> list[str]:
     return suggestions
 
 
+def explain(text: str, tags: list = None) -> str:
+    """One-line diagnostic string for logging and debugging.
+
+    Formats an existing SeedGateResult — never re-parses independently.
+    Example: "PASS (0.75 high): verb='build'@0 imperative, target='seed_gate.py' (file), 2 targets"
+    """
+    result = validate_seed(text, tags)
+    status = "PASS" if result.passed else "FAIL"
+    conf = result.confidence or "n/a"
+    parts = ["%s (%.2f %s):" % (status, result.score, conf)]
+
+    if result.verb_match:
+        vm = result.verb_match
+        pos_str = "@%d" % vm.position if vm.position is not None else ""
+        imp_str = " imperative" if result.is_imperative else ""
+        src_str = " [%s]" % vm.source if vm.source != "text" else ""
+        parts.append("verb='%s'%s%s%s" % (vm.verb, pos_str, imp_str, src_str))
+    elif result.verb_found:
+        parts.append("verb='%s'" % result.verb_found)
+    else:
+        parts.append("no verb")
+
+    if result.target_found:
+        kind = ""
+        for t, k in result.all_targets:
+            if t == result.target_found:
+                kind = " (%s)" % k
+                break
+        parts.append("target='%s'%s" % (result.target_found, kind))
+    else:
+        parts.append("no target")
+
+    n_targets = len(result.all_targets)
+    if n_targets > 1:
+        parts.append("%d targets" % n_targets)
+
+    if result.junk:
+        parts.append("JUNK")
+    if result.advisory:
+        parts.append(result.advisory)
+
+    return " ".join(parts)
+
+
 # Backward-compat aliases
 _detect_verb = find_verb
 _detect_target = find_target
@@ -787,36 +947,46 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
-    # -- Junk check (hard fail) ---
+    # -- Normalize for analysis (strip commit prefixes) ---
+    analyzed = _strip_commit_prefix(text)
+
+    # -- Junk check (hard fail) -- uses raw text ---
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
+    # -- Junk check (hard fail) -- uses normalized text so commit
+    #    prefixes like "feat:" don't trigger the lowercase heuristic ---
+    junk_limit = 60 if mode == "purge" else 0
+    junk_reason = is_junk(analyzed, limit=junk_limit)
     if junk_reason:
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target (use normalized text) ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb_match = find_verb_with_position(analyzed, limit=verb_limit)
+    verb = verb_match.verb if verb_match else None
+    target, target_kind = find_target(analyzed)
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
         for tag in tag_set:
             if tag in TAG_IMPLIED_VERBS:
                 verb = TAG_IMPLIED_VERBS[tag]
+                verb_match = VerbMatch(verb=verb, position=None, source="tag")
                 break
 
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
+        m = _QUESTION_STEM_RE.match(analyzed.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
+            if verb:
+                verb_match = VerbMatch(verb=verb, position=None, source="question_stem")
 
     # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
+    all_verbs = tuple(find_all_verbs(analyzed))
+    all_targets = _find_all_targets(analyzed)
 
     # -- Soft artifact check ---
     if is_soft_artifact(text) and not (verb and target) and not is_exempt:
@@ -825,6 +995,7 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            verb_match=verb_match,
         )
 
     # -- Decision ---
@@ -851,6 +1022,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        verb_match=verb_match,
     )
 
 

@@ -4,7 +4,9 @@ Covers: verb detection, target detection (files, paths, tools, modules,
 CLI, discussions, channels, quoted), junk detection (hard + soft artifacts),
 scoring with unique-target counting, validation pass/fail, exempt tags,
 CLI, real-world proposals, edge cases, property invariants, smoke tests,
-propose_seed.py contract, and regression tests for false rejects.
+propose_seed.py contract, regression tests for false rejects, commit-prefix
+stripping, numbered-ref filtering, VerbMatch, score_breakdown, explain,
+is_imperative, find_verb_with_position.
 """
 from __future__ import annotations
 
@@ -31,12 +33,16 @@ from seed_gate import (
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    VerbMatch,
     passes_gate,
     validate,
     validate_seed,
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    find_verb_with_position,
+    score_breakdown,
+    explain,
 )
 
 
@@ -1652,3 +1658,456 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# 48. Commit prefix stripping
+# ===================================================================
+
+class TestCommitPrefixStripping:
+    """Tests for _strip_commit_prefix and its integration."""
+
+    def test_feat_prefix_stripped(self):
+        result = _v("feat: Build water_mining.py optimizer")
+        assert result["passed"]
+        assert result["verb_found"] == "build"
+
+    def test_fix_prefix_stripped(self):
+        result = _v("fix: Patch auth.py token refresh")
+        assert result["passed"]
+        assert result["verb_found"] == "patch"
+
+    def test_chore_prefix_stripped(self):
+        result = _v("chore: Clean up stale_lock.py references")
+        assert result["passed"]
+
+    def test_scoped_prefix_stripped(self):
+        result = _v("fix(auth): Resolve token.py expiration bug")
+        assert result["passed"]
+        assert result["verb_found"] == "resolve"
+
+    def test_case_insensitive_prefix(self):
+        result = _v("FEAT: Deploy config.yaml to production")
+        assert result["passed"]
+
+    def test_refactor_prefix(self):
+        result = _v("refactor: Consolidate seed_gate.py helpers")
+        assert result["passed"]
+        assert result["verb_found"] == "consolidate"
+
+    def test_no_prefix_unchanged(self):
+        result = _v("Build seed_gate.py validator")
+        assert result["passed"]
+        assert result["verb_found"] == "build"
+
+    def test_prefix_only_not_enough(self):
+        # "feat:" alone is too short for anything useful
+        result = _v("feat: vibes only")
+        assert not result["passed"]
+
+    def test_docs_prefix(self):
+        result = _v("docs: Document seed_gate.py explain API")
+        assert result["passed"]
+
+    def test_test_prefix(self):
+        result = _v("test: Add coverage for thermal_control.py")
+        assert result["passed"]
+
+    def test_find_verb_with_position_strips_prefix(self):
+        vm = find_verb_with_position("feat: Build seed_gate.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 0
+
+    def test_find_verb_with_position_no_strip(self):
+        vm = find_verb_with_position("feat: Build seed_gate.py", strip_prefix=False)
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 1  # "feat" is not a verb, "build" at pos 1
+
+
+# ===================================================================
+# 49. Numbered reference filtering
+# ===================================================================
+
+class TestNumberedRefFilter:
+    """Numbered references like 'step 1.2' should not match as files."""
+
+    @pytest.mark.parametrize("text", [
+        "Review step 1.2 of the deployment process",
+        "Check phase 2.0 requirements for the colony",
+        "Complete item 3.4 from the backlog",
+        "Read section 4.1 about thermal dynamics",
+    ])
+    def test_numbered_ref_not_a_file_target(self, text):
+        from seed_gate import find_target
+        target, kind = find_target(text)
+        # Should NOT find "1.2", "2.0", "3.4", "4.1" as files
+        if target:
+            assert kind != "file" or not any(
+                ref in target for ref in ("1.2", "2.0", "3.4", "4.1")
+            )
+
+    def test_real_file_still_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Review step 1.2 and fix auth.py")
+        assert target == "auth.py"
+        assert kind == "file"
+
+    def test_version_still_filtered(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("v2.0.1")
+        assert _is_false_file_match("1.0")
+
+
+# ===================================================================
+# 50. VerbMatch dataclass
+# ===================================================================
+
+class TestVerbMatch:
+    """Tests for the VerbMatch structured result."""
+
+    def test_basic_fields(self):
+        vm = VerbMatch(verb="build", position=0, source="text", surface="build")
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "text"
+        assert vm.surface == "build"
+
+    def test_frozen(self):
+        vm = VerbMatch(verb="test", position=1, source="text")
+        with pytest.raises(AttributeError):
+            vm.verb = "changed"  # type: ignore
+
+    def test_tag_source(self):
+        vm = VerbMatch(verb="build", position=None, source="tag")
+        assert vm.position is None
+        assert vm.source == "tag"
+
+    def test_question_stem_source(self):
+        vm = VerbMatch(verb="explore", position=None, source="question_stem")
+        assert vm.source == "question_stem"
+
+
+# ===================================================================
+# 51. find_verb_with_position
+# ===================================================================
+
+class TestFindVerbWithPosition:
+    """Tests for find_verb_with_position()."""
+
+    def test_imperative_at_zero(self):
+        vm = find_verb_with_position("Build seed_gate.py validator")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "text"
+
+    def test_verb_not_at_start(self):
+        vm = find_verb_with_position("The team should build auth.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position > 0
+
+    def test_inflected_verb(self):
+        vm = find_verb_with_position("Building water_mining.py pipeline")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.surface == "building"
+
+    def test_phrasal_verb(self):
+        vm = find_verb_with_position("Set up the thermal_control.py module")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.position == 0
+
+    def test_inflected_phrasal(self):
+        vm = find_verb_with_position("Setting up the test harness for auth.py")
+        assert vm is not None
+        assert vm.verb == "set up"
+
+    def test_no_verb_returns_none(self):
+        vm = find_verb_with_position("The weather is nice today absolutely")
+        assert vm is None
+
+    def test_limit_parameter(self):
+        vm = find_verb_with_position(
+            "Short text. " + "x " * 100 + "build auth.py", limit=20
+        )
+        # Verb is beyond limit, so not found
+        assert vm is None
+
+    def test_commit_prefix_stripped_by_default(self):
+        vm = find_verb_with_position("feat: Deploy config.yaml")
+        assert vm is not None
+        assert vm.verb == "deploy"
+        assert vm.position == 0  # "deploy" is first after stripping
+
+
+# ===================================================================
+# 52. is_imperative property
+# ===================================================================
+
+class TestIsImperative:
+    """Tests for SeedGateResult.is_imperative."""
+
+    def test_imperative_when_verb_at_start(self):
+        result = _vs("Build seed_gate.py validator")
+        assert result.is_imperative is True
+
+    def test_not_imperative_when_verb_later(self):
+        result = _vs("We should build seed_gate.py validator")
+        # "should" is not an action verb, so "build" is at position > 0
+        assert result.is_imperative is False
+
+    def test_not_imperative_for_tag_implied(self):
+        result = _vs("The seed_gate.py needs work", tags=["code"])
+        assert result.is_imperative is False
+
+    def test_not_imperative_for_question_stem(self):
+        result = _vs("What if we rethink the approach", tags=["philosophy"])
+        assert result.is_imperative is False
+
+    def test_imperative_with_commit_prefix(self):
+        result = _vs("feat: Build seed_gate.py improvements")
+        assert result.is_imperative is True
+
+    def test_in_to_dict(self):
+        result = _vs("Build seed_gate.py validator")
+        d = result.to_dict()
+        assert "is_imperative" in d
+        assert d["is_imperative"] is True
+
+    def test_not_imperative_when_no_verb(self):
+        result = _vs("The weather is nice today really")
+        assert result.is_imperative is False
+
+    def test_imperative_inflected_verb(self):
+        # "Building" at start — inflected, position 0
+        result = _vs("Building water_mining.py from scratch")
+        assert result.is_imperative is True
+        assert result.verb_match is not None
+        assert result.verb_match.surface == "building"
+
+
+# ===================================================================
+# 53. score_breakdown
+# ===================================================================
+
+class TestScoreBreakdown:
+    """Tests for score_breakdown() — source of truth for scoring."""
+
+    def test_verb_component(self):
+        parts = score_breakdown("Build something useful and large enough to pass")
+        assert parts.get("verb") == 2.5
+
+    def test_target_file_component(self):
+        parts = score_breakdown("Build seed_gate.py validator")
+        assert parts.get("target") == 4.0
+
+    def test_target_tool_component(self):
+        parts = score_breakdown("Fix state_io module integration")
+        assert parts.get("target") == 3.0
+
+    def test_no_verb_no_component(self):
+        parts = score_breakdown("The weather is nice today pretty long text here")
+        assert "verb" not in parts
+
+    def test_length_bonus_medium(self):
+        text = "Build seed_gate.py with extra words to reach eight total"
+        parts = score_breakdown(text)
+        assert parts.get("length", 0) >= 0.5
+
+    def test_length_bonus_long(self):
+        text = "Build seed_gate.py with many extra words to reach over fifteen total words in this proposal text"
+        parts = score_breakdown(text)
+        assert parts.get("length", 0) >= 1.0
+
+    def test_multi_target_bonus(self):
+        parts = score_breakdown("Build auth.py and deploy config.yaml")
+        assert parts.get("multi_target") == 1.0
+
+    def test_imperative_bonus(self):
+        parts = score_breakdown("Build seed_gate.py validator")
+        assert parts.get("imperative") == 0.5
+
+    def test_no_imperative_bonus_when_not_at_start(self):
+        parts = score_breakdown("We should build seed_gate.py")
+        assert "imperative" not in parts
+
+    def test_sum_matches_compute_score(self):
+        """score_breakdown sum / 10 must equal compute_score."""
+        from seed_gate import compute_score, find_verb, find_target
+        text = "Build auth.py and deploy config.yaml for the CI pipeline"
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        parts = score_breakdown(text, verb=verb, target=target, target_kind=kind)
+        raw = sum(parts.values())
+        expected = min(raw / 10.0, 1.0)
+        actual = compute_score(text, verb, target, kind)
+        assert abs(expected - actual) < 0.001
+
+    def test_standalone_auto_detects(self):
+        """Calling score_breakdown without verb/target auto-detects."""
+        parts = score_breakdown("Build seed_gate.py validator")
+        assert "verb" in parts
+        assert "target" in parts
+
+    def test_commit_prefix_handled(self):
+        parts = score_breakdown("feat: Build seed_gate.py")
+        assert parts.get("verb") == 2.5
+        assert parts.get("imperative") == 0.5
+
+
+# ===================================================================
+# 54. explain diagnostic
+# ===================================================================
+
+class TestExplain:
+    """Tests for explain() one-line diagnostic."""
+
+    def test_passing_proposal(self):
+        diag = explain("Build seed_gate.py validator")
+        assert "PASS" in diag
+        assert "build" in diag
+        assert "seed_gate.py" in diag
+
+    def test_failing_proposal(self):
+        diag = explain("The weather is nice today pretty long enough text")
+        assert "FAIL" in diag
+        assert "no verb" in diag
+
+    def test_includes_confidence(self):
+        diag = explain("Build seed_gate.py validator")
+        assert any(band in diag for band in ("high", "medium", "low"))
+
+    def test_includes_imperative_flag(self):
+        diag = explain("Build seed_gate.py validator")
+        assert "imperative" in diag
+
+    def test_non_imperative_no_flag(self):
+        diag = explain("We should build seed_gate.py")
+        assert "imperative" not in diag
+
+    def test_multi_target_count(self):
+        diag = explain("Build auth.py and deploy config.yaml")
+        assert "targets" in diag
+
+    def test_junk_flagged(self):
+        diag = explain("  ")
+        assert "JUNK" in diag or "FAIL" in diag
+
+    def test_advisory_included(self):
+        diag = explain("Build the entire platform", tags=["philosophy"])
+        # This passes (exempt tag) but has no target, so advisory
+        assert "needs-specificity" in diag or "PASS" in diag
+
+    def test_tag_implied_verb_source(self):
+        diag = explain("The seed_gate.py module needs cleanup", tags=["code"])
+        assert "[tag]" in diag
+
+    def test_returns_string(self):
+        result = explain("Build seed_gate.py")
+        assert isinstance(result, str)
+        assert len(result) > 10
+
+    def test_commit_prefix(self):
+        diag = explain("feat: Build seed_gate.py optimizer")
+        assert "PASS" in diag
+        assert "build" in diag
+
+
+# ===================================================================
+# 55. validate_seed verb_match field
+# ===================================================================
+
+class TestVerbMatchInResult:
+    """Tests for verb_match field in SeedGateResult."""
+
+    def test_present_on_pass(self):
+        result = _vs("Build seed_gate.py validator")
+        assert result.verb_match is not None
+        assert result.verb_match.verb == "build"
+
+    def test_none_on_junk(self):
+        result = _vs("  ")
+        assert result.verb_match is None
+
+    def test_tag_implied_has_tag_source(self):
+        result = _vs("The seed_gate.py module needs work", tags=["code"])
+        assert result.verb_match is not None
+        assert result.verb_match.source == "tag"
+        assert result.verb_match.position is None
+
+    def test_question_stem_has_source(self):
+        # "What if" has no action verb in it; question stem infers "explore"
+        result = _vs("What if the approach changed completely", tags=["philosophy"])
+        assert result.verb_match is not None
+        assert result.verb_match.source == "question_stem"
+
+    def test_text_verb_has_position(self):
+        result = _vs("Deploy config.yaml to staging")
+        assert result.verb_match is not None
+        assert result.verb_match.position == 0
+        assert result.verb_match.source == "text"
+
+
+# ===================================================================
+# 56. Comprehensive invariants for new features
+# ===================================================================
+
+class TestNewFeatureInvariantsV2:
+    """Property-based invariants for PR #272 features."""
+
+    def test_score_breakdown_sum_never_exceeds_cap(self):
+        for text in [
+            "Build auth.py and deploy config.yaml with full test coverage for the CI pipeline running on kubernetes with docker",
+            "Fix x.py",
+            "Build it",
+        ]:
+            parts = score_breakdown(text)
+            raw = sum(parts.values())
+            assert raw / 10.0 <= 1.5  # before capping
+
+    def test_is_imperative_implies_verb_found(self):
+        for text in [
+            "Build seed_gate.py", "Fix auth.py", "Deploy config.yaml",
+            "Nothing here at all long enough to test",
+        ]:
+            result = _vs(text)
+            if result.is_imperative:
+                assert result.verb_found is not None
+
+    def test_verb_match_verb_equals_verb_found(self):
+        for text in [
+            "Build seed_gate.py", "Fix auth.py",
+            "The seed_gate.py module work", "A long text without verbs really here",
+        ]:
+            result = _vs(text)
+            if result.verb_match and result.verb_found:
+                assert result.verb_match.verb == result.verb_found
+
+    def test_explain_always_returns_string(self):
+        for text in ["Build auth.py", "vibes only", "", "  ", "x"]:
+            result = explain(text)
+            assert isinstance(result, str)
+
+    def test_score_breakdown_keys_are_known(self):
+        known_keys = {"verb", "target", "length", "multi_target", "imperative"}
+        for text in ["Build auth.py and deploy config.yaml for CI"]:
+            parts = score_breakdown(text)
+            assert set(parts.keys()).issubset(known_keys)
+
+    def test_find_verb_with_position_consistent_with_find_verb(self):
+        from seed_gate import find_verb
+        for text in [
+            "Build seed_gate.py", "The team should test auth.py",
+            "Nothing useful here at all for testing",
+        ]:
+            v = find_verb(text)
+            vm = find_verb_with_position(text)
+            if v:
+                assert vm is not None
+                assert vm.verb == v
+            else:
+                assert vm is None
