@@ -1376,3 +1376,351 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# 19. Version false-file filter (PRs #249/#250)
+# ===================================================================
+
+class TestVersionFalsePositives:
+    """Version strings like v2.0, v1.2.3, 3.11 are not files."""
+
+    def test_v2_0_not_a_file(self):
+        from seed_gate import find_target
+        t, k = find_target("Deploy v2.0 to production immediately now")
+        assert t != "v2.0", f"v2.0 matched as {k}"
+
+    def test_v1_2_3_not_a_file(self):
+        from seed_gate import find_target
+        t, k = find_target("Upgrade to v1.2.3 for the new features now")
+        assert t != "v1.2.3", f"v1.2.3 matched as {k}"
+
+    def test_bare_version_not_a_file(self):
+        from seed_gate import find_target
+        t, k = find_target("Requires Python 3.11 or newer for typing")
+        assert t != "3.11", f"3.11 matched as {k}"
+
+    def test_real_py_file_still_matches(self):
+        from seed_gate import find_target
+        t, k = find_target("Fix auth.py for the token bug in handler")
+        assert t == "auth.py" and k == "file"
+
+    def test_v2_py_still_matches(self):
+        """A real file like v2.py should still match."""
+        from seed_gate import find_target
+        t, k = find_target("Refactor v2.py migration script for cleanup")
+        assert t == "v2.py" and k == "file"
+
+    def test_api_v2_py_still_matches(self):
+        from seed_gate import find_target
+        t, k = find_target("Build api_v2.py endpoint for the new API")
+        assert t == "api_v2.py" and k == "file"
+
+    def test_version_in_validate_no_false_target(self):
+        r = _v("Deploy v2.0 of the application to production now")
+        assert r["target_found"] != "v2.0"
+
+    def test_version_filter_centralized(self):
+        """count_unique_targets should also filter version strings."""
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Deploy v2.0 and upgrade to v1.2.3")
+        assert count == 0
+
+
+# ===================================================================
+# 20. Environment variable targets (PR #249)
+# ===================================================================
+
+class TestEnvVarTargets:
+    """$STATE_DIR, ${GITHUB_TOKEN} are concrete targets."""
+
+    def test_dollar_var(self):
+        from seed_gate import find_target
+        t, k = find_target("Configure $STATE_DIR for the new layout")
+        assert t == "$STATE_DIR" and k == "env"
+
+    def test_braced_var(self):
+        from seed_gate import find_target
+        t, k = find_target("Set ${GITHUB_TOKEN} in the workflow config")
+        assert t == "${GITHUB_TOKEN}" and k == "env"
+
+    def test_env_in_validate(self):
+        r = _v("Configure $STATE_DIR for the new state layout")
+        assert r["passed"] is True
+        assert r["target_found"] == "$STATE_DIR"
+
+    def test_env_in_all_targets(self):
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Set $STATE_DIR and ${GITHUB_TOKEN}")
+        target_strings = [t[0] for t in targets]
+        assert "$STATE_DIR" in target_strings
+        assert "${GITHUB_TOKEN}" in target_strings
+
+    def test_env_in_count_unique(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Set $STATE_DIR and ${GITHUB_TOKEN}")
+        assert count >= 2
+
+    def test_file_beats_env(self):
+        """File targets should take priority over env vars."""
+        from seed_gate import find_target
+        t, k = find_target("Fix auth.py using $GITHUB_TOKEN in handler")
+        assert t == "auth.py" and k == "file"
+
+    def test_env_scoring(self):
+        from seed_gate import compute_score
+        score = compute_score("Configure $STATE_DIR", "configure", "$STATE_DIR", "env")
+        assert score > 0.0
+
+
+# ===================================================================
+# 21. Confidence property (PR #251)
+# ===================================================================
+
+class TestConfidenceLevels:
+    """SeedGateResult.confidence: high/medium/low from score."""
+
+    def test_high_confidence(self):
+        r = _vs("Build water_mining.py optimizer with advanced drilling algorithms")
+        assert r.confidence == "high"
+        assert r.score >= 0.7
+
+    def test_medium_confidence(self):
+        r = _vs("Build something with process_inbox handling here")
+        assert r.confidence in ("medium", "high")
+        assert r.score >= 0.4
+
+    def test_low_confidence_junk(self):
+        r = _vs("")
+        assert r.confidence == "low"
+        assert r.score < 0.4
+
+    def test_confidence_in_dict(self):
+        r = _v("Build water_mining.py optimizer with advanced drilling")
+        assert "confidence" in r
+        assert r["confidence"] in ("high", "medium", "low")
+
+    def test_confidence_consistent_with_score(self):
+        """Confidence should match score bands."""
+        for text in [
+            "Build water_mining.py",
+            "Fix auth.py bug in handler",
+            "Build something amazing really nice",
+            "",
+        ]:
+            r = _vs(text)
+            if r.score >= 0.7:
+                assert r.confidence == "high"
+            elif r.score >= 0.4:
+                assert r.confidence == "medium"
+            else:
+                assert r.confidence == "low"
+
+
+# ===================================================================
+# 22. Imperative scoring bonus (PR #249)
+# ===================================================================
+
+class TestImperativeBonus:
+    """Texts starting with a verb get +0.5 bonus."""
+
+    def test_imperative_higher(self):
+        """'Build X' should score higher than 'We should build X'."""
+        imperative = _v("Build water_mining.py optimizer for drilling")
+        passive = _v("We should build water_mining.py optimizer for drilling")
+        assert imperative["score"] >= passive["score"]
+
+    def test_phrasal_imperative(self):
+        """Phrasal verbs at start also get the bonus."""
+        r = _v("Set up the deployment pipeline for config.yaml")
+        assert r["score"] >= 0.7
+
+    def test_non_imperative_no_bonus(self):
+        """Verb mid-sentence doesn't get bonus."""
+        r = _v("The team should build water_mining.py carefully")
+        r2 = _v("Build water_mining.py carefully for the team")
+        assert r2["score"] >= r["score"]
+
+    def test_tag_implied_no_bonus(self):
+        """Tag-implied verbs don't count as imperative start."""
+        r = _vs("The authentication module needs CSRF protection", tags=["code"])
+        # verb was implied, not present at start
+        assert r.verb_found == "build"
+        # The score shouldn't include imperative bonus since "The" starts it
+        r2 = _vs("Build the authentication module CSRF protection")
+        assert r2.score >= r.score
+
+
+# ===================================================================
+# 23. explain() diagnostic API (PR #249)
+# ===================================================================
+
+class TestExplainAPI:
+    """explain() returns structured diagnostics."""
+
+    def test_explain_returns_dict(self):
+        from seed_gate import explain
+        result = explain("Build water_mining.py optimizer for drilling")
+        assert isinstance(result, dict)
+
+    def test_explain_has_result_section(self):
+        from seed_gate import explain
+        result = explain("Build water_mining.py optimizer")
+        assert "result" in result
+        assert result["result"]["passed"] is True
+        assert result["result"]["confidence"] in ("high", "medium", "low")
+
+    def test_explain_has_detections(self):
+        from seed_gate import explain
+        result = explain("Build water_mining.py optimizer")
+        assert "detections" in result
+        assert result["detections"]["verb"] == "build"
+        assert result["detections"]["target"] == "water_mining.py"
+        assert result["detections"]["target_kind"] == "file"
+
+    def test_explain_has_scoring(self):
+        from seed_gate import explain
+        result = explain("Build water_mining.py optimizer")
+        assert "scoring" in result
+        assert result["scoring"]["verb_points"] == 2.5
+        assert result["scoring"]["target_points"] == 4.0
+
+    def test_explain_has_filters(self):
+        from seed_gate import explain
+        result = explain("Build water_mining.py optimizer")
+        assert "filters" in result
+        assert result["filters"]["junk_reason"] == ""
+        assert result["filters"]["is_exempt"] is False
+
+    def test_explain_junk_input(self):
+        from seed_gate import explain
+        result = explain("")
+        assert result["result"]["junk"] is True
+        assert result["filters"]["junk_reason"] != ""
+
+    def test_explain_exempt_tag(self):
+        from seed_gate import explain
+        result = explain("Explore consciousness deeply", tags=["philosophy"])
+        assert result["filters"]["is_exempt"] is True
+
+    def test_explain_imperative_bonus(self):
+        from seed_gate import explain
+        result = explain("Build water_mining.py optimizer")
+        assert result["scoring"]["imperative_bonus"] == 0.5
+
+    def test_explain_no_imperative_bonus(self):
+        from seed_gate import explain
+        result = explain("We should build water_mining.py optimizer")
+        assert result["scoring"]["imperative_bonus"] == 0.0
+
+    def test_explain_env_var(self):
+        from seed_gate import explain
+        result = explain("Configure $STATE_DIR for the new layout")
+        assert result["detections"]["target"] == "$STATE_DIR"
+        assert result["detections"]["target_kind"] == "env"
+
+
+# ===================================================================
+# 24. Expanded KNOWN_TOOLS (PR #251)
+# ===================================================================
+
+class TestExpandedKnownTools:
+    """New tools: inject_seed, tally_votes, steer, etc."""
+
+    def test_inject_seed(self):
+        from seed_gate import find_target
+        t, k = find_target("Debug inject_seed for the new pipeline")
+        assert t == "inject_seed" and k == "tool"
+
+    def test_tally_votes(self):
+        from seed_gate import find_target
+        t, k = find_target("Fix tally_votes counting for edge cases")
+        assert t == "tally_votes" and k == "tool"
+
+    def test_steer(self):
+        from seed_gate import find_target
+        t, k = find_target("Improve steer for better swarm direction")
+        assert t == "steer" and k == "tool"
+
+    def test_reconcile_state(self):
+        from seed_gate import find_target
+        t, k = find_target("Debug reconcile_state for sync issues")
+        assert t == "reconcile_state" and k == "tool"
+
+    def test_vlink(self):
+        from seed_gate import find_target
+        t, k = find_target("Build vlink federation for cross-world sync")
+        assert t == "vlink" and k == "tool"
+
+    def test_run_proof(self):
+        from seed_gate import find_target
+        t, k = find_target("Test run_proof for proof history tracking")
+        assert t == "run_proof" and k == "tool"
+
+    def test_known_tools_count(self):
+        from seed_gate import KNOWN_TOOLS
+        assert len(KNOWN_TOOLS) >= 26
+
+
+# ===================================================================
+# 25. count_unique_targets centralized filtering (PR #250)
+# ===================================================================
+
+class TestCountUniqueTargetsFiltering:
+    """count_unique_targets now filters false-file matches."""
+
+    def test_eg_not_counted(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Consider e.g. the deployment options")
+        assert count == 0
+
+    def test_version_not_counted(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Deploy v2.0 and v1.2.3 to production")
+        assert count == 0
+
+    def test_real_files_still_counted(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Fix auth.py and config.yaml issues")
+        assert count == 2
+
+    def test_mixed_real_and_false(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Build auth.py e.g. with v2.0 support")
+        assert count == 1  # only auth.py counts
+
+
+# ===================================================================
+# 26. Updated invariants for new features
+# ===================================================================
+
+class TestNewFeatureInvariantsV2:
+    """Property-based invariants covering new features."""
+
+    @pytest.mark.parametrize("text", _CORPUS)
+    def test_confidence_always_valid(self, text):
+        r = _vs(text)
+        assert r.confidence in ("high", "medium", "low")
+
+    @pytest.mark.parametrize("text", _CORPUS)
+    def test_confidence_in_dict(self, text):
+        r = _v(text)
+        assert r["confidence"] in ("high", "medium", "low")
+
+    def test_env_kind_in_valid_set(self):
+        from seed_gate import _find_all_targets
+        valid_kinds = {"file", "path", "func", "tool", "cli", "discussion",
+                       "channel", "quoted", "module", "const", "env"}
+        targets = _find_all_targets("Set $STATE_DIR and fix auth.py, check r/mars, see #12345")
+        for _, kind in targets:
+            assert kind in valid_kinds
+
+    def test_explain_always_nested(self):
+        from seed_gate import explain
+        for text in _CORPUS[:5]:
+            result = explain(text)
+            assert isinstance(result, dict)
+            assert "result" in result
+            assert "detections" in result
+            assert "scoring" in result
+            assert "filters" in result

@@ -36,9 +36,14 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253 -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- version false-file filter (#249/#250), ENV_VAR_RE
+                  targets (#249), imperative scoring bonus (#249),
+                  confidence property (#251), explain() diagnostic API
+                  (#249), expanded KNOWN_TOOLS (#251), centralized
+                  false-file filtering in count_unique_targets (#250).
 """
 from __future__ import annotations
 
@@ -99,6 +104,9 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
+# Version strings: v2.0, v1.2.3, 3.11  (not real files -- PRs #249/#250)
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)*$", re.I)
+
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
 # ---------------------------------------------------------------------------
@@ -132,6 +140,9 @@ TOOL_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+\b")
 # CLI-ish: `some_command`, --flag, -f
 CLI_RE = re.compile(r"(?:`[^`]+`|--[a-z][\w-]+\b|-[a-zA-Z]\b)")
 
+# Environment variables: $STATE_DIR, ${GITHUB_TOKEN}  (PR #249)
+ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
+
 # Discussion reference: #NNN (3+ digits)  (from #12505)
 DISCUSSION_RE = re.compile(r"#(\d{3,})\b")
 
@@ -151,6 +162,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    "inject_seed", "tally_votes", "steer", "reconcile_state",
+    "run_proof", "run_python", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -273,6 +286,15 @@ class SeedGateResult:
     def target(self) -> str:
         return self.target_found or ""
 
+    @property
+    def confidence(self) -> str:
+        """Score band: high (>=0.7), medium (>=0.4), low (<0.4)."""
+        if self.score >= 0.7:
+            return "high"
+        if self.score >= 0.4:
+            return "medium"
+        return "low"
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -284,6 +306,7 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "confidence": self.confidence,
         }
 
 
@@ -326,8 +349,16 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Filters abbreviations (e.g., i.e.) and version strings (v2.0, 3.11).
+    """
+    stripped = match_text.lower().rstrip(".")
+    if stripped in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -420,6 +451,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = CHANNEL_RE.search(text)
     if m:
         return m.group(), "channel"
+    # Environment variables: $STATE_DIR, ${GITHUB_TOKEN}
+    m = ENV_VAR_RE.search(text)
+    if m:
+        return m.group(), "env"
     # SCREAMING_SNAKE_CASE constants
     m = CONST_RE.search(text)
     if m:
@@ -496,6 +531,8 @@ def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
         _add(m.group(), "func")
     for m in CHANNEL_RE.finditer(text):
         _add(m.group(), "channel")
+    for m in ENV_VAR_RE.finditer(text):
+        _add(m.group(), "env")
     for m in CONST_RE.finditer(text):
         _add(m.group(), "const")
     for m in _KNOWN_TOOL_RE.finditer(text):
@@ -535,9 +572,13 @@ def count_unique_targets(text: str) -> int:
 
     Uses substring-aware dedup: if 'seed_gate' and 'seed_gate.py'
     both appear, they count as one (PR #246).
+    Filters false-file matches (centralized, PR #250).
     """
     raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    for m in FILE_RE.finditer(text):
+        if not _is_false_file_match(m.group()):
+            raw_targets.append(m.group())
+    for pattern in (PATH_RE, ENV_VAR_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
     canonical: list[str] = []
@@ -567,7 +608,7 @@ def compute_score(
     if target:
         kind_scores = {
             "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "const": 2.5,
+            "tool": 3.0, "cli": 3.0, "env": 2.5, "const": 2.5,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
         raw += kind_scores.get(target_kind, 1.5)
@@ -579,6 +620,9 @@ def compute_score(
     unique = count_unique_targets(text)
     if unique >= 2:
         raw += 1.0
+    # Imperative bonus: text starts with a verb (direct instruction)
+    if verb and _starts_with_verb(text.strip()):
+        raw += 0.5
     return min(raw / 10.0, 1.0)
 
 
@@ -720,6 +764,64 @@ def validate_batch(
         failed_items=tuple(failed_items),
         junk_items=tuple(junk_items),
     )
+
+
+def explain(text: str, tags: list = None) -> dict:
+    """Structured diagnostic for why a proposal passed or failed.
+
+    Returns a nested dict with detection results, scoring breakdown,
+    and filter outcomes — useful for debugging the gate.
+    """
+    tags = tags or []
+    tag_set = frozenset(t.lower().strip() for t in tags)
+    is_exempt = bool(tag_set & EXEMPT_TAGS)
+
+    junk_reason = is_junk(text)
+    verb = find_verb(text)
+    target, target_kind = find_target(text)
+    all_v = find_all_verbs(text)
+    all_t = _find_all_targets(text)
+    unique_count = count_unique_targets(text)
+    imperative = _starts_with_verb(text.strip()) if verb else False
+    result = validate_seed(text, tags)
+
+    return {
+        "result": {
+            "passed": result.passed,
+            "score": result.score,
+            "confidence": result.confidence,
+            "advisory": result.advisory,
+            "junk": result.junk,
+            "reasons": list(result.reasons),
+        },
+        "detections": {
+            "verb": verb,
+            "target": target,
+            "target_kind": target_kind,
+            "all_verbs": all_v,
+            "all_targets": [list(t) for t in all_t],
+        },
+        "scoring": {
+            "verb_points": 2.5 if verb else 0.0,
+            "target_points": {
+                "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+                "tool": 3.0, "cli": 3.0, "env": 2.5, "const": 2.5,
+                "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+            }.get(target_kind, 0.0) if target else 0.0,
+            "length_bonus": 1.5 if len(text.split()) >= 15 else (
+                0.5 if len(text.split()) >= 8 else 0.0),
+            "multi_target_bonus": 1.0 if unique_count >= 2 else 0.0,
+            "imperative_bonus": 0.5 if imperative else 0.0,
+            "unique_targets": unique_count,
+        },
+        "filters": {
+            "junk_reason": junk_reason,
+            "is_exempt": is_exempt,
+            "tag_implied_verb": bool(not find_verb(text) and any(
+                t in TAG_IMPLIED_VERBS for t in tag_set)),
+            "soft_artifact": is_soft_artifact(text),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
