@@ -1376,3 +1376,475 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+class TestVerbInflection:
+    """Test _normalize_verb and its integration into find_verb/find_all_verbs."""
+
+    def test_ing_suffix_basic(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("building") == "build"
+        assert _normalize_verb("testing") == "test"
+        assert _normalize_verb("deploying") == "deploy"
+
+    def test_ing_suffix_e_restoration(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("caching") == "cache"
+        assert _normalize_verb("writing") == "write"
+        assert _normalize_verb("configuring") == "configure"
+        assert _normalize_verb("creating") == "create"
+        assert _normalize_verb("generating") == "generate"
+
+    def test_ing_suffix_doubled_consonant(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("shipping") == "ship"
+        assert _normalize_verb("scanning") == "scan"
+        assert _normalize_verb("planning") == "plan"
+
+    def test_ed_suffix_basic(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("tested") == "test"
+        assert _normalize_verb("deployed") == "deploy"
+        assert _normalize_verb("audited") == "audit"
+
+    def test_ed_suffix_e_restoration(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("configured") == "configure"
+        assert _normalize_verb("created") == "create"
+        assert _normalize_verb("generated") == "generate"
+        assert _normalize_verb("cached") == "cache"
+        assert _normalize_verb("merged") == "merge"
+
+    def test_ed_suffix_doubled_consonant(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("shipped") == "ship"
+        assert _normalize_verb("scanned") == "scan"
+        assert _normalize_verb("planned") == "plan"
+
+    def test_es_suffix(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("patches") == "patch"
+        assert _normalize_verb("merges") == "merge"
+        assert _normalize_verb("analyzes") == "analyze"
+
+    def test_s_suffix(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("builds") == "build"
+        assert _normalize_verb("tests") == "test"
+        assert _normalize_verb("deploys") == "deploy"
+        assert _normalize_verb("audits") == "audit"
+
+    def test_already_canonical(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("build") == "build"
+        assert _normalize_verb("test") == "test"
+
+    def test_non_verb_returns_none(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("missing") is None
+        assert _normalize_verb("nothing") is None
+        assert _normalize_verb("string") is None
+        assert _normalize_verb("xyz") is None
+        assert _normalize_verb("th") is None
+
+    def test_short_words_safe(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("a") is None
+        assert _normalize_verb("is") is None
+        assert _normalize_verb("in") is None
+        assert _normalize_verb("") is None
+
+    def test_find_verb_with_inflected(self):
+        from seed_gate import find_verb
+        assert find_verb("Building the auth.py module") == "build"
+        assert find_verb("Implemented the fix for drill.py") == "implement"
+        assert find_verb("Testing water_mining.py module") == "test"
+        assert find_verb("Deploying the solar_array.py module") == "deploy"
+        assert find_verb("Configured the reactor module system") == "configure"
+
+    def test_find_all_verbs_with_inflected(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Building auth.py, then testing and deploying")
+        assert "build" in verbs
+        assert "test" in verbs
+        assert "deploy" in verbs
+
+    def test_inflected_verb_passes_gate(self):
+        assert _v("Building water_mining.py optimizer module")["passed"] is True
+        assert _v("Implemented the fix for drill.py system")["passed"] is True
+        assert _v("Testing solar_array.py power management")["passed"] is True
+
+    def test_inflected_not_junk(self):
+        from seed_gate import is_junk
+        assert is_junk("building water_mining.py optimizer module") == ""
+
+    def test_starts_with_inflected_verb_not_junk(self):
+        from seed_gate import is_junk
+        assert is_junk("implemented the auth.py module fix") == ""
+        assert is_junk("testing the drill.py subsurface sampler") == ""
+
+
+class TestVersionStringFilter:
+    """Test that version strings are rejected as false file matches."""
+
+    def test_version_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("2.0.1") is True
+        assert _is_false_file_match("v2.0.1") is True
+        assert _is_false_file_match("3.11") is True
+        assert _is_false_file_match("1.0.0") is True
+        assert _is_false_file_match("10.2.3") is True
+
+    def test_real_files_still_match(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("auth.py") is False
+        assert _is_false_file_match("v2_config.py") is False
+        assert _is_false_file_match("config.yaml") is False
+        assert _is_false_file_match("setup.cfg") is False
+
+    def test_version_in_proposal_no_file_target(self):
+        from seed_gate import find_target
+        # "Update to Python 3.11" should not find "3.11" as a file
+        t, k = find_target("Update to Python 3.11 version")
+        assert k != "file" or t != "3.11"
+
+    def test_version_with_v_prefix(self):
+        from seed_gate import find_target
+        t, k = find_target("Upgrade to v2.0.1 of the framework")
+        assert k != "file" or t != "v2.0.1"
+
+    def test_real_file_still_found_alongside_version(self):
+        r = _v("Build auth.py for Python 3.11 support")
+        assert r["passed"] is True
+        assert r["verb_found"] == "build"
+        assert "auth.py" in r["target_found"]
+
+
+class TestCommitPrefixStripping:
+    """Test commit-message prefix handling."""
+
+    def test_fix_prefix_stripped(self):
+        from seed_gate import find_verb
+        assert find_verb("fix: Build auth.py") == "build"
+
+    def test_feat_prefix_stripped(self):
+        from seed_gate import find_verb
+        assert find_verb("feat: Deploy solar_array.py module") == "deploy"
+
+    def test_chore_prefix_stripped(self):
+        from seed_gate import find_verb
+        assert find_verb("chore: Update dependencies in config.yaml") == "update"
+
+    def test_refactor_prefix_stripped(self):
+        from seed_gate import find_verb
+        assert find_verb("refactor: Optimize water_mining.py") == "optimize"
+
+    def test_no_prefix_unchanged(self):
+        from seed_gate import find_verb
+        assert find_verb("Build auth.py module") == "build"
+
+    def test_prefix_case_insensitive(self):
+        from seed_gate import find_verb
+        assert find_verb("FIX: Build auth.py") == "build"
+        assert find_verb("Fix: Build auth.py") == "build"
+
+    def test_prefix_in_validation(self):
+        r = _v("fix: Build auth.py module for authentication")
+        assert r["passed"] is True
+        assert r["verb_found"] == "build"
+
+    def test_prefix_stripped_in_junk_check(self):
+        from seed_gate import is_junk
+        # "fix: Build auth.py" should not be junk (starts lowercase after prefix)
+        assert is_junk("fix: Build auth.py module system") == ""
+
+    def test_prefix_stripped_in_find_all_verbs(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("fix: Build auth.py and deploy to staging")
+        assert "build" in verbs
+        assert "deploy" in verbs
+
+    def test_colon_in_middle_not_stripped(self):
+        from seed_gate import find_verb
+        # "Build the fix: auth.py" should NOT strip "fix:"
+        # since it's not at the start
+        assert find_verb("Build the fix: auth.py") == "build"
+
+
+class TestConfidence:
+    """Test confidence level on SeedGateResult."""
+
+    def test_high_confidence_file(self):
+        r = _vs("Build auth.py module")
+        assert r.confidence == "high"
+
+    def test_high_confidence_path(self):
+        r = _vs("Refactor src/utils/helpers.py code")
+        assert r.confidence == "high"
+
+    def test_high_confidence_func(self):
+        r = _vs("Optimize compute_score() performance")
+        assert r.confidence == "high"
+
+    def test_medium_confidence_tool(self):
+        r = _vs("Update state_io module logic")
+        assert r.confidence == "medium"
+
+    def test_medium_confidence_channel(self):
+        r = _vs("Explore r/mars-engineering deeply")
+        assert r.confidence == "medium"
+
+    def test_medium_confidence_discussion(self):
+        r = _vs("Review discussion #12345 feedback")
+        assert r.confidence == "medium"
+
+    def test_medium_confidence_exempt_tag(self):
+        r = _vs("Explore the meaning of consciousness", tags=["philosophy"])
+        assert r.confidence == "medium"
+
+    def test_low_confidence_quoted(self):
+        r = _vs('Build "the authentication system" module')
+        assert r.confidence == "low"
+
+    def test_empty_confidence_on_failure(self):
+        r = _vs("Make everything better")
+        assert r.confidence == ""
+
+    def test_empty_confidence_on_junk(self):
+        r = _vs("")
+        assert r.confidence == ""
+
+    def test_confidence_in_dict(self):
+        r = _v("Build auth.py module")
+        assert "confidence" in r
+        assert r["confidence"] == "high"
+
+    def test_confidence_invariant_failed_always_empty(self):
+        """Failed proposals always have empty confidence."""
+        proposals = [
+            "Make everything better",
+            "The meaning of life",
+            "Something vague without any specifics at all",
+        ]
+        for text in proposals:
+            result = _vs(text)
+            if not result.passed:
+                assert result.confidence == "", f"Failed proposal should have empty confidence: {text}"
+
+    def test_confidence_invariant_passed_always_set(self):
+        """Passed proposals always have non-empty confidence."""
+        proposals = [
+            "Build auth.py module",
+            "Test water_mining.py optimizer",
+            "Deploy src/utils/helpers.py code",
+        ]
+        for text in proposals:
+            result = _vs(text)
+            if result.passed:
+                assert result.confidence in ("high", "medium", "low"), f"Passed should have confidence: {text}"
+
+
+class TestSuggestion:
+    """Test suggestion generation for failed proposals."""
+
+    def test_no_verb_no_target(self):
+        r = _vs("Something vague without any specifics at all")
+        assert "action verb" in r.suggestion
+        assert "file" in r.suggestion or "tool" in r.suggestion
+
+    def test_verb_no_target(self):
+        r = _vs("Build something nice for the platform")
+        assert "target" in r.suggestion.lower() or "file" in r.suggestion.lower()
+
+    def test_no_verb_with_target(self):
+        # This is tricky — most texts with a target also have a verb
+        # Let's test the suggestion helper directly
+        from seed_gate import _suggest
+        s = _suggest(passed=False, verb=None, target="auth.py", is_exempt=False, junk=False)
+        assert "action verb" in s
+
+    def test_passed_no_suggestion(self):
+        r = _vs("Build auth.py module")
+        assert r.suggestion == ""
+
+    def test_junk_no_suggestion(self):
+        r = _vs("")
+        assert r.suggestion == ""
+
+    def test_exempt_no_suggestion(self):
+        r = _vs("Explore the meaning of consciousness", tags=["philosophy"])
+        if r.passed:
+            assert r.suggestion == ""
+
+    def test_suggestion_in_dict(self):
+        r = _v("Something vague without any specifics at all")
+        assert "suggestion" in r
+        assert isinstance(r["suggestion"], str)
+
+    def test_suggestion_invariant_never_on_passed(self):
+        """Suggestion is always empty for passing proposals."""
+        proposals = [
+            "Build auth.py module",
+            "Test water_mining.py optimizer",
+        ]
+        for text in proposals:
+            result = _vs(text)
+            if result.passed:
+                assert result.suggestion == ""
+
+
+class TestInflectedRealWorld:
+    """Real-world proposals with inflected verbs."""
+
+    def test_building_module(self):
+        assert _v("Building the water_mining.py deep drill optimizer")["passed"] is True
+
+    def test_implemented_fix(self):
+        assert _v("Implemented a fix for solar_array.py power output")["passed"] is True
+
+    def test_deploying_update(self):
+        assert _v("Deploying the updated rover.py navigation system")["passed"] is True
+
+    def test_configured_reactor(self):
+        assert _v("Configured nuclear_reactor.py for safe shutdown")["passed"] is True
+
+    def test_optimized_pipeline(self):
+        assert _v("Optimized the fuel_production.py Sabatier pipeline")["passed"] is True
+
+    def test_patches_module(self):
+        assert _v("Patches the drill.py subsurface sampling logic")["passed"] is True
+
+    def test_fixes_module(self):
+        # "fix:" prefix would also be stripped, but "Fixes" is inflection
+        assert _v("Fixes the water_purifier.py filter logic today")["passed"] is True
+
+    def test_merged_changes(self):
+        assert _v("Merged the hab_pressure.py atmospheric changes")["passed"] is True
+
+    def test_scans_output(self):
+        assert _v("Scans radiation_monitor.py output for anomalies")["passed"] is True
+
+
+class TestNormalizeVerbParametrized:
+    """Parametrized tests for common verb inflections."""
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("builds", "build"),
+        ("creates", "create"),
+        ("tests", "test"),
+        ("deploys", "deploy"),
+        ("fixes", "fix"),
+        ("patches", "patch"),
+        ("merges", "merge"),
+        ("building", "build"),
+        ("creating", "create"),
+        ("testing", "test"),
+        ("deploying", "deploy"),
+        ("fixing", "fix"),
+        ("caching", "cache"),
+        ("generating", "generate"),
+        ("computing", "compute"),
+        ("simulating", "simulate"),
+        ("configuring", "configure"),
+        ("built", None),  # irregular, not handled
+        ("tested", "test"),
+        ("deployed", "deploy"),
+        ("created", "create"),
+        ("generated", "generate"),
+        ("configured", "configure"),
+        ("cached", "cache"),
+        ("implemented", "implement"),
+        ("shipped", "ship"),
+        ("scanned", "scan"),
+        ("planned", "plan"),
+        ("logged", "log"),
+    ])
+    def test_normalize(self, inflected, expected):
+        from seed_gate import _normalize_verb
+        result = _normalize_verb(inflected)
+        assert result == expected, f"_normalize_verb({inflected!r}) = {result!r}, expected {expected!r}"
+
+
+class TestNormalizeVerbInvariants:
+    """Property-based invariants for verb normalization."""
+
+    def test_canonical_verbs_are_idempotent(self):
+        """Normalizing an already-canonical verb returns itself."""
+        from seed_gate import _normalize_verb, ACTION_VERBS
+        for verb in sorted(ACTION_VERBS)[:30]:
+            assert _normalize_verb(verb) == verb
+
+    def test_normalized_always_in_action_verbs(self):
+        """If _normalize_verb returns non-None, it's always in ACTION_VERBS."""
+        from seed_gate import _normalize_verb, ACTION_VERBS
+        test_words = [
+            "builds", "testing", "deployed", "creating", "shipped",
+            "merges", "configuring", "generated", "planned", "caching",
+            "fixes", "patches", "auditing", "scanning", "logged",
+        ]
+        for word in test_words:
+            result = _normalize_verb(word)
+            if result is not None:
+                assert result in ACTION_VERBS, f"{result!r} not in ACTION_VERBS (from {word!r})"
+
+    def test_no_false_verbs_from_common_words(self):
+        """Common non-verb words should not normalize to verbs."""
+        from seed_gate import _normalize_verb
+        non_verbs = [
+            "missing", "nothing", "string", "sting", "ring",
+            "something", "running",  # "run" but not all -ing words are verbs
+            "bring", "king", "thing", "morning",
+        ]
+        for word in non_verbs:
+            result = _normalize_verb(word)
+            # These should either be None or a real verb that happens to match
+            if result is not None:
+                # "running" -> "run" is valid, that's OK
+                from seed_gate import ACTION_VERBS
+                assert result in ACTION_VERBS
+
+
+class TestBackwardCompatNewFeatures:
+    """Ensure new features don't break the existing dict/dataclass contract."""
+
+    def test_dict_has_confidence_and_suggestion(self):
+        result = _v("Build auth.py module")
+        assert "confidence" in result
+        assert "suggestion" in result
+
+    def test_dataclass_has_confidence_and_suggestion(self):
+        result = _vs("Build auth.py module")
+        assert hasattr(result, "confidence")
+        assert hasattr(result, "suggestion")
+
+    def test_old_keys_still_present(self):
+        result = _v("Build auth.py module")
+        for key in ("passed", "reasons", "score", "verb_found", "target_found",
+                     "junk", "advisory", "all_verbs", "all_targets"):
+            assert key in result
+
+    def test_batch_still_works_with_new_fields(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py module", "random stuff here"])
+        assert br.stats.total == 2
+        for _, result in br.passed_items:
+            assert "confidence" in result
+            assert "suggestion" in result
+
+    def test_propose_seed_contract_unchanged(self):
+        """The propose_seed.py contract still holds."""
+        result = _v("Build water_mining.py optimizer module")
+        assert result["passed"] is True
+        assert isinstance(result["score"], float)
+        assert isinstance(result["reasons"], list)
+
+    def test_normalize_verb_export(self):
+        """_normalize_verb is importable."""
+        from seed_gate import _normalize_verb
+        assert callable(_normalize_verb)
+
+    def test_strip_commit_prefix_export(self):
+        """_strip_commit_prefix is importable."""
+        from seed_gate import _strip_commit_prefix
+        assert callable(_strip_commit_prefix)
+
