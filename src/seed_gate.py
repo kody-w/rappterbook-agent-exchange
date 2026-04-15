@@ -45,6 +45,11 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- explain() diagnostics, score_breakdown() decomposition,
+                  find_verb_with_position() with VerbMatch dataclass,
+                  enriched SeedGateResult (target_kind, verb_source,
+                  verb_position, score_parts, is_imperative property),
+                  _compute_score_parts single source of truth.
 """
 from __future__ import annotations
 
@@ -179,6 +184,22 @@ for _inf_phrase, _inf_canonical in _INFLECTION_MAP.items():
     if " " in _inf_phrase:
         _inf_head, _inf_particle = _inf_phrase.split(maxsplit=1)
         _PHRASAL_INFLECTED.setdefault(_inf_head, {})[_inf_particle] = _inf_canonical
+
+# ---------------------------------------------------------------------------
+# VerbMatch dataclass -- structured verb detection result
+# ---------------------------------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class VerbMatch:
+    """Result of find_verb_with_position()."""
+
+    verb: str
+    token_index: int | None
+    source: str  # "text", "tag", "question"
+
+    def __bool__(self) -> bool:
+        return bool(self.verb)
+
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
@@ -356,6 +377,10 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    target_kind: str = ""
+    verb_source: str = "text"  # "text", "tag", "question"
+    verb_position: object = None  # int | None
+    score_parts: tuple = ()  # ((label, value), ...) from _compute_score_parts
 
     @property
     def verb(self) -> str:
@@ -376,6 +401,11 @@ class SeedGateResult:
             return "medium"
         return "low"
 
+    @property
+    def is_imperative(self) -> bool:
+        """True if the verb appears at position 0 (imperative form)."""
+        return self.verb_position == 0
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -388,6 +418,10 @@ class SeedGateResult:
             "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "target_kind": self.target_kind,
+            "verb_source": self.verb_source,
+            "verb_position": self.verb_position,
+            "score_parts": {label: val for label, val in self.score_parts},
         }
 
 
@@ -480,19 +514,43 @@ def find_verb(text: str, limit: int = 0) -> str | None:
     creating->create, deployed->deploy).  Phrasal verbs and their
     inflected forms (setting up->set up) are also recognized.
     """
+    match = find_verb_with_position(text, limit=limit)
+    return match.verb if match else None
+
+
+def find_verb_with_position(
+    text: str,
+    limit: int = 0,
+    source: str = "text",
+) -> VerbMatch | None:
+    """Return a VerbMatch with the verb and its token index, or None.
+
+    The token_index refers to the word position in the alpha-only
+    tokenization of *text*.  For tag-inferred or question-stem verbs,
+    callers pass source="tag" or source="question" and token_index
+    will be None.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
         if i + 1 < len(words):
             next_word = words[i + 1]
             if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
-                return _PHRASAL_FIRST[word][next_word]
+                return VerbMatch(
+                    verb=_PHRASAL_FIRST[word][next_word],
+                    token_index=i, source=source,
+                )
             if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
-                return _PHRASAL_INFLECTED[word][next_word]
+                return VerbMatch(
+                    verb=_PHRASAL_INFLECTED[word][next_word],
+                    token_index=i, source=source,
+                )
         if word in ACTION_VERBS:
-            return word
+            return VerbMatch(verb=word, token_index=i, source=source)
         if word in _INFLECTION_MAP:
-            return _INFLECTION_MAP[word]
+            return VerbMatch(
+                verb=_INFLECTION_MAP[word], token_index=i, source=source,
+            )
     return None
 
 
@@ -704,6 +762,45 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+_KIND_SCORES: dict[str, float] = {
+    "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+    "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+    "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+}
+
+
+def _compute_score_parts(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> tuple[tuple[tuple[str, float], ...], float]:
+    """Single source of truth for scoring -- returns (parts, normalized).
+
+    parts is a tuple of (label, value) pairs showing each scoring
+    component.  normalized is the clamped 0.0-1.0 final score.
+    """
+    parts: list[tuple[str, float]] = []
+    if verb:
+        parts.append(("verb", 2.5))
+    if target:
+        val = _KIND_SCORES.get(target_kind, 1.5)
+        parts.append(("target", val))
+    words = text.split()
+    if len(words) >= 15:
+        parts.append(("length_bonus", 1.5))
+    elif len(words) >= 8:
+        parts.append(("length_bonus", 0.5))
+    unique = count_unique_targets(text)
+    if unique >= 2:
+        parts.append(("multi_target", 1.0))
+    if verb and _starts_with_verb(text):
+        parts.append(("imperative", 0.5))
+    raw = sum(v for _, v in parts)
+    normalized = min(raw / 10.0, 1.0)
+    return tuple(parts), normalized
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -711,28 +808,65 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    _parts, normalized = _compute_score_parts(text, verb, target, target_kind)
+    return normalized
+
+
+def score_breakdown(
+    text: str,
+    verb: str | None = None,
+    target: str | None = None,
+    target_kind: str = "",
+) -> dict[str, float]:
+    """Return decomposed scoring components as a dict.
+
+    If verb/target are not provided, auto-detects them from text.
+    Keys include: verb, target, length_bonus, multi_target,
+    imperative.  Only non-zero components appear.
+    """
+    if verb is None:
+        verb = find_verb(text)
+    if target is None:
+        target, target_kind = find_target(text)
+    parts, _norm = _compute_score_parts(text, verb, target, target_kind)
+    return dict(parts)
+
+
+def explain(text: str, tags: list = None) -> str:
+    """Return a human-readable diagnostic of why a proposal passed or failed.
+
+    Backed by validate_seed() -- never re-derives the decision, just
+    formats the structured result.
+    """
+    r = validate_seed(text, tags)
+    lines: list[str] = []
+    status = "PASSED" if r.passed else "FAILED"
+    conf = f", confidence: {r.confidence}" if r.confidence else ""
+    icon = "\u2705" if r.passed else "\u274c"
+    lines.append(f"{icon} {status} (score: {r.score:.2f}{conf})")
+    if r.junk:
+        lines.append(f"Junk: {', '.join(r.reasons)}")
+        return "\n".join(lines)
+    verb_info = f'"{r.verb_found}"' if r.verb_found else "none"
+    if r.verb_found:
+        pos = f" (position {r.verb_position})" if r.verb_position is not None else ""
+        imp = ", imperative" if r.is_imperative else ""
+        src = f", source={r.verb_source}" if r.verb_source != "text" else ""
+        verb_info += f"{pos}{imp}{src}"
+    lines.append(f"Verb: {verb_info}")
+    target_info = f'"{r.target_found}" ({r.target_kind})' if r.target_found else "none"
+    lines.append(f"Target: {target_info}")
+    if r.all_targets:
+        targets = ", ".join(f"{t} ({k})" for t, k in r.all_targets)
+        lines.append(f"All targets: {targets}")
+    if r.score_parts:
+        parts_str = ", ".join(f"{label}={val}" for label, val in r.score_parts)
+        lines.append(f"Score breakdown: {parts_str}")
+    if r.reasons:
+        lines.append(f"Reasons: {'; '.join(r.reasons)}")
+    if r.advisory:
+        lines.append(f"Advisory: {r.advisory}")
+    return "\n".join(lines)
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -770,6 +904,7 @@ _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
 _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
+_find_verb_with_position = find_verb_with_position
 
 
 # ---------------------------------------------------------------------------
@@ -798,7 +933,10 @@ def validate_seed(
 
     # -- Verb + target ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
+    verb_match = find_verb_with_position(text, limit=verb_limit)
+    verb = verb_match.verb if verb_match else None
+    verb_source = verb_match.source if verb_match else "text"
+    verb_position = verb_match.token_index if verb_match else None
     target, target_kind = find_target(text)
 
     # -- Tag-implied verb inference (#12530) ---
@@ -806,6 +944,8 @@ def validate_seed(
         for tag in tag_set:
             if tag in TAG_IMPLIED_VERBS:
                 verb = TAG_IMPLIED_VERBS[tag]
+                verb_source = "tag"
+                verb_position = None
                 break
 
     # -- Question stem inference (exempt tags only) ---
@@ -813,6 +953,8 @@ def validate_seed(
         m = _QUESTION_STEM_RE.match(text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
+            verb_source = "question"
+            verb_position = None
 
     # -- Rich match info (#12521) ---
     all_verbs = tuple(find_all_verbs(text))
@@ -825,15 +967,19 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            target_kind=target_kind, verb_source=verb_source,
+            verb_position=verb_position,
         )
 
-    # -- Decision ---
+    # -- Score (single source of truth via _compute_score_parts) ---
     if mode == "purge":
         passed = True
         specificity = 0.5
+        score_parts = ()
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        parts, specificity = _compute_score_parts(text, verb, target, target_kind)
+        score_parts = parts
 
     reasons: list[str] = []
     advisory = ""
@@ -851,6 +997,8 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        target_kind=target_kind, verb_source=verb_source,
+        verb_position=verb_position, score_parts=score_parts,
     )
 
 

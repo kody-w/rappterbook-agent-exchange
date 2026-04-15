@@ -1388,6 +1388,10 @@ from seed_gate import (
     find_all_verbs,
     find_target,
     compute_score,
+    find_verb_with_position,
+    VerbMatch,
+    explain,
+    score_breakdown,
 )
 
 
@@ -1652,3 +1656,362 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# PR #272 -- explain(), score_breakdown(), find_verb_with_position(),
+#             enriched SeedGateResult diagnostics
+# ---------------------------------------------------------------------------
+
+
+class TestVerbMatch:
+    """VerbMatch dataclass from find_verb_with_position()."""
+
+    def test_basic_verb_position(self):
+        m = find_verb_with_position("Build seed_gate.py validator")
+        assert m is not None
+        assert m.verb == "build"
+        assert m.token_index == 0
+        assert m.source == "text"
+
+    def test_verb_not_first_word(self):
+        m = find_verb_with_position("Please fix the auth.py module now")
+        assert m is not None
+        assert m.verb == "fix"
+        assert m.token_index == 1
+
+    def test_phrasal_verb_position(self):
+        m = find_verb_with_position("Set up the CI pipeline for deploys")
+        assert m is not None
+        assert m.verb == "set up"
+        assert m.token_index == 0
+
+    def test_inflected_verb_position(self):
+        m = find_verb_with_position("Currently building the new dashboard page")
+        assert m is not None
+        assert m.verb == "build"
+        assert m.token_index == 1
+
+    def test_inflected_phrasal_position(self):
+        m = find_verb_with_position("Setting up the test fixtures now")
+        assert m is not None
+        assert m.verb == "set up"
+        assert m.token_index == 0
+
+    def test_no_verb_returns_none(self):
+        assert find_verb_with_position("The quick brown fox") is None
+
+    def test_custom_source(self):
+        m = find_verb_with_position("Build it", source="tag")
+        assert m is not None
+        assert m.source == "tag"
+
+    def test_limit_param(self):
+        m = find_verb_with_position("Hello world, please build the thing", limit=10)
+        assert m is None  # "build" is beyond limit
+
+    def test_bool_truthy(self):
+        m = find_verb_with_position("Build seed_gate.py module")
+        assert bool(m)
+
+    def test_consistency_with_find_verb(self):
+        """find_verb() must agree with find_verb_with_position().verb."""
+        texts = [
+            "Build seed_gate.py", "Fix auth.py module now",
+            "Setting up CI pipeline", "The quick brown fox",
+            "Currently deploying the v2 release",
+            "Roll back the failed migration now",
+        ]
+        for text in texts:
+            fv = find_verb(text)
+            fvp = find_verb_with_position(text)
+            if fv is None:
+                assert fvp is None, f"Mismatch for {text!r}: find_verb=None but fvp={fvp}"
+            else:
+                assert fvp is not None and fvp.verb == fv, \
+                    f"Mismatch for {text!r}: find_verb={fv!r} but fvp={fvp}"
+
+
+class TestScoreBreakdown:
+    """score_breakdown() -- decomposed scoring components."""
+
+    def test_has_verb_component(self):
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert "verb" in bd
+        assert bd["verb"] == 2.5
+
+    def test_has_target_component(self):
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert "target" in bd
+        assert bd["target"] == 4.0  # file kind
+
+    def test_no_verb_no_component(self):
+        bd = score_breakdown("The big architecture of seed_gate.py system")
+        assert "verb" not in bd or bd.get("verb", 0) == 0
+
+    def test_auto_detects_when_not_provided(self):
+        bd = score_breakdown("Build seed_gate.py validator now")
+        assert "verb" in bd
+
+    def test_explicit_verb_target(self):
+        bd = score_breakdown("some text here", verb="build", target="seed_gate.py", target_kind="file")
+        assert bd["verb"] == 2.5
+        assert bd["target"] == 4.0
+
+    def test_length_bonus_short(self):
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert "length_bonus" not in bd  # < 8 words
+
+    def test_length_bonus_medium(self):
+        bd = score_breakdown("Build seed_gate.py validator with extra words to reach eight total")
+        assert bd.get("length_bonus", 0) >= 0.5
+
+    def test_length_bonus_long(self):
+        text = "Build seed_gate.py validator with extra words to reach fifteen total and more beyond that threshold here now"
+        bd = score_breakdown(text)
+        assert bd.get("length_bonus", 0) >= 1.5
+
+    def test_multi_target_bonus(self):
+        bd = score_breakdown("Build seed_gate.py and propose_seed.py integration")
+        assert bd.get("multi_target", 0) >= 1.0
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build seed_gate.py with action verbs")
+        assert "imperative" in bd
+        assert bd["imperative"] == 0.5
+
+    def test_no_imperative_when_verb_not_first(self):
+        bd = score_breakdown("Please build seed_gate.py with action verbs")
+        assert "imperative" not in bd
+
+    def test_consistency_with_compute_score(self):
+        """score_breakdown normalized value must equal compute_score."""
+        texts = [
+            "Build seed_gate.py",
+            "Fix auth.py module in the main application system",
+            "Explore the deep meaning of consciousness in agents and worlds",
+        ]
+        for text in texts:
+            v = find_verb(text)
+            t, tk = find_target(text)
+            expected = compute_score(text, v, t, tk)
+            bd = score_breakdown(text, v, t, tk)
+            # The breakdown doesn't store normalized separately anymore,
+            # but we can verify by summing parts
+            parts_sum = sum(val for key, val in bd.items())
+            normalized = min(parts_sum / 10.0, 1.0)
+            assert abs(expected - normalized) < 0.001, \
+                f"Score mismatch for {text!r}: compute={expected}, breakdown_sum={normalized}"
+
+
+class TestExplainAPI:
+    """explain() -- human-readable diagnostic."""
+
+    def test_passed_contains_checkmark(self):
+        out = explain("Build seed_gate.py validator for proposals")
+        assert "\u2705" in out
+        assert "PASSED" in out
+
+    def test_failed_contains_cross(self):
+        out = explain("Make everything better and more amazing")
+        assert "\u274c" in out
+        assert "FAILED" in out
+
+    def test_shows_verb(self):
+        out = explain("Build seed_gate.py validator with better verbs")
+        assert 'Verb: "build"' in out
+
+    def test_shows_target(self):
+        out = explain("Build seed_gate.py validator for the pipeline")
+        assert '"seed_gate.py"' in out
+        assert "(file)" in out
+
+    def test_shows_score(self):
+        out = explain("Build seed_gate.py validator system now")
+        assert "score:" in out
+
+    def test_junk_shows_reason(self):
+        out = explain("")
+        assert "Junk:" in out
+
+    def test_no_verb_shows_none(self):
+        out = explain("The big architecture of the whole system platform")
+        assert "Verb: none" in out
+
+    def test_multiline(self):
+        out = explain("Build seed_gate.py and propose_seed.py integration")
+        lines = out.strip().split("\n")
+        assert len(lines) >= 3  # at least status + verb + target
+
+    def test_shows_score_breakdown(self):
+        out = explain("Build seed_gate.py validator system integration")
+        assert "Score breakdown:" in out
+
+    def test_tag_inferred_shows_source(self):
+        out = explain("Make the codebase cleaner and better", tags=["code"])
+        assert "source=tag" in out
+
+    def test_advisory_shown(self):
+        out = explain("Build a better world for all agents everywhere")
+        # Has verb but no target -> advisory
+        assert "Advisory:" in out or "needs-specificity" in out or "FAILED" in out
+
+    def test_exempt_tag_passes(self):
+        out = explain("What if agents could dream about electric sheep", tags=["philosophy"])
+        assert "PASSED" in out
+
+
+class TestEnrichedSeedGateResult:
+    """SeedGateResult new fields: target_kind, verb_source, verb_position, score_parts."""
+
+    def test_target_kind_populated(self):
+        r = validate_seed("Build seed_gate.py validator for proposals")
+        assert r.target_kind == "file"
+
+    def test_target_kind_tool(self):
+        r = validate_seed("Fix state_io module for atomic writes")
+        assert r.target_kind in ("tool", "module")
+
+    def test_verb_source_text(self):
+        r = validate_seed("Build seed_gate.py validator")
+        assert r.verb_source == "text"
+
+    def test_verb_source_tag(self):
+        r = validate_seed("Make the system more robust overall", tags=["code"])
+        assert r.verb_source == "tag"
+
+    def test_verb_source_question(self):
+        r = validate_seed("What if agents dreamed of electric sheep", tags=["philosophy"])
+        assert r.verb_source == "question"
+
+    def test_verb_position_zero(self):
+        r = validate_seed("Build seed_gate.py validator system now")
+        assert r.verb_position == 0
+
+    def test_verb_position_nonzero(self):
+        r = validate_seed("Please fix the auth.py module now")
+        assert r.verb_position is not None
+        assert r.verb_position > 0
+
+    def test_verb_position_none_for_tag_inferred(self):
+        r = validate_seed("Make the system more robust overall", tags=["code"])
+        assert r.verb_position is None
+
+    def test_score_parts_populated(self):
+        r = validate_seed("Build seed_gate.py validator for proposals")
+        assert len(r.score_parts) > 0
+
+    def test_score_parts_has_verb(self):
+        r = validate_seed("Build seed_gate.py validator system here")
+        parts_dict = dict(r.score_parts)
+        assert "verb" in parts_dict
+        assert parts_dict["verb"] == 2.5
+
+    def test_score_parts_in_to_dict(self):
+        r = validate_seed("Build seed_gate.py validator system here")
+        d = r.to_dict()
+        assert "score_parts" in d
+        assert isinstance(d["score_parts"], dict)
+        assert "verb" in d["score_parts"]
+
+    def test_target_kind_in_to_dict(self):
+        r = validate_seed("Build seed_gate.py validator system here")
+        d = r.to_dict()
+        assert d["target_kind"] == "file"
+
+    def test_verb_source_in_to_dict(self):
+        r = validate_seed("Build seed_gate.py validator system here")
+        d = r.to_dict()
+        assert d["verb_source"] == "text"
+
+    def test_is_imperative_property(self):
+        r = validate_seed("Build seed_gate.py validator system here")
+        assert r.is_imperative is True
+
+    def test_not_imperative(self):
+        r = validate_seed("Please build seed_gate.py validator now")
+        assert r.is_imperative is False
+
+    def test_is_imperative_false_for_no_verb(self):
+        r = validate_seed("The architecture of seed_gate.py system")
+        assert r.is_imperative is False
+
+
+class TestDiagnosticInvariants:
+    """Cross-API consistency invariants for PR #272."""
+
+    def test_find_verb_with_position_agrees_with_find_verb(self):
+        """For any text, find_verb(t) == find_verb_with_position(t).verb."""
+        import random
+        verbs = list(ACTION_VERBS)[:20]
+        targets = ["seed_gate.py", "state_io", "auth.py", "r/mars", "#12345"]
+        for _ in range(50):
+            v = random.choice(verbs)
+            t = random.choice(targets)
+            text = f"{v.capitalize()} {t} with some extra context words"
+            fv = find_verb(text)
+            fvp = find_verb_with_position(text)
+            assert fvp is not None
+            assert fv == fvp.verb
+
+    def test_score_breakdown_sums_to_compute_score(self):
+        """Sum of score_breakdown parts (excluding 'raw' and 'normalized') must match."""
+        texts = [
+            "Build seed_gate.py validator",
+            "Fix auth.py and state_io.py modules in the main app system now",
+            "Deploy the dashboard to production servers across regions",
+            "Setting up the CI pipeline for automated testing",
+        ]
+        for text in texts:
+            v = find_verb(text)
+            t, tk = find_target(text)
+            score = compute_score(text, v, t, tk)
+            bd = score_breakdown(text, v, t, tk)
+            # Verify consistency
+            assert abs(score - min(sum(bd.values()) / 10.0, 1.0)) < 0.001
+
+    def test_validate_seed_score_parts_match_compute_score(self):
+        """SeedGateResult.score must match sum of score_parts."""
+        texts = [
+            "Build seed_gate.py",
+            "Refactor the water_mining.py system for better performance now",
+            "Test auth.py and seed_gate.py integration thoroughly",
+        ]
+        for text in texts:
+            r = validate_seed(text)
+            if r.score_parts:
+                parts_sum = sum(v for _, v in r.score_parts)
+                expected = min(parts_sum / 10.0, 1.0)
+                assert abs(r.score - expected) < 0.001, \
+                    f"Score mismatch for {text!r}: result.score={r.score}, parts_sum_norm={expected}"
+
+    def test_explain_agrees_with_validate(self):
+        """explain() says PASSED iff validate_seed() says passed."""
+        texts = [
+            "Build seed_gate.py validator",
+            "Make everything better",
+            "Fix the auth.py module now",
+            "",
+        ]
+        for text in texts:
+            r = validate_seed(text)
+            e = explain(text)
+            if r.passed:
+                assert "PASSED" in e, f"explain disagrees for {text!r}"
+            else:
+                assert "FAILED" in e, f"explain disagrees for {text!r}"
+
+    def test_verb_position_always_valid(self):
+        """verb_position is None only for tag/question inferred verbs."""
+        texts = [
+            ("Build seed_gate.py now", None),
+            ("Fix auth.py module here", None),
+            ("Make it robust overall", ["code"]),
+            ("What if agents dreamed", ["philosophy"]),
+        ]
+        for text, tags in texts:
+            r = validate_seed(text, tags)
+            if r.verb_found and r.verb_source == "text":
+                assert r.verb_position is not None
+            elif r.verb_source in ("tag", "question"):
+                assert r.verb_position is None
