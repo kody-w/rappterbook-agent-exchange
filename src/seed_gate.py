@@ -30,71 +30,153 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 46 action verbs -- frozenset for O(1) lookup  (from #12503)
+# 70 action verbs -- frozenset for O(1) lookup  (from #12503, extended)
 ACTION_VERBS: frozenset[str] = frozenset({
+    # creation / building
     "build", "create", "design", "develop", "implement", "write",
-    "add", "integrate", "deploy", "launch", "ship", "release",
+    "add", "generate", "prototype", "scaffold",
+    # integration / deployment
+    "integrate", "deploy", "launch", "ship", "release", "wire",
+    "connect", "hook", "establish",
+    # maintenance / improvement
     "refactor", "optimize", "improve", "upgrade", "migrate", "port",
-    "wire", "connect", "hook",
+    "consolidate", "merge", "extend", "remove", "render",
+    # debugging / fixing
     "fix", "debug", "patch", "resolve", "repair",
+    # testing / quality
     "test", "benchmark", "profile", "audit", "scan", "lint",
-    "generate", "compute", "simulate", "model", "train",
-    "parse", "extract", "transform", "convert", "compile",
+    "validate", "review", "measure", "instrument",
+    # computation / transformation
+    "compute", "simulate", "model", "train",
+    "parse", "extract", "transform", "convert", "compile", "decode",
+    # observation / monitoring
     "monitor", "track", "log", "alert",
-    "document", "map", "diagram", "prototype",
+    # documentation / planning
+    "document", "map", "diagram",
+    # exploration / analysis
     "explore", "investigate", "analyze", "evaluate", "assess",
+    # discourse (exempt-tag friendly)
     "consider", "debate", "discuss", "propose", "plan",
+    # execution
+    "execute", "run", "score",
 })
 
-# Target regex patterns (compiled once)
-
-# File-like: foo.py, bar_baz.rs, my-lib.js, state/agents.json
-FILE_RE = re.compile(
-    r"\b[\w./-]*\w+\.\w{1,8}\b"
+# Compiled verb regex for fast first-match (#12503 approach)
+_VERB_RE: re.Pattern[str] = re.compile(
+    r"\b(" + "|".join(sorted(ACTION_VERBS)) + r")\b",
+    re.IGNORECASE,
 )
 
-# Tool / module name: snake_case or kebab-case with 2+ segments
+# ---------------------------------------------------------------------------
+# Target regex patterns (compiled once)
+# ---------------------------------------------------------------------------
+
+# Tier 1a: File-like -- foo.py, bar_baz.rs, my-lib.js, state/agents.json
+FILE_RE = re.compile(
+    r"\b[\w./-]*\w+\."
+    r"(?:py|js|ts|sh|json|html|css|yml|yaml|md|sql|go|rs|toml|rb|java"
+    r"|c|cpp|h|hpp|zig|wasm|lock|cfg|ini|env|txt)\b"
+)
+
+# Tier 1b: Special files without extensions (Dockerfile, Makefile, etc.)
+SPECIAL_FILE_RE = re.compile(
+    r"\b(?:Dockerfile|Makefile|README|AGENTS|CLAUDE|CONSTITUTION"
+    r"|Procfile|Vagrantfile|Gemfile|Rakefile|Brewfile|Justfile)\b"
+)
+
+# Tier 2: Repo paths -- state/foo, scripts/bar, docs/baz
+PATH_RE = re.compile(
+    r"(?:state|scripts|docs|sdk|tests|src|engine|api|zion|agents"
+    r"|.github)/[\w_./-]+"
+)
+
+# Tier 3: Tool / module name -- snake_case or kebab-case with 2+ segments
 TOOL_RE = re.compile(
     r"\b[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+\b"
 )
 
-# CLI-ish invocations: `some_command`, --flag, -f
+# Tier 4: Function-call pattern -- fn_name() or ClassName.method()
+FUNC_RE = re.compile(
+    r"\b[\w]+(?:\.[\w]+)*\(\)"
+)
+
+# Tier 5: CLI-ish invocations -- `some_command`, --flag, -f
 CLI_RE = re.compile(
     r"(?:`[^`]+`|--[a-z][\w-]+\b|-[a-zA-Z]\b)"
 )
 
-# Discussion reference: #NNN (3+ digits)  (from #12505)
+# Tier 6: Discussion reference -- #NNN (3+ digits)  (from #12505)
 DISCUSSION_RE = re.compile(
     r"#(\d{3,})\b"
 )
 
-# Channel reference: r/channel-name or c/channel-name
+# Tier 7: Channel reference -- r/channel-name or c/channel-name
 CHANNEL_RE = re.compile(
     r"\b[rc]/[a-z][a-z0-9_-]+\b"
 )
 
-# Quoted specifics: "some specific thing" or 'some specific thing'
+# Tier 8: Quoted specifics -- "some specific thing" or 'some specific thing'
 QUOTED_RE = re.compile(
     r"""(?:"[^"]{3,60}"|'[^']{3,60}')"""
 )
+
+# Known rappterbook tools (#12505, #12521) -- precision matching
+KNOWN_TOOLS: frozenset[str] = frozenset({
+    "bundle.sh", "compute_trending", "generate_feeds", "github_llm",
+    "inject_seed", "process_inbox", "process_issues", "propose_seed",
+    "reconcile_channels", "run_python", "safe_commit", "seed_gate",
+    "state_io", "steer", "tally_votes", "zion_autonomy",
+    "content_loader", "feature_flags", "content_engine",
+})
+
+_KNOWN_TOOL_RE: re.Pattern[str] = re.compile(
+    r"\b(" + "|".join(re.escape(t) for t in sorted(KNOWN_TOOLS)) + r")\b",
+    re.IGNORECASE,
+)
+
+# Ordered list of (pattern, kind, score_weight) for target detection
+_TARGET_PATTERNS: list[tuple[re.Pattern[str], str, int]] = [
+    (FILE_RE,         "file",       4),
+    (SPECIAL_FILE_RE, "file",       4),
+    (PATH_RE,         "path",       3),
+    (_KNOWN_TOOL_RE,  "tool",       3),
+    (FUNC_RE,         "func",       3),
+    (TOOL_RE,         "tool",       3),
+    (CLI_RE,          "cli",        3),
+    (DISCUSSION_RE,   "discussion", 2),
+    (CHANNEL_RE,      "channel",    2),
+    (QUOTED_RE,       "quoted",     1),
+]
 
 # Tags that exempt proposals from the *target* requirement (still need a verb)
 EXEMPT_TAGS: frozenset[str] = frozenset({
     "theme", "philosophy", "debate", "exploration", "story", "lore",
 })
 
-# Junk signals -- if these appear the proposal is almost certainly garbage
-_JUNK_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"^\s*[`|,()\-]"),              # starts with junk punctuation
-    re.compile(r"^[a-z]"),                       # starts lowercase (fragment)
-    re.compile(r"^\d+\.\s"),                    # numbered list item
-    re.compile(r"^https?://"),                    # bare URL
-    re.compile(r"(?:TODO|FIXME|HACK)\b", re.I), # leftover comment
-    re.compile(r"^\s*$"),                         # blank / whitespace-only
+# ---------------------------------------------------------------------------
+# Junk / fragment detection (#12507, enhanced)
+# ---------------------------------------------------------------------------
+
+# Hard junk punctuation starts
+_JUNK_STARTS_RE = re.compile(r"^\s*[`|,()\-]")
+
+# Parsing artifact signals (#12507 data-driven)
+_ARTIFACT_SIGNALS: tuple[str, ...] = (
+    "` has `", "` and `", "`) and ", "` is ",
+    "the fragment", "outside that grammar",
+    "parser grabbed", "parsing artifact", "substring",
+    "the fragment was",
+)
+
+# Patterns that indicate junk (non-lowercase -- lowercase handled separately)
+_JUNK_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^\s*$"),                         "empty or whitespace-only"),
+    (_JUNK_STARTS_RE,                              "starts with fragment character"),
+    (re.compile(r"^\d+\.\s"),                      "numbered list item"),
+    (re.compile(r"^https?://"),                     "bare URL"),
+    (re.compile(r"(?:TODO|FIXME|HACK)\b", re.I),  "leftover comment marker"),
 ]
 
-# Exception: `run_` prefix is OK even though it starts lowercase
-_JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 
 # ---------------------------------------------------------------------------
 # Dataclass result
@@ -141,78 +223,119 @@ class SeedGateResult:
 # ---------------------------------------------------------------------------
 
 def _detect_verb(text: str, limit: int = 0) -> str:
-    """Return the first action verb found in *text*, or empty string."""
+    """Return the first action verb found in *text*, or empty string.
+
+    Uses compiled regex for O(1)-ish matching (#12503 approach).
+    """
     search_text = text[:limit] if limit else text
-    words = re.findall(r"[a-zA-Z]+", search_text.lower())
-    for word in words:
-        if word in ACTION_VERBS:
-            return word
-    return ""
+    m = _VERB_RE.search(search_text)
+    return m.group(1).lower() if m else ""
 
 
 def _detect_target(text: str) -> tuple:
-    """Return (target_string, target_kind) or ('', '')."""
-    # Order matters -- most specific first
-    m = FILE_RE.search(text)
-    if m:
-        return m.group(), "file"
-    m = TOOL_RE.search(text)
-    if m:
-        return m.group(), "tool"
-    m = CLI_RE.search(text)
-    if m:
-        return m.group(), "cli"
-    m = DISCUSSION_RE.search(text)
-    if m:
-        return m.group(), "discussion"
-    m = CHANNEL_RE.search(text)
-    if m:
-        return m.group(), "channel"
-    m = QUOTED_RE.search(text)
-    if m:
-        return m.group(), "quoted"
+    """Return (target_string, target_kind) or ('', '').
+
+    Checks targets in priority order: files > paths > tools >
+    functions > CLI > discussions > channels > quoted strings.
+    """
+    for pattern, kind, _weight in _TARGET_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0), kind
     return "", ""
 
 
+def _count_unique_targets(text: str) -> int:
+    """Count distinct concrete targets in *text* (deduped).
+
+    Removes targets that are substrings of other targets to avoid
+    double-counting overlapping pattern matches (e.g. 'seed_gate'
+    inside 'seed_gate.py').
+    """
+    raw: set[str] = set()
+    for pattern, _kind, _weight in _TARGET_PATTERNS:
+        for m in pattern.finditer(text):
+            raw.add(m.group(0).lower())
+    if not raw:
+        return 0
+    # Longest first: keep only targets not contained in a longer one
+    by_length = sorted(raw, key=len, reverse=True)
+    unique: list[str] = []
+    for t in by_length:
+        if not any(t in u for u in unique):
+            unique.append(t)
+    return len(unique)
+
+
 def _is_junk(text: str, limit: int = 0) -> str:
-    """Return a reason string if *text* looks like junk, else empty string."""
+    """Return a reason string if *text* looks like junk, else empty string.
+
+    Catches parsing artifacts, sentence fragments, and garbage that
+    should never enter the proposal pipeline.
+    """
     check = text[:limit] if limit else text
     stripped = check.strip()
+
+    # Empty/whitespace
     if not stripped:
         return "empty or whitespace-only"
+
+    # Hard minimum
     if len(stripped) < 15:
         return "too short (%d chars)" % len(stripped)
-    if _JUNK_EXCEPTION_RE.match(stripped):
-        return ""
-    for pat in _JUNK_PATTERNS:
+
+    # Pattern-based junk checks
+    for pat, reason in _JUNK_PATTERNS:
         if pat.search(stripped):
-            return "junk signal: %r" % pat.pattern
+            return reason
+
+    # Lowercase start: only junk if the first word is NOT an action verb.
+    # "build seed_gate.py" is imperative (valid).
+    # "the fragment was garbled" is a sentence fragment (junk).
+    if stripped[0].islower():
+        first_word = re.match(r"[a-zA-Z_]+", stripped)
+        if first_word:
+            word = first_word.group().lower()
+            if word not in ACTION_VERBS and not word.startswith("run_"):
+                return "starts lowercase without action verb (sentence fragment)"
+
+    # Artifact signal scanning (#12507)
+    head = stripped[:120].lower()
+    for signal in _ARTIFACT_SIGNALS:
+        if signal in head:
+            return "parsing artifact: '%s'" % signal
+
     return ""
 
 
-def _score(text: str, verb: str, target: str, target_kind: str) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0
+def _score(
+    text: str,
+    verb: str,
+    target: str,
+    target_kind: str,
+    is_exempt: bool,
+) -> float:
+    """Compute a 0.0-1.0 specificity score (#12511 weighted approach).
+
+    verb presence = 0.35, target presence = 0.35,
+    multi-target bonus = up to 0.15, length bonus = up to 0.10.
+    """
+    raw = 0.0
     if verb:
-        raw += 3
-    if target:
-        kind_scores = {
-            "file": 4, "tool": 3, "cli": 3,
-            "discussion": 2, "channel": 2, "quoted": 1,
-        }
-        raw += kind_scores.get(target_kind, 1)
-    # Bonus for length / detail
-    words = text.split()
-    if len(words) >= 8:
-        raw += 1
-    if len(words) >= 15:
-        raw += 1
-    # Bonus for multiple concrete targets
-    file_count = len(FILE_RE.findall(text))
-    tool_count = len(TOOL_RE.findall(text))
-    if (file_count + tool_count) >= 2:
-        raw += 1
-    return min(raw / 10.0, 1.0)
+        raw += 0.35
+    if target or is_exempt:
+        raw += 0.35
+    # Bonus for multiple distinct targets (capped at +0.15)
+    unique_count = _count_unique_targets(text)
+    extra = max(0, unique_count - 1)
+    raw += min(extra * 0.05, 0.15)
+    # Length bonus
+    length = len(text.strip())
+    if length >= 100:
+        raw += 0.10
+    elif length >= 50:
+        raw += 0.05
+    return min(raw, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -265,13 +388,11 @@ def validate_seed(
 
     # -- Decision -----------------------------------------------------------
     if mode == "purge":
-        # Purge mode: only junk check matters for pass/fail
         passed = True
-        specificity = 0.5
+        specificity = _score(text, verb, target, target_kind, is_exempt)
     else:
-        # Admission mode: require verb + (target or exempt)
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = _score(text, verb, target, target_kind)
+        specificity = _score(text, verb, target, target_kind, is_exempt)
 
     reasons = []
     if not passed:
