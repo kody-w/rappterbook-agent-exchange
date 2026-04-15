@@ -36,9 +36,14 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- consolidation of 6 agent implementations (#12503, #12505,
+                  #12507, #12511, #12521, #12530):
+                  verb normalization (inflected forms), noun phrase targets,
+                  suggestion engine, confidence levels, expanded tools,
+                  batch CLI pipeline, version string filter.
 """
 from __future__ import annotations
 
@@ -52,7 +57,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 95 action verbs -- frozenset for O(1) lookup
+# 108 action verbs -- frozenset for O(1) lookup
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
@@ -95,6 +100,49 @@ _PHRASAL_FIRST: dict[str, dict[str, str]] = {}
 for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
+
+# ---------------------------------------------------------------------------
+# Verb normalization -- lemmatize inflected forms (#12503, #12530)
+# ---------------------------------------------------------------------------
+
+def _normalize_verb(word: str) -> str | None:
+    """Reduce an inflected verb to its base form if it's in ACTION_VERBS.
+
+    Handles: gerund (-ing), past tense (-ed), third-person singular (-s/-es).
+    Does NOT strip derivational suffixes (-tion, -ment) to avoid turning
+    nouns into verbs (e.g. 'deployment' is not verb 'deploy').
+    """
+    w = word.lower()
+    if w in ACTION_VERBS:
+        return w
+    candidates: list[str] = []
+    # -ing: building → build, writing → write (double-consonant + e)
+    if w.endswith("ing") and len(w) > 4:
+        stem = w[:-3]
+        candidates.append(stem)             # "building" → "build"
+        candidates.append(stem + "e")       # "writing" → "write"
+        if len(stem) >= 2 and stem[-1] == stem[-2]:  # "running" → "run"
+            candidates.append(stem[:-1])
+    # -ed: deployed → deploy, configured → configure
+    if w.endswith("ed") and len(w) > 3:
+        stem = w[:-2]
+        candidates.append(stem)             # "deployed" → "deploy"
+        candidates.append(stem + "e")       # "configured" → "configure"
+        if w.endswith("ied") and len(w) > 4:
+            candidates.append(w[:-3] + "y") # "modified" → "modify"
+    # -es / -s: creates → create, patches → patch, deploys → deploy
+    if w.endswith("es") and len(w) > 3:
+        candidates.append(w[:-2])           # "patches" → "patch"
+        candidates.append(w[:-1])           # "creates" → "create" (drop s only)
+        if w.endswith("ies") and len(w) > 4:
+            candidates.append(w[:-3] + "y") # "modifies" → "modify"
+    elif w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+        candidates.append(w[:-1])           # "deploys" → "deploy"
+    for c in candidates:
+        if c in ACTION_VERBS:
+            return c
+    return None
+
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
@@ -141,6 +189,23 @@ CHANNEL_RE = re.compile(r"\b[rc]/[a-z][a-z0-9_-]+\b")
 # Quoted specifics: "some specific thing"
 QUOTED_RE = re.compile(r"""(?:"[^"]{3,60}"|'[^']{3,60}')""")
 
+# Version strings -- false positives for FILE_RE (e.g. "3.11", "v2.0.1")
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)*(?:[-+][\w.]+)?$", re.I)
+
+# Qualified noun phrase targets (#12503): structured architectural references
+# Only article + arch-noun + preposition + qualifier pattern (narrow to avoid
+# false positives on plain English like "better handler" or "current module")
+_ARCH_NOUNS: tuple[str, ...] = (
+    "module", "function", "class", "endpoint", "handler", "component",
+    "service", "pipeline", "workflow", "schema", "interface", "middleware",
+    "controller", "daemon", "plugin", "reducer", "fixture", "harness",
+)
+NOUN_PHRASE_RE = re.compile(
+    r"(?:an?|the)\s+(?:" + "|".join(re.escape(n) for n in _ARCH_NOUNS)
+    + r")\s+(?:for|to|that|of|in|with)\s+\w{3,}",
+    re.I,
+)
+
 # Context-sensitive module reference: `module`, import module, from module
 MODULE_CONTEXT_RE = re.compile(r"(?:`[\w_]+`|import\s+[\w_]+|from\s+[\w_]+)")
 
@@ -151,6 +216,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    # Ecosystem scripts (#12505) -- multi-segment names only
+    "inject_seed", "tally_votes", "reconcile_state", "run_proof", "run_python",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -264,6 +331,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    suggestions: tuple = ()
 
     @property
     def verb(self) -> str:
@@ -272,6 +340,15 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def confidence(self) -> str:
+        """Confidence level derived from score: high/medium/low."""
+        if self.score >= 0.6:
+            return "high"
+        if self.score >= 0.3:
+            return "medium"
+        return "low"
 
     def to_dict(self) -> dict:
         return {
@@ -284,6 +361,8 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "suggestions": list(self.suggestions),
+            "confidence": self.confidence,
         }
 
 
@@ -327,7 +406,11 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    if match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -340,7 +423,9 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    if first in ACTION_VERBS:
+        return True
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,7 +441,10 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Handles inflected forms via _normalize_verb: 'building' → 'build'.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
@@ -366,11 +454,17 @@ def find_verb(text: str, limit: int = 0) -> str | None:
                 return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Handles inflected forms via _normalize_verb.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -388,9 +482,10 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        v = word if word in ACTION_VERBS else _normalize_verb(word)
+        if v and v not in seen:
+            seen.add(v)
+            result.append(v)
     return result
 
 
@@ -431,6 +526,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = TOOL_RE.search(text)
     if m:
         return m.group(), "tool"
+    # Qualified noun phrase (#12503) -- after tools to avoid shadowing
+    m = NOUN_PHRASE_RE.search(text)
+    if m:
+        return m.group(), "noun"
     m = CLI_RE.search(text)
     if m:
         return m.group(), "cli"
@@ -502,6 +601,8 @@ def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
         _add(m.group(), "tool")
     for m in TOOL_RE.finditer(text):
         _add(m.group(), "tool")
+    for m in NOUN_PHRASE_RE.finditer(text):
+        _add(m.group(), "noun")
     for m in CLI_RE.finditer(text):
         _add(m.group(), "cli")
     for m in DISCUSSION_RE.finditer(text):
@@ -567,7 +668,7 @@ def compute_score(
     if target:
         kind_scores = {
             "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "const": 2.5,
+            "tool": 3.0, "cli": 3.0, "const": 2.5, "noun": 2.0,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
         raw += kind_scores.get(target_kind, 1.5)
@@ -593,6 +694,73 @@ _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind
 
 
 # ---------------------------------------------------------------------------
+# Suggestion engine (#12507 -- funnel, not just gate)
+# ---------------------------------------------------------------------------
+
+_EXAMPLE_VERBS = ("build", "create", "implement", "test", "fix", "refactor")
+_EXAMPLE_FILES = ("water_mining.py", "solar_array.py", "rover.py")
+
+
+def suggest(text: str, tags: list = None, result: dict = None) -> list[str]:
+    """Return improvement hints for a seed proposal.
+
+    If *result* is not provided, validates internally first.
+    """
+    if result is None:
+        result = validate(text, tags or [])
+    hints: list[str] = []
+    if result["junk"]:
+        hints.append(
+            "Start with a capital letter and write a complete sentence (50+ chars)"
+        )
+        return hints
+    if not result["verb_found"]:
+        examples = ", ".join(_EXAMPLE_VERBS[:4])
+        hints.append("Start with an action verb: %s..." % examples)
+    if not result["target_found"]:
+        examples = ", ".join(_EXAMPLE_FILES[:2])
+        hints.append(
+            "Name a concrete target: a filename (%s), tool, or #discussion" % examples
+        )
+        tag_set = frozenset(t.lower().strip() for t in (tags or []))
+        if not (tag_set & EXEMPT_TAGS):
+            hints.append(
+                "Or tag as theme/philosophy/debate to exempt from target requirement"
+            )
+    return hints
+
+
+def _build_suggestions(
+    text: str,
+    tags: list,
+    verb: object,
+    target: object,
+    is_junk_flag: bool,
+) -> tuple[str, ...]:
+    """Compute suggestion tuple for SeedGateResult construction."""
+    hints: list[str] = []
+    if is_junk_flag:
+        hints.append(
+            "Start with a capital letter and write a complete sentence (50+ chars)"
+        )
+        return tuple(hints)
+    if not verb:
+        examples = ", ".join(_EXAMPLE_VERBS[:4])
+        hints.append("Start with an action verb: %s..." % examples)
+    if not target:
+        examples = ", ".join(_EXAMPLE_FILES[:2])
+        hints.append(
+            "Name a concrete target: a filename (%s), tool, or #discussion" % examples
+        )
+        tag_set = frozenset(t.lower().strip() for t in (tags or []))
+        if not (tag_set & EXEMPT_TAGS):
+            hints.append(
+                "Or tag as theme/philosophy/debate to exempt from target requirement"
+            )
+    return tuple(hints)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -614,6 +782,7 @@ def validate_seed(
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            suggestions=_build_suggestions(text, tags, None, None, True),
         )
 
     # -- Verb + target ---
@@ -645,6 +814,7 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            suggestions=_build_suggestions(text, tags, verb, target, True),
         )
 
     # -- Decision ---
@@ -667,10 +837,12 @@ def validate_seed(
     elif verb and not target:
         advisory = "needs-specificity"
 
+    sug = _build_suggestions(text, tags, verb or None, target or None, False)
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        suggestions=sug,
     )
 
 
@@ -727,12 +899,39 @@ def validate_batch(
 # ---------------------------------------------------------------------------
 
 def _cli() -> None:  # pragma: no cover
+    import json as _json
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--batch":
+        # Pipeline mode (#12521): stdin JSON array → stdout JSON results
+        try:
+            raw = _json.load(sys.stdin)
+        except (ValueError, _json.JSONDecodeError):
+            print('{"error": "malformed JSON on stdin"}', file=sys.stderr)
+            sys.exit(2)
+        if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+            print('{"error": "expected JSON array of strings"}', file=sys.stderr)
+            sys.exit(2)
+        tags = sys.argv[2:] if len(sys.argv) > 2 else []
+        br = validate_batch(raw, tags)
+        output = {
+            "stats": dataclasses.asdict(br.stats),
+            "results": [(t, r) for t, r in br.passed_items]
+                      + [(t, r) for t, r in br.failed_items]
+                      + [(t, r) for t, r in br.junk_items],
+            "passed_items": [(t, r) for t, r in br.passed_items],
+            "failed_items": [(t, r) for t, r in br.failed_items],
+            "junk_items": [(t, r) for t, r in br.junk_items],
+        }
+        print(_json.dumps(output, indent=2))
+        sys.exit(0 if br.stats.failed == 0 and br.stats.junk == 0 else 1)
+
     if len(sys.argv) < 2:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --batch [tag1 ...] < proposals.json")
         sys.exit(1)
+
     text = sys.argv[1]
     tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)

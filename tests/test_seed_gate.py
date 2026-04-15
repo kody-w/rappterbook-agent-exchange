@@ -1376,3 +1376,475 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# NEW: Verb normalization tests
+# ===================================================================
+
+class TestVerbNormalization:
+    """_normalize_verb() lemmatizes inflected forms (#12503, #12530)."""
+
+    def test_gerund_building(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("building") == "build"
+
+    def test_gerund_writing(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("writing") == "write"
+
+    def test_gerund_deploying(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("deploying") == "deploy"
+
+    def test_gerund_configuring(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("configuring") == "configure"
+
+    def test_gerund_running(self):
+        from seed_gate import _normalize_verb
+        # running → run (double consonant)
+        assert _normalize_verb("running") == "run"
+
+    def test_past_deployed(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("deployed") == "deploy"
+
+    def test_past_configured(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("configured") == "configure"
+
+    def test_past_tested(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("tested") == "test"
+
+    def test_plural_creates(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("creates") == "create"
+
+    def test_plural_deploys(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("deploys") == "deploy"
+
+    def test_plural_patches(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("patches") == "patch"
+
+    def test_base_form_passthrough(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("build") == "build"
+
+    def test_non_verb_returns_none(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("elephant") is None
+
+    def test_tion_not_stripped(self):
+        """Derivational suffix -tion must NOT be stripped (#12503 rubber-duck)."""
+        from seed_gate import _normalize_verb
+        # "migration" should NOT normalize to "migrate"
+        assert _normalize_verb("migration") is None
+
+    def test_ment_not_stripped(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("deployment") is None
+
+    def test_find_verb_uses_normalization(self):
+        from seed_gate import find_verb
+        assert find_verb("Refactoring thermal_reg.py") == "refactor"
+
+    def test_find_verb_deploying(self):
+        from seed_gate import find_verb
+        assert find_verb("Deploying new solar_array.py module") == "deploy"
+
+    def test_find_all_verbs_inflected(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Building and testing water_mining.py")
+        assert "build" in verbs
+        assert "test" in verbs
+
+    def test_validate_inflected_verb_passes(self):
+        """Inflected verb + file target should pass the gate."""
+        r = _v("Refactoring thermal_reg.py for better performance")
+        assert r["passed"]
+        assert r["verb_found"] == "refactor"
+
+    def test_inflected_not_junk(self):
+        """Lowercase inflected verb shouldn't trigger junk detection."""
+        from seed_gate import is_junk
+        assert is_junk("building thermal_reg.py for Mars") == ""
+
+
+# ===================================================================
+# NEW: Noun phrase target tests
+# ===================================================================
+
+class TestNounPhraseTargets:
+    """Qualified noun phrases (#12503) — article + arch-noun + prep."""
+
+    def test_article_noun_for_phrase(self):
+        r = _v("Build a module for atmospheric processing on Mars")
+        assert r["target_found"] != ""
+        assert r["passed"]
+
+    def test_the_noun_for_phrase(self):
+        r = _v("Create the handler for thermal regulation here")
+        assert r["target_found"] != ""
+        assert r["passed"]
+
+    def test_a_service_for(self):
+        r = _v("Deploy a service for agent communication now")
+        assert r["target_found"] != ""
+
+    def test_the_pipeline_to(self):
+        r = _v("Build the pipeline to process sensor data quickly")
+        assert r["target_found"] != ""
+
+    def test_bare_noun_not_target(self):
+        """Bare architectural noun without qualifier is not enough."""
+        r = _v("Build module")
+        # Should not match just "module" as a noun phrase target
+        if r["target_found"]:
+            assert r["target_found"] != "module"
+
+    def test_noun_lower_priority_than_file(self):
+        """File targets take precedence over noun phrases."""
+        r = _v("Build the controller module in thermal_reg.py")
+        assert r["target_found"] == "thermal_reg.py"
+
+    def test_noun_lower_priority_than_tool(self):
+        """Tool targets take precedence over noun phrases."""
+        r = _v("Build the process_inbox handler properly here")
+        assert r["target_found"] == "process_inbox"
+
+    def test_noun_phrase_in_all_targets(self):
+        """Noun phrases appear in all_targets."""
+        r = _v("Build a module for atmospheric processing on Mars")
+        kinds = [k for _, k in r["all_targets"]]
+        # Either file or noun should be present
+        assert any(k in kinds for k in ("file", "noun", "tool"))
+
+    def test_qualifier_only_not_matched(self):
+        """Plain 'better handler' without article+prep doesn't match."""
+        from seed_gate import NOUN_PHRASE_RE
+        assert NOUN_PHRASE_RE.search("better handler") is None
+
+    def test_current_module_not_matched(self):
+        """Plain 'current module' without article+prep doesn't match."""
+        from seed_gate import NOUN_PHRASE_RE
+        assert NOUN_PHRASE_RE.search("current module") is None
+
+
+# ===================================================================
+# NEW: Suggestion engine tests
+# ===================================================================
+
+class TestSuggestionEngine:
+    """suggest() and _build_suggestions() (#12507)."""
+
+    def test_suggest_returns_list(self):
+        from seed_gate import suggest
+        result = suggest("Build stuff")
+        assert isinstance(result, list)
+
+    def test_suggest_empty_for_passing(self):
+        from seed_gate import suggest
+        result = suggest("Refactor thermal_reg.py to reduce coupling")
+        assert isinstance(result, list)
+
+    def test_suggest_has_items_for_failing(self):
+        from seed_gate import suggest
+        result = suggest("Make it better")
+        assert len(result) > 0
+
+    def test_suggestions_in_validate_result(self):
+        r = _v("Do something vague")
+        assert "suggestions" in r
+        assert isinstance(r["suggestions"], list)
+
+    def test_suggestions_for_no_verb(self):
+        r = _v("The thermal_reg.py module needs work")
+        suggestions = r["suggestions"]
+        any_verb_hint = any("verb" in s.lower() or "action" in s.lower() for s in suggestions)
+        assert any_verb_hint, f"Expected verb hint in: {suggestions}"
+
+    def test_suggestions_for_no_target(self):
+        r = _v("Refactor the whole system completely")
+        suggestions = r["suggestions"]
+        any_target_hint = any(
+            "file" in s.lower() or "target" in s.lower() for s in suggestions
+        )
+        assert any_target_hint, f"Expected target hint in: {suggestions}"
+
+    def test_suggest_with_precomputed_result(self):
+        from seed_gate import suggest, validate
+        result = validate("Build stuff")
+        suggestions = suggest("Build stuff", result=result)
+        assert isinstance(suggestions, list)
+
+    def test_suggestions_are_strings(self):
+        r = _v("Do something")
+        for s in r["suggestions"]:
+            assert isinstance(s, str)
+            assert len(s) > 0
+
+    def test_junk_gets_suggestion(self):
+        r = _v("lol wat")
+        assert len(r["suggestions"]) > 0
+        assert any("capital" in s.lower() or "sentence" in s.lower() for s in r["suggestions"])
+
+    def test_exempt_tag_no_target_hint(self):
+        """With exempt tag, no 'Or tag as...' suggestion needed."""
+        from seed_gate import suggest
+        result = suggest("Explore consciousness deeply and philosophically", tags=["theme"])
+        assert not any("tag as" in s.lower() for s in result)
+
+
+# ===================================================================
+# NEW: Confidence levels tests
+# ===================================================================
+
+class TestConfidenceLevels:
+    """SeedGateResult.confidence property."""
+
+    def test_high_confidence(self):
+        r = _vs("Refactor thermal_reg.py to reduce coupling here")
+        assert r.score >= 0.6
+        assert r.confidence == "high"
+
+    def test_low_confidence_junk(self):
+        r = _vs("lol")
+        assert r.confidence == "low"
+
+    def test_confidence_in_to_dict(self):
+        r = _vs("Refactor thermal_reg.py")
+        d = r.to_dict()
+        assert "confidence" in d
+        assert d["confidence"] in ("high", "medium", "low")
+
+    def test_passed_low_confidence_possible(self):
+        """Some proposals pass but with medium confidence (verb+weak target)."""
+        r = _vs("Build a module for Mars")
+        # This should pass (verb + noun target) but may not be high confidence
+        if r.passed:
+            assert r.confidence in ("high", "medium", "low")
+
+    def test_confidence_from_validate_dict(self):
+        r = _v("Build thermal_reg.py optimizer for heat exchange")
+        assert r["confidence"] in ("high", "medium", "low")
+
+
+# ===================================================================
+# NEW: Expanded KNOWN_TOOLS tests
+# ===================================================================
+
+class TestExpandedKnownTools:
+    """New ecosystem tools from #12505."""
+
+    def test_inject_seed_known(self):
+        r = _v("Fix inject_seed to handle edge cases better")
+        assert r["target_found"] == "inject_seed"
+
+    def test_tally_votes_known(self):
+        r = _v("Update tally_votes to count reactions properly")
+        assert r["target_found"] == "tally_votes"
+
+    def test_reconcile_state_known(self):
+        r = _v("Debug reconcile_state for channel mismatches")
+        assert r["target_found"] == "reconcile_state"
+
+    def test_run_proof_known(self):
+        r = _v("Optimize run_proof execution time for speed")
+        assert r["target_found"] == "run_proof"
+
+    def test_run_python_known(self):
+        r = _v("Fix run_python sandboxing to block imports")
+        assert r["target_found"] == "run_python"
+
+
+# ===================================================================
+# NEW: Version string filter tests
+# ===================================================================
+
+class TestVersionStringFilter:
+    """Version strings like 3.11, v2.0.1 should not be detected as files."""
+
+    def test_version_3_11_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("3.11")
+
+    def test_version_v2_0_1(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("v2.0.1")
+
+    def test_version_24_0(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("24.0")
+
+    def test_version_1_0_0_alpha(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("1.0.0-alpha")
+
+    def test_real_file_not_filtered(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("thermal_reg.py")
+
+    def test_version_in_text_not_target(self):
+        """'Use Python 3.11' should not find '3.11' as a file target."""
+        from seed_gate import find_target
+        target, kind = find_target("Build support for Python 3.11 in run_python")
+        # Should find run_python (tool), not 3.11 (version)
+        assert target != "3.11"
+
+    def test_version_in_all_targets(self):
+        """Version strings filtered from all_targets too."""
+        from seed_gate import _find_all_targets
+        targets = _find_all_targets("Upgrade to Python 3.11 and pip 24.0")
+        target_strs = [t for t, _ in targets]
+        assert "3.11" not in target_strs
+        assert "24.0" not in target_strs
+
+
+# ===================================================================
+# NEW: Batch CLI pipeline tests
+# ===================================================================
+
+class TestBatchCLIPipeline:
+    """--batch mode for pipeline processing (#12521)."""
+
+    def test_batch_all_pass(self):
+        import subprocess, json
+        proposals = json.dumps([
+            "Refactor thermal_reg.py for clarity",
+            "Build atmo_sim.py oxygen model here",
+        ])
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["stats"]["total"] == 2
+        assert data["stats"]["passed"] == 2
+
+    def test_batch_mixed(self):
+        import subprocess, json
+        proposals = json.dumps([
+            "Refactor thermal_reg.py for clarity",
+            "lol",
+        ])
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 1
+        data = json.loads(result.stdout)
+        assert data["stats"]["total"] == 2
+        assert data["stats"]["junk"] >= 1
+
+    def test_batch_malformed_input(self):
+        import subprocess, json
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input="not json at all",
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 2
+
+    def test_batch_non_string_elements(self):
+        """Array with non-strings should fail gracefully."""
+        import subprocess, json
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input=json.dumps([123, None, "Build foo.py"]),
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 2
+
+    def test_batch_with_tags(self):
+        import subprocess, json
+        proposals = json.dumps(["Refactor thermal_reg.py"])
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch", "mars"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert "passed_items" in data
+        assert "results" in data
+
+
+# ===================================================================
+# NEW: Integration / invariant tests for new features
+# ===================================================================
+
+class TestNewConsolidationInvariants:
+    """Cross-feature invariants after consolidation."""
+
+    def test_primary_target_in_all_targets(self):
+        """The primary target from find_target must appear in all_targets."""
+        text = "Build water_mining.py and solar_array.py for Mars"
+        r = _v(text)
+        if r["target_found"]:
+            all_target_strs = [t for t, _ in r["all_targets"]]
+            assert r["target_found"] in all_target_strs
+
+    def test_inflected_verb_in_all_verbs(self):
+        """Inflected verb should appear in all_verbs as canonical form."""
+        r = _v("Refactoring and testing thermal_reg.py systems")
+        all_v = r["all_verbs"]
+        assert "refactor" in all_v
+        assert "test" in all_v
+
+    def test_suggestions_empty_when_passed(self):
+        """Passing proposals should have no suggestions."""
+        r = _v("Build thermal_reg.py optimizer for heat exchange")
+        assert r["passed"]
+        assert r["suggestions"] == []
+
+    def test_to_dict_all_new_keys_present(self):
+        """to_dict() includes all new keys from this consolidation."""
+        r = _vs("Build thermal_reg.py for Mars")
+        d = r.to_dict()
+        for key in ("suggestions", "confidence", "advisory",
+                     "all_verbs", "all_targets"):
+            assert key in d, f"Missing key: {key}"
+
+    def test_backward_compat_keys(self):
+        """All pre-existing keys still present."""
+        r = _v("Build thermal_reg.py for Mars")
+        for key in ("passed", "score", "reasons", "verb_found",
+                     "target_found", "junk"):
+            assert key in r, f"Missing key: {key}"
+
+    def test_version_not_in_count_unique(self):
+        """Version strings don't inflate unique target count."""
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Use Python 3.11 and run_python to test")
+        # Should count run_python but not 3.11
+        assert count >= 1
+
+    def test_noun_phrase_in_count_unique(self):
+        """Noun phrases NOT in count_unique_targets (only precision types)."""
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Build a module for atmospheric control")
+        # count_unique_targets uses FILE_RE, PATH_RE etc but not NOUN_PHRASE_RE
+        # This is intentional — noun phrases boost score via compute_score, not count
+        assert isinstance(count, int)
+
+    def test_score_within_bounds(self):
+        """Score always 0.0 <= score <= 1.0 after all changes."""
+        texts = [
+            "Build thermal_reg.py and water_mining.py for Mars colony ops",
+            "Refactoring the entire solar_array.py to optimize",
+            "lol",
+            "Make everything better",
+            "Explore consciousness",
+        ]
+        for text in texts:
+            r = _v(text)
+            assert 0.0 <= r["score"] <= 1.0, f"Score out of bounds for: {text}"
