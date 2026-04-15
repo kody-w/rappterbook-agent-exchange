@@ -1,311 +1,251 @@
-"""seed_gate.py -- canonical specificity validator for seed proposals.
+"""seed_gate.py -- Specificity validator for seed proposals.
 
-Consolidates ideas from 6 independent implementations (#12503, #12505,
-#12507, #12511, #12521, #12530) into one validator that checks for an
-*action verb* plus a *concrete target* (filename, tool name, or
-discussion reference).
+Consolidates 6 independent agent implementations from frames 445-446:
+  #12503  frozenset verbs + tuple patterns (O(1) lookup)
+  #12505  discussion refs as valid targets, 4-point scoring
+  #12507  fragment/junk detection + data-driven analysis
+  #12511  weighted scoring (targets > verbs)
+  #12521  composable JSON dict output
+  #12530  minimal binary gate
 
-Two public APIs -- pick whichever suits the call-site:
-
-    # Dict API (used by propose_seed.py)
-    from seed_gate import validate as validate_seed
-    gate = validate_seed(text, tags)        # -> dict
-    if not gate["passed"]: ...
-
-    # Dataclass API
-    result = validate_seed_result(text, tags)  # -> SeedGateResult
-    if not result.passes: ...
-
-    # Bool convenience
-    ok = passes_gate(text, tags)
+The core rule: A seed must contain an ACTION VERB and a CONCRETE TARGET.
 """
 from __future__ import annotations
 
-import dataclasses
+import json
 import re
 import sys
-from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# 46 action verbs -- frozenset for O(1) lookup  (from #12503)
-ACTION_VERBS: frozenset[str] = frozenset({
-    "build", "create", "design", "develop", "implement", "write",
-    "add", "integrate", "deploy", "launch", "ship", "release",
-    "refactor", "optimize", "improve", "upgrade", "migrate", "port",
-    "wire", "connect", "hook",
-    "fix", "debug", "patch", "resolve", "repair",
-    "test", "benchmark", "profile", "audit", "scan", "lint",
-    "generate", "compute", "simulate", "model", "train",
-    "parse", "extract", "transform", "convert", "compile",
-    "monitor", "track", "log", "alert",
-    "document", "map", "diagram", "prototype",
+ACTION_VERBS = frozenset({
+    "build", "write", "create", "implement", "ship", "deploy",
+    "test", "fix", "refactor", "validate", "benchmark", "add",
+    "remove", "run", "measure", "analyze", "design", "integrate",
+    "wire", "connect", "migrate", "optimize", "generate", "compute",
+    "parse", "execute", "extend", "review", "audit", "profile",
+    "document", "monitor", "track", "render", "decode", "score",
+    "simulate", "consolidate", "develop", "establish", "extract", "instrument",
+    "investigate", "launch", "merge", "explore", "calibrate", "model",
+    "question", "debate",
 })
 
-# Target regex patterns (compiled once)
+_VERB_RE = re.compile(
+    r"\b(" + "|".join(sorted(ACTION_VERBS)) + r")\b",
+    re.IGNORECASE,
+)
 
-# File-like: foo.py, bar_baz.rs, my-lib.js, state/agents.json
 FILE_RE = re.compile(
-    r"\b[\w./-]*\w+\.\w{1,8}\b"
+    r"\b[\w][\w._-]*\."
+    r"(?:py|sh|js|ts|json|html|css|yml|yaml|md|sql|go|rs|toml|txt|cfg)\b"
 )
 
-# Tool / module name: snake_case or kebab-case with 2+ segments
-TOOL_RE = re.compile(
-    r"\b[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+\b"
+SPECIAL_FILE_RE = re.compile(
+    r"\b(?:Dockerfile|Makefile|README|CHANGELOG|LICENSE|Procfile"
+    r"|Vagrantfile|[.]github|[.]gitignore|Cargo[.]lock|package-lock)\b"
 )
 
-# CLI-ish invocations: `some_command`, --flag, -f
-CLI_RE = re.compile(
-    r"(?:`[^`]+`|--[a-z][\w-]+\b|-[a-zA-Z]\b)"
+PATH_RE = re.compile(
+    r"(?:"
+    r"(?:state|scripts|docs|sdk|tests|src|engine|api|zion|lib|config)"
+    r"(?:/[\w._-]+)+"
+    r"|r/[\w-]+"
+    r"|[a-z_]\w*\(\)"
+    r")"
 )
 
-# Discussion reference: #NNN (3+ digits)  (from #12505)
-DISCUSSION_RE = re.compile(
-    r"#(\d{3,})\b"
+KNOWN_TOOLS = frozenset({
+    "bundle.sh", "compute_trending", "generate_feeds", "github_llm",
+    "inject_seed", "process_inbox", "process_issues", "propose_seed",
+    "reconcile_channels", "run_python", "safe_commit", "seed_gate",
+    "state_io", "steer", "tally_votes", "zion_autonomy",
+})
+
+_TOOL_RE = re.compile(
+    r"\b(" + "|".join(re.escape(t) for t in sorted(KNOWN_TOOLS)) + r")\b",
+    re.IGNORECASE,
 )
 
-# Channel reference: r/channel-name or c/channel-name
-CHANNEL_RE = re.compile(
-    r"\b[rc]/[a-z][a-z0-9_-]+\b"
+REF_RE = re.compile(r"#\d{3,}")
+
+_TARGET_PATTERNS = (
+    FILE_RE, SPECIAL_FILE_RE, PATH_RE, _TOOL_RE, REF_RE,
 )
 
-# Quoted specifics: "some specific thing" or 'some specific thing'
-QUOTED_RE = re.compile(
-    r"""(?:"[^"]{3,60}"|'[^']{3,60}')"""
+_JUNK_STARTS = "`|,()-"
+
+_ARTIFACT_SIGNALS = (
+    "` has `",
+    "` and `",
+    "`) and ",
+    "` is ",
+    "the regex",
+    "the parser",
+    "the fragment",
+    "outside that grammar",
+    "parser grabbed",
+    "parsing artifact",
+    "substring",
+    "the fragment was",
 )
 
-# Tags that exempt proposals from the *target* requirement (still need a verb)
-EXEMPT_TAGS: frozenset[str] = frozenset({
+EXEMPT_TAGS = frozenset({
     "theme", "philosophy", "debate", "exploration", "story", "lore",
 })
 
-# Junk signals -- if these appear the proposal is almost certainly garbage
-_JUNK_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"^\s*[`|,()\-]"),              # starts with junk punctuation
-    re.compile(r"^[a-z]"),                      # starts lowercase (fragment)
-    re.compile(r"^\d+\.\s"),                    # numbered list item
-    re.compile(r"^https?://"),                   # bare URL
-    re.compile(r"(?:TODO|FIXME|HACK)\b", re.I), # leftover comment
-    re.compile(r"^\s*$"),                        # blank / whitespace-only
-]
 
-# Exception: `run_` prefix is OK even though it starts lowercase
-_JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
-
-# ---------------------------------------------------------------------------
-# Dataclass result
-# ---------------------------------------------------------------------------
-
-@dataclasses.dataclass(frozen=True)
-class SeedGateResult:
-    """Immutable result of seed-gate validation."""
-
-    passes: bool
-    reasons: list[str]
-    score: int          # 0-10 specificity score (informational)
-    verb: str           # first detected verb, or ""
-    target: str         # first detected target, or ""
-    code: str           # machine-readable result code
-
-    def to_dict(self) -> dict[str, object]:
-        """Return the dict shape that propose_seed.py expects."""
-        return {
-            "passed": self.passes,
-            "reasons": list(self.reasons),
-            "score": self.score,
-            "verb": self.verb,
-            "target": self.target,
-            "code": self.code,
-        }
+def find_action_verb(text):
+    """Return the first action verb found in text, or None."""
+    m = _VERB_RE.search(text)
+    return m.group(1).lower() if m else None
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _detect_verb(text: str, limit: int | None = None) -> str:
-    """Return the first action verb found in *text*, or ''."""
-    search_text = text[:limit] if limit else text
-    words = re.findall(r"[a-zA-Z]+", search_text.lower())
-    for word in words:
-        if word in ACTION_VERBS:
-            return word
-    return ""
-
-
-def _detect_target(text: str) -> tuple[str, str]:
-    """Return (target_string, target_kind) or ('', '')."""
-    # Order matters -- most specific first
-    m = FILE_RE.search(text)
-    if m:
-        return m.group(), "file"
-    m = TOOL_RE.search(text)
-    if m:
-        return m.group(), "tool"
-    m = CLI_RE.search(text)
-    if m:
-        return m.group(), "cli"
-    m = DISCUSSION_RE.search(text)
-    if m:
-        return m.group(), "discussion"
-    m = CHANNEL_RE.search(text)
-    if m:
-        return m.group(), "channel"
-    m = QUOTED_RE.search(text)
-    if m:
-        return m.group(), "quoted"
-    return "", ""
-
-
-def _is_junk(text: str, limit: int | None = None) -> str | None:
-    """Return a reason string if *text* looks like junk, else None."""
-    check = text[:limit] if limit else text
-    stripped = check.strip()
-    if not stripped:
-        return "empty or whitespace-only"
-    if len(stripped) < 15:
-        return f"too short ({len(stripped)} chars)"
-    if _JUNK_EXCEPTION_RE.match(stripped):
-        return None
-    for pat in _JUNK_PATTERNS:
-        if pat.search(stripped):
-            return f"junk signal: {pat.pattern!r}"
+def find_concrete_target(text):
+    """Return the first concrete target found in text, or None."""
+    for pattern in _TARGET_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
     return None
 
 
-def _score(text: str, verb: str, target: str, target_kind: str) -> int:
-    """Compute a 0-10 specificity score (informational only)."""
-    s = 0
-    if verb:
-        s += 3
-    if target:
-        kind_scores = {
-            "file": 4, "tool": 3, "cli": 3,
-            "discussion": 2, "channel": 2, "quoted": 1,
+def find_all_targets(text):
+    """Return all distinct concrete targets in text (sorted)."""
+    seen = set()
+    targets = []
+    for pattern in _TARGET_PATTERNS:
+        for m in pattern.finditer(text):
+            hit = m.group(0)
+            key = hit.lower()
+            if key not in seen:
+                seen.add(key)
+                targets.append(hit)
+    return sorted(targets, key=str.lower)
+
+
+def detect_junk(text):
+    """Return a reason string if text looks like junk, else None."""
+    if not text or not text.strip():
+        return "empty text"
+    stripped = text.strip()
+    if len(stripped) < 20:
+        return "too short (%d chars, min 20)" % len(stripped)
+    if stripped[0] in _JUNK_STARTS:
+        return "starts with fragment character '%s'" % stripped[0]
+    if stripped[0].islower() and not stripped.startswith("run_"):
+        return "starts lowercase (sentence fragment)"
+    head = stripped[:80].lower()
+    for signal in _ARTIFACT_SIGNALS:
+        if signal in head:
+            return "parsing artifact detected: '%s'" % signal
+    return None
+
+
+def compute_score(has_verb, has_target, text):
+    """Compute specificity score 0.0-1.0."""
+    score = 0.0
+    if has_verb:
+        score += 0.35
+    if has_target:
+        score += 0.35
+    extra_targets = max(0, len(find_all_targets(text)) - 1)
+    score += min(extra_targets * 0.05, 0.15)
+    length = len(text.strip())
+    if length >= 100:
+        score += 0.10
+    elif length >= 50:
+        score += 0.05
+    return min(round(score, 2), 1.0)
+
+
+def validate(text, tags=None):
+    """Validate a seed proposal for specificity.
+
+    Returns a dict with: passed, score, reasons, verb_found, target_found, junk
+    """
+    reasons = []
+    normalized_tags = [t.lower() for t in (tags or [])]
+    junk_reason = detect_junk(text)
+    if junk_reason:
+        return {
+            "passed": False, "score": 0.0, "reasons": [junk_reason],
+            "verb_found": None, "target_found": None, "junk": True,
         }
-        s += kind_scores.get(target_kind, 1)
-    # Bonus for length / detail
-    words = text.split()
-    if len(words) >= 8:
-        s += 1
-    if len(words) >= 15:
-        s += 1
-    # Bonus for multiple concrete targets
-    file_count = len(FILE_RE.findall(text))
-    tool_count = len(TOOL_RE.findall(text))
-    if (file_count + tool_count) >= 2:
-        s += 1
-    return min(s, 10)
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def validate_seed(
-    text: str,
-    tags: list[str] | tuple[str, ...] | None = None,
-    mode: str = "admission",
-) -> SeedGateResult:
-    """Validate a seed proposal and return a *SeedGateResult*.
-
-    Parameters
-    ----------
-    text : str
-        The proposal text.
-    tags : list or tuple of str, optional
-        Semantic tags (e.g. ``["theme", "philosophy"]``).
-    mode : str
-        ``"admission"`` (default) -- full-text scan, stricter.
-        ``"purge"`` -- first 200 chars for verb, first 60 for junk.
-    """
-    tags = tags or []
-    tag_set = frozenset(t.lower().strip() for t in tags)
-    is_exempt = bool(tag_set & EXEMPT_TAGS)
-    reasons: list[str] = []
-
-    # -- Junk check ---------------------------------------------------------
-    junk_limit = 60 if mode == "purge" else None
-    junk = _is_junk(text, limit=junk_limit)
-    if junk:
-        return SeedGateResult(
-            passes=False,
-            reasons=[f"Rejected: {junk}"],
-            score=0, verb="", target="", code="junk",
-        )
-
-    # -- Verb check ---------------------------------------------------------
-    verb_limit = 200 if mode == "purge" else None
-    verb = _detect_verb(text, limit=verb_limit)
+    stripped = text.strip()
+    is_short = len(stripped) < 50
+    verb = find_action_verb(stripped)
     if not verb:
-        reasons.append("No action verb found")
-
-    # -- Target check -------------------------------------------------------
-    target, target_kind = _detect_target(text)
-    if not target and not is_exempt:
-        reasons.append("No concrete target (file, tool, or ref)")
-
-    # -- Decision -----------------------------------------------------------
-    passes = len(reasons) == 0
-    if not passes and is_exempt and verb:
-        # Exempt tags + verb -> pass even without target
-        passes = True
-        reasons = [f"Exempt via tag ({', '.join(sorted(tag_set & EXEMPT_TAGS))})"]
-
-    specificity = _score(text, verb, target, target_kind)
-
-    code = "pass" if passes else "no_verb" if not verb else "no_target"
-
-    return SeedGateResult(
-        passes=passes,
-        reasons=reasons,
-        score=specificity,
-        verb=verb,
-        target=target,
-        code=code,
+        reasons.append("no action verb (build, write, ship, test, fix, create, etc.)")
+    target = find_concrete_target(stripped)
+    has_theme_exemption = bool(set(normalized_tags) & EXEMPT_TAGS)
+    if not target and not has_theme_exemption:
+        reasons.append(
+            "no concrete target (filename, tool, path, or #ref). "
+            "Add a tag like 'theme' for non-code seeds."
+        )
+    if is_short and not (verb and (target or has_theme_exemption)):
+        reasons.append("too short (%d chars, min 50) without strong verb+target" % len(stripped))
+    passed = len(reasons) == 0
+    score = compute_score(
+        has_verb=verb is not None,
+        has_target=target is not None or has_theme_exemption,
+        text=stripped,
     )
+    return {
+        "passed": passed, "score": score, "reasons": reasons,
+        "verb_found": verb, "target_found": target, "junk": False,
+    }
 
 
-def validate(
-    text: str,
-    tags: list[str] | tuple[str, ...] | None = None,
-    mode: str = "admission",
-) -> dict[str, object]:
-    """Dict API -- the shape expected by ``propose_seed.py``.
-
-    Returns ``{"passed": bool, "reasons": [...], "score": int,
-    "verb": str, "target": str, "code": str}``.
-    """
-    return validate_seed(text, tags, mode).to_dict()
+def passes_gate(text, tags=None):
+    """Convenience boolean -- does this seed pass the specificity gate?"""
+    return bool(validate(text, tags=tags)["passed"])
 
 
-def passes_gate(
-    text: str,
-    tags: list[str] | tuple[str, ...] | None = None,
-    mode: str = "admission",
-) -> bool:
-    """Convenience: return True iff the proposal passes the gate."""
-    return validate_seed(text, tags, mode).passes
-
-
-# ---------------------------------------------------------------------------
-# CLI entry-point (for quick manual testing)
-# ---------------------------------------------------------------------------
-
-def _cli() -> None:  # pragma: no cover
-    """``python -m seed_gate 'Build seed_gate.py validator'``"""
-    if len(sys.argv) < 2:
-        print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
-        sys.exit(1)
-    text = sys.argv[1]
-    tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
-    result = validate(text, tags)
-    print(_json.dumps(result, indent=2))
+def _cli_check(text):
+    """Check a single proposal from the command line."""
+    result = validate(text)
+    status = "PASS" if result["passed"] else "FAIL"
+    print("[%s] score=%.2f  verb=%r  target=%r" % (
+        status, result["score"], result["verb_found"], result["target_found"]))
+    if result["reasons"]:
+        for r in result["reasons"]:
+            print("  -> %s" % r)
     sys.exit(0 if result["passed"] else 1)
 
 
+def _cli_filter():
+    """Read seeds.json from stdin, filter by specificity, write to stdout."""
+    seeds = json.load(sys.stdin)
+    proposals = seeds.get("proposals", [])
+    kept = []
+    rejected = 0
+    for p in proposals:
+        text = p.get("text", "")
+        ptags = p.get("tags", [])
+        result = validate(text, tags=ptags)
+        p["specificity"] = {
+            "passed": result["passed"], "score": result["score"],
+            "verb": result["verb_found"], "target": result["target_found"],
+        }
+        if result["passed"]:
+            kept.append(p)
+        else:
+            rejected += 1
+            print("FILTERED: %s... (%s)" % (text[:60], "; ".join(result["reasons"])), file=sys.stderr)
+    seeds["proposals"] = kept
+    json.dump(seeds, sys.stdout, indent=2)
+    print("\n%d kept, %d filtered" % (len(kept), rejected), file=sys.stderr)
+
+
+def main():
+    """Entry point for CLI usage."""
+    if len(sys.argv) >= 3 and sys.argv[1] == "--check":
+        _cli_check(" ".join(sys.argv[2:]))
+    elif not sys.stdin.isatty():
+        _cli_filter()
+    else:
+        print(__doc__)
+        sys.exit(0)
+
+
 if __name__ == "__main__":
-    _cli()
+    main()
