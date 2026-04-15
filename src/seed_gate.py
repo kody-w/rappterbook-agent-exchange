@@ -39,6 +39,10 @@ Evolution log:
     This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- diagnostics evolution: find_verb_with_position(),
+                  imperative scoring bonus, score_breakdown(), explain(),
+                  suggest(), confidence property, numbered-ref false-file
+                  filter.  Consolidates ideas from closed PRs #249, #251.
 """
 from __future__ import annotations
 
@@ -110,6 +114,12 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
     "e.g", "i.e", "a.m", "p.m", "vs.",
 })
+
+# Numbered references that look like files: no.5, fig.1, vol.2, ch.3, eq.1
+# Only standalone bare matches (path-qualified like docs/v1.0 still pass)
+_NUMBERED_REF_RE = re.compile(
+    r"^(?:no|fig|vol|ch|eq|pt|sec|ver)\.\d+$", re.I
+)
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -264,6 +274,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    _verb_position: int = -1
 
     @property
     def verb(self) -> str:
@@ -272,6 +283,20 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def confidence(self) -> str:
+        """Classify score into high/medium/low for user-facing display."""
+        if self.score >= 0.7:
+            return "high"
+        if self.score >= 0.4:
+            return "medium"
+        return "low"
+
+    @property
+    def is_imperative(self) -> bool:
+        """True when the verb appears in the first 3 words (direct command style)."""
+        return 0 <= self._verb_position < 3
 
     def to_dict(self) -> dict:
         return {
@@ -284,6 +309,7 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "confidence": self.confidence,
         }
 
 
@@ -326,8 +352,18 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Catches abbreviations (e.g., i.e.) and numbered references (no.5,
+    fig.1, vol.2) that look like filenames but aren't.  Path-qualified
+    matches like ``docs/v1.0`` are allowed through.
+    """
+    lower = match_text.lower().rstrip(".")
+    if lower in _FALSE_FILE_MATCHES:
+        return True
+    if _NUMBERED_REF_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -366,6 +402,24 @@ def find_verb(text: str, limit: int = 0) -> str | None:
                 return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
+    return None
+
+
+def find_verb_with_position(text: str) -> tuple[str, int] | None:
+    """Return (verb, word_index) for the first action verb, or None.
+
+    Word index is 0-based.  Phrasal verbs report the index of the first
+    word in the phrase.  Useful for imperative bonus scoring — verbs in
+    the first 3 words signal a direct command style.
+    """
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    for i, word in enumerate(words):
+        if word in _PHRASAL_FIRST and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word], i
+        if word in ACTION_VERBS:
+            return word, i
     return None
 
 
@@ -559,27 +613,74 @@ def compute_score(
     verb: str | None,
     target: str | None,
     target_kind: str,
+    *,
+    verb_position: int = -1,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    """Compute a 0.0-1.0 specificity score.
+
+    When *verb_position* >= 0 and < 3, an imperative bonus (+0.5) rewards
+    direct command style ("Build X" vs "We should build X").  Only applies
+    to explicitly-detected verbs, not tag-implied or question-stem verbs.
+    """
+    return score_breakdown(text, verb, target, target_kind,
+                           verb_position=verb_position)["score"]
+
+
+# -- Target-kind score lookup (shared between compute_score & breakdown) --
+_KIND_SCORES: dict[str, float] = {
+    "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+    "tool": 3.0, "cli": 3.0, "const": 2.5,
+    "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+}
+
+
+def score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+    *,
+    verb_position: int = -1,
+) -> dict:
+    """Decomposed scoring dict showing each component's contribution.
+
+    Returns::
+
+        {
+            "verb": 2.5,           # points from action verb
+            "target": 4.0,         # points from target (by kind)
+            "length": 1.5,         # points from word count
+            "multi_target": 1.0,   # bonus for 2+ unique targets
+            "imperative": 0.5,     # bonus for verb in first 3 words
+            "raw_total": 9.5,      # sum of all components
+            "score": 0.95,         # normalized to 0.0-1.0
         }
-        raw += kind_scores.get(target_kind, 1.5)
+    """
+    verb_pts = 2.5 if verb else 0.0
+    target_pts = _KIND_SCORES.get(target_kind, 1.5) if target else 0.0
+
     words = text.split()
+    length_pts = 0.0
     if len(words) >= 8:
-        raw += 0.5
+        length_pts += 0.5
     if len(words) >= 15:
-        raw += 1.0
+        length_pts += 1.0
+
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    return min(raw / 10.0, 1.0)
+    multi_pts = 1.0 if unique >= 2 else 0.0
+
+    imperative_pts = 0.5 if (verb and 0 <= verb_position < 3) else 0.0
+
+    raw_total = verb_pts + target_pts + length_pts + multi_pts + imperative_pts
+    return {
+        "verb": verb_pts,
+        "target": target_pts,
+        "length": length_pts,
+        "multi_target": multi_pts,
+        "imperative": imperative_pts,
+        "raw_total": raw_total,
+        "score": min(raw_total / 10.0, 1.0),
+    }
 
 
 # Backward-compat aliases
@@ -621,7 +722,12 @@ def validate_seed(
     verb = find_verb(text, limit=verb_limit)
     target, target_kind = find_target(text)
 
+    # -- Verb position (for imperative bonus — explicit verbs only) ---
+    vp = find_verb_with_position(text)
+    verb_position = vp[1] if vp else -1
+
     # -- Tag-implied verb inference (#12530) ---
+    # Note: tag-implied verbs do NOT get imperative bonus (duck critique)
     if not verb:
         for tag in tag_set:
             if tag in TAG_IMPLIED_VERBS:
@@ -653,7 +759,8 @@ def validate_seed(
         specificity = 0.5
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        specificity = compute_score(text, verb, target, target_kind,
+                                    verb_position=verb_position)
 
     reasons: list[str] = []
     advisory = ""
@@ -671,6 +778,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        _verb_position=verb_position,
     )
 
 
@@ -720,6 +828,90 @@ def validate_batch(
         failed_items=tuple(failed_items),
         junk_items=tuple(junk_items),
     )
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic helpers (from closed PRs #249, #251)
+# ---------------------------------------------------------------------------
+
+def suggest(text: str, tags: list = None) -> list[str]:
+    """Return actionable hints for improving a rejected seed.
+
+    Returns an empty list if the seed already passes.  Hints are
+    ordered from most impactful to least.
+    """
+    result = validate_seed(text, tags)
+    if result.passed:
+        return []
+
+    hints: list[str] = []
+    if result.junk:
+        hints.append("Rewrite as a complete sentence (current text looks like a fragment)")
+        return hints
+
+    if not result.verb_found:
+        verbs = ["Build", "Implement", "Test", "Optimize", "Refactor", "Add"]
+        hints.append(f"Start with an action verb like: {', '.join(verbs)}")
+    if not result.target_found:
+        hints.append(
+            "Name a concrete target — a filename (reactor.py), tool "
+            "(state_io), path (src/thermal.py), or discussion (#1234)"
+        )
+    if result.verb_found and not result.target_found:
+        hints.append(
+            "Your verb is fine — just add a specific file or module to act on"
+        )
+    return hints
+
+
+def explain(text: str, tags: list = None) -> str:
+    """Human-readable diagnostic string for a seed proposal.
+
+    Composes output from ``validate_seed()`` and ``score_breakdown()``
+    so no logic is duplicated.
+    """
+    result = validate_seed(text, tags)
+    target, target_kind = find_target(text)
+    vp = find_verb_with_position(text)
+    verb_pos = vp[1] if vp else -1
+    bd = score_breakdown(text, result.verb_found, target, target_kind,
+                         verb_position=verb_pos)
+
+    lines: list[str] = []
+    status = "PASS" if result.passed else ("JUNK" if result.junk else "FAIL")
+    lines.append(f"[{status}] score={result.score:.2f} confidence={result.confidence}")
+
+    if result.verb_found:
+        pos_note = f" (position {verb_pos}, imperative)" if result.is_imperative else ""
+        lines.append(f"  verb: {result.verb_found}{pos_note}")
+    else:
+        lines.append("  verb: (none)")
+
+    if result.target_found:
+        lines.append(f"  target: {result.target_found} ({target_kind})")
+    else:
+        lines.append("  target: (none)")
+
+    if result.reasons:
+        lines.append(f"  reasons: {'; '.join(result.reasons)}")
+    if result.advisory:
+        lines.append(f"  advisory: {result.advisory}")
+
+    # Score breakdown
+    parts = []
+    for key in ("verb", "target", "length", "multi_target", "imperative"):
+        val = bd[key]
+        if val > 0:
+            parts.append(f"{key}={val:.1f}")
+    lines.append(f"  breakdown: {' + '.join(parts) or '(empty)'} → {bd['raw_total']:.1f}/10")
+
+    hints = suggest(text, tags)
+    if hints:
+        lines.append("  suggestions:")
+        for h in hints:
+            lines.append(f"    • {h}")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

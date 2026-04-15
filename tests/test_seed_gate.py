@@ -1376,3 +1376,455 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# NEW: find_verb_with_position
+# ===================================================================
+
+class TestFindVerbWithPosition:
+    def test_imperative_position_zero(self):
+        from seed_gate import find_verb_with_position
+        result = find_verb_with_position("Build seed_gate.py")
+        assert result == ("build", 0)
+
+    def test_verb_after_preamble(self):
+        from seed_gate import find_verb_with_position
+        result = find_verb_with_position("We should probably build seed_gate.py")
+        assert result is not None
+        assert result[0] == "build"
+        assert result[1] == 3
+
+    def test_phrasal_verb_position(self):
+        from seed_gate import find_verb_with_position
+        result = find_verb_with_position("Set up the test framework")
+        assert result is not None
+        assert result[0] == "set up"
+        assert result[1] == 0
+
+    def test_no_verb(self):
+        from seed_gate import find_verb_with_position
+        assert find_verb_with_position("The quick brown fox") is None
+
+    def test_second_word_verb(self):
+        from seed_gate import find_verb_with_position
+        result = find_verb_with_position("Please build reactor.py")
+        assert result == ("build", 1)
+
+    def test_empty_text(self):
+        from seed_gate import find_verb_with_position
+        assert find_verb_with_position("") is None
+
+
+# ===================================================================
+# NEW: Imperative scoring bonus
+# ===================================================================
+
+class TestImperativeBonus:
+    def test_imperative_higher_than_preamble(self):
+        """'Build X' should score higher than 'We should build X'."""
+        imperative = _v("Build seed_gate.py")
+        preamble = _v("We should perhaps build seed_gate.py")
+        assert imperative["score"] > preamble["score"]
+
+    def test_imperative_flag_on_result(self):
+        result = _vs("Build seed_gate.py")
+        assert result.is_imperative is True
+
+    def test_preamble_not_imperative(self):
+        result = _vs("We should probably build seed_gate.py")
+        assert result.is_imperative is False
+
+    def test_tag_implied_verb_no_imperative_bonus(self):
+        """Tag-implied verbs should NOT get the imperative bonus."""
+        from seed_gate import score_breakdown
+        # Tag-implied has verb_position = -1 (no explicit verb found)
+        result = _vs("A deep analysis of code quality", tags=["code"])
+        assert result.verb_found == "build"
+        assert result.is_imperative is False
+
+    def test_question_stem_no_imperative(self):
+        result = _vs("What if we explored consciousness?", tags=["philosophy"])
+        assert result.is_imperative is False
+
+    def test_imperative_affects_confidence(self):
+        """Imperative bonus can push score from medium to high confidence."""
+        # Both have verb+file target; imperative one gets bonus
+        r1 = _vs("Build seed_gate.py")
+        r2 = _vs("One day someone should build seed_gate.py eventually")
+        # r1 should be >= r2 in score
+        assert r1.score >= r2.score
+
+
+# ===================================================================
+# NEW: score_breakdown
+# ===================================================================
+
+class TestScoreBreakdown:
+    def test_returns_dict_keys(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file")
+        for key in ("verb", "target", "length", "multi_target", "imperative", "raw_total", "score"):
+            assert key in bd
+
+    def test_verb_points(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build X", "build", None, "")
+        assert bd["verb"] == 2.5
+        assert bd["target"] == 0.0
+
+    def test_file_target_points(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file")
+        assert bd["target"] == 4.0
+
+    def test_channel_target_points(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build r/mars", "build", "r/mars", "channel")
+        assert bd["target"] == 2.0
+
+    def test_imperative_bonus_in_breakdown(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file",
+                             verb_position=0)
+        assert bd["imperative"] == 0.5
+
+    def test_no_imperative_without_position(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file",
+                             verb_position=-1)
+        assert bd["imperative"] == 0.0
+
+    def test_no_imperative_at_position_3(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("text", "build", "seed_gate.py", "file",
+                             verb_position=3)
+        assert bd["imperative"] == 0.0
+
+    def test_length_bonus_short(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build X", "build", "X", "file")
+        assert bd["length"] == 0.0
+
+    def test_length_bonus_medium(self):
+        from seed_gate import score_breakdown
+        text = " ".join(["word"] * 10)
+        bd = score_breakdown(text, "build", "X", "file")
+        assert bd["length"] == 0.5
+
+    def test_length_bonus_long(self):
+        from seed_gate import score_breakdown
+        text = " ".join(["word"] * 20)
+        bd = score_breakdown(text, "build", "X", "file")
+        assert bd["length"] == 1.5
+
+    def test_multi_target_bonus(self):
+        from seed_gate import score_breakdown
+        text = "Build seed_gate.py and propose_seed.py together"
+        bd = score_breakdown(text, "build", "seed_gate.py", "file")
+        assert bd["multi_target"] == 1.0
+
+    def test_raw_total_sums_components(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file",
+                             verb_position=0)
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["raw_total"] - expected) < 0.001
+
+    def test_score_is_normalized(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file")
+        assert 0.0 <= bd["score"] <= 1.0
+
+    def test_score_matches_compute_score(self):
+        """score_breakdown and compute_score must agree."""
+        from seed_gate import score_breakdown, compute_score
+        text = "Build seed_gate.py and propose_seed.py"
+        bd = score_breakdown(text, "build", "seed_gate.py", "file", verb_position=0)
+        cs = compute_score(text, "build", "seed_gate.py", "file", verb_position=0)
+        assert abs(bd["score"] - cs) < 0.001
+
+
+# ===================================================================
+# NEW: confidence property
+# ===================================================================
+
+class TestConfidence:
+    def test_high_confidence(self):
+        result = _vs("Build seed_gate.py and propose_seed.py together now")
+        assert result.confidence == "high"
+
+    def test_medium_confidence(self):
+        result = _vs("Build r/mars-engineering")
+        assert result.confidence == "medium"
+
+    def test_low_confidence_on_failure(self):
+        result = _vs("Make everything better")
+        assert result.confidence == "low"
+
+    def test_confidence_in_dict(self):
+        d = _v("Build seed_gate.py")
+        assert "confidence" in d
+        assert d["confidence"] in ("high", "medium", "low")
+
+    def test_confidence_thresholds(self):
+        """Verify threshold boundaries: 0.7 → high, 0.4 → medium."""
+        # A result with score exactly 0.0 → low
+        result = _vs("Make everything better")
+        assert result.score == 0.0
+        assert result.confidence == "low"
+
+    def test_junk_is_low(self):
+        result = _vs("")
+        assert result.confidence == "low"
+
+
+# ===================================================================
+# NEW: Numbered reference false-file filter
+# ===================================================================
+
+class TestNumberedRefFilter:
+    def test_no_dot_5_as_file(self):
+        """'no.5' should not be detected as a file target."""
+        from seed_gate import find_target
+        target, kind = find_target("Build support for item no.5 in the spec")
+        assert target != "no.5"
+
+    def test_fig_1_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("Implement fig.1 from the paper")
+        assert target != "fig.1"
+
+    def test_vol_2_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("Review vol.2 of the documentation")
+        assert target != "vol.2"
+
+    def test_ch_3_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("Build ch.3 of the tutorial")
+        assert target != "ch.3"
+
+    def test_eq_1_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("Implement eq.1 from the thermal model")
+        assert target != "eq.1"
+
+    def test_sec_4_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("Review sec.4 of the design doc")
+        assert target != "sec.4"
+
+    def test_real_file_still_matches(self):
+        """Actual files should NOT be filtered."""
+        from seed_gate import find_target
+        target, kind = find_target("Build reactor.py")
+        assert target == "reactor.py"
+        assert kind == "file"
+
+    def test_path_qualified_version_allowed(self):
+        """Path-qualified matches like docs/v1.0 are still valid paths."""
+        from seed_gate import find_target
+        target, kind = find_target("Build docs/v1.0 directory structure")
+        assert target != ""
+
+    def test_ver_filtered(self):
+        from seed_gate import find_target
+        target, kind = find_target("Build support for ver.2 compliance")
+        assert target != "ver.2"
+
+    def test_case_insensitive(self):
+        from seed_gate import find_target
+        target, kind = find_target("Build Fig.1 from design")
+        assert target != "Fig.1"
+
+
+# ===================================================================
+# NEW: suggest()
+# ===================================================================
+
+class TestSuggest:
+    def test_passing_seed_no_suggestions(self):
+        from seed_gate import suggest
+        assert suggest("Build seed_gate.py") == []
+
+    def test_no_verb_suggests_verb(self):
+        from seed_gate import suggest
+        hints = suggest("The seed_gate.py module needs work")
+        assert any("action verb" in h.lower() for h in hints)
+
+    def test_no_target_suggests_target(self):
+        from seed_gate import suggest
+        hints = suggest("Build something really cool and great")
+        assert any("filename" in h.lower() or "target" in h.lower() for h in hints)
+
+    def test_verb_but_no_target_gets_specific_hint(self):
+        from seed_gate import suggest
+        hints = suggest("Build a comprehensive new system")
+        assert any("file or module" in h.lower() for h in hints)
+
+    def test_junk_gets_rewrite_hint(self):
+        from seed_gate import suggest
+        hints = suggest("  ")
+        assert any("fragment" in h.lower() or "rewrite" in h.lower() for h in hints)
+
+    def test_returns_list(self):
+        from seed_gate import suggest
+        result = suggest("Make everything better")
+        assert isinstance(result, list)
+
+
+# ===================================================================
+# NEW: explain()
+# ===================================================================
+
+class TestExplain:
+    def test_passing_shows_pass(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "[PASS]" in output
+
+    def test_failing_shows_fail(self):
+        from seed_gate import explain
+        output = explain("Make everything better")
+        assert "[FAIL]" in output
+
+    def test_junk_shows_junk(self):
+        from seed_gate import explain
+        output = explain("  ")
+        assert "[JUNK]" in output
+
+    def test_contains_score(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "score=" in output
+
+    def test_contains_confidence(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "confidence=" in output
+
+    def test_contains_verb(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "build" in output
+
+    def test_contains_target(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "seed_gate.py" in output
+
+    def test_contains_breakdown(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "breakdown:" in output
+
+    def test_imperative_noted(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "imperative" in output.lower()
+
+    def test_suggestions_for_failed(self):
+        from seed_gate import explain
+        output = explain("Make everything better")
+        assert "suggestions:" in output
+
+    def test_returns_string(self):
+        from seed_gate import explain
+        assert isinstance(explain("Build seed_gate.py"), str)
+
+    def test_multiline(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "\n" in output
+
+
+# ===================================================================
+# NEW: Backward-compat — confidence in dict API
+# ===================================================================
+
+class TestBackwardCompatDiagnostics:
+    def test_confidence_key_in_validate(self):
+        result = _v("Build seed_gate.py")
+        assert "confidence" in result
+
+    def test_old_keys_still_present_after_evolution(self):
+        result = _v("Build auth.py")
+        for key in ("passed", "reasons", "score", "verb_found", "target_found",
+                     "junk", "advisory", "all_verbs", "all_targets", "confidence"):
+            assert key in result, f"Missing key: {key}"
+
+    def test_propose_seed_contract_unchanged(self):
+        """propose_seed.py only reads passed + reasons — verify unchanged."""
+        result = _v("Build seed_gate.py")
+        assert isinstance(result["passed"], bool)
+        assert isinstance(result["reasons"], list)
+
+    def test_score_still_float(self):
+        result = _v("Build seed_gate.py")
+        assert isinstance(result["score"], float)
+        assert 0.0 <= result["score"] <= 1.0
+
+
+# ===================================================================
+# NEW: Property invariants for diagnostics
+# ===================================================================
+
+class TestDiagnosticInvariants:
+    """Cross-cutting invariants for the new diagnostic features."""
+
+    PROPOSALS = [
+        "Build seed_gate.py",
+        "We should build seed_gate.py eventually",
+        "Set up the test framework for reactor.py",
+        "Make everything better",
+        "  ",
+        "Explore consciousness in agents deeply",
+        "Build and test rover.py and drill.py together",
+    ]
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_confidence_always_valid(self, text):
+        from seed_gate import explain
+        result = _vs(text)
+        assert result.confidence in ("high", "medium", "low")
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_is_imperative_is_bool(self, text):
+        result = _vs(text)
+        assert isinstance(result.is_imperative, bool)
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_explain_never_crashes(self, text):
+        from seed_gate import explain
+        output = explain(text)
+        assert isinstance(output, str)
+        assert len(output) > 0
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_suggest_never_crashes(self, text):
+        from seed_gate import suggest
+        hints = suggest(text)
+        assert isinstance(hints, list)
+        assert all(isinstance(h, str) for h in hints)
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_score_breakdown_sums_correctly(self, text):
+        from seed_gate import score_breakdown, find_verb_with_position, find_target
+        vp = find_verb_with_position(text)
+        verb = vp[0] if vp else None
+        verb_pos = vp[1] if vp else -1
+        target, kind = find_target(text)
+        bd = score_breakdown(text, verb, target, kind, verb_position=verb_pos)
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["raw_total"] - expected) < 0.001
+
+    @pytest.mark.parametrize("text", PROPOSALS)
+    def test_imperative_only_when_verb_found_explicitly(self, text):
+        """Imperative requires explicit verb in first 3 words."""
+        from seed_gate import find_verb_with_position
+        result = _vs(text)
+        vp = find_verb_with_position(text)
+        if result.is_imperative:
+            assert vp is not None
+            assert vp[1] < 3
