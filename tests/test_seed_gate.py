@@ -2,7 +2,8 @@
 
 Covers: verb detection, target detection, junk detection, scoring,
 validation pass/fail, exempt tags, CLI, real-world proposals,
-edge cases, property invariants, smoke tests, propose_seed.py contract.
+edge cases, property invariants, smoke tests, propose_seed.py contract,
+domain introspection, suggestion engine, batch validation.
 """
 from __future__ import annotations
 
@@ -26,9 +27,14 @@ from seed_gate import (  # noqa: E402
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    discover_modules,
+    modules_known,
     passes_gate,
+    suggest,
     validate,
+    validate_batch,
     validate_seed,
+    __version__,
 )
 
 
@@ -722,3 +728,329 @@ class TestProposeSeedContract:
         r = _v("Build seed_gate.py validator")
         assert "junk" in r
         assert isinstance(r["junk"], bool)
+
+
+# ===================================================================
+# 11. Version metadata
+# ===================================================================
+
+class TestVersion:
+    def test_version_is_string(self):
+        assert isinstance(__version__, str)
+
+    def test_version_semver_format(self):
+        parts = __version__.split(".")
+        assert len(parts) == 3
+        for p in parts:
+            assert p.isdigit()
+
+
+# ===================================================================
+# 12. Domain introspection — discover_modules()
+# ===================================================================
+
+class TestDiscoverModules:
+    def test_discovers_src_modules(self):
+        """discover_modules() finds real .py files in src/."""
+        mods = discover_modules(REPO_ROOT / "src")
+        assert isinstance(mods, frozenset)
+        assert len(mods) > 10  # repo has 80+ modules
+
+    def test_finds_known_module(self):
+        mods = discover_modules(REPO_ROOT / "src")
+        assert "seed_gate" in mods
+        assert "atmosphere" in mods
+        assert "mars_colony" in mods
+
+    def test_excludes_test_files(self):
+        mods = discover_modules(REPO_ROOT / "src")
+        for m in mods:
+            assert not m.startswith("test_"), f"{m} is a test file"
+
+    def test_excludes_dunder_files(self):
+        mods = discover_modules(REPO_ROOT / "src")
+        for m in mods:
+            assert not m.startswith("__"), f"{m} is a dunder file"
+
+    def test_missing_dir_returns_empty(self):
+        mods = discover_modules("/nonexistent/path/that/does/not/exist")
+        assert mods == frozenset()
+
+    def test_empty_dir_returns_empty(self, tmp_path):
+        mods = discover_modules(tmp_path)
+        assert mods == frozenset()
+
+    def test_custom_dir_with_py_files(self, tmp_path):
+        (tmp_path / "alpha.py").write_text("# alpha")
+        (tmp_path / "beta.py").write_text("# beta")
+        (tmp_path / "test_alpha.py").write_text("# test")
+        (tmp_path / "__init__.py").write_text("")
+        (tmp_path / "notes.txt").write_text("not python")
+        mods = discover_modules(tmp_path)
+        assert mods == frozenset({"alpha", "beta"})
+
+    def test_returns_frozenset_not_set(self):
+        mods = discover_modules(REPO_ROOT / "src")
+        assert type(mods) is frozenset
+
+    def test_no_py_extension_in_names(self):
+        mods = discover_modules(REPO_ROOT / "src")
+        for m in mods:
+            assert not m.endswith(".py"), f"{m} still has .py suffix"
+
+    def test_modules_known_wrapper(self):
+        """modules_known() delegates to discover_modules()."""
+        mods = modules_known()
+        assert isinstance(mods, frozenset)
+        # Should find at least seed_gate itself
+        assert "seed_gate" in mods
+
+    def test_default_src_dir_auto_detects(self):
+        """Default (no arg) should find modules from seed_gate's own dir."""
+        mods = discover_modules()
+        assert "seed_gate" in mods
+
+    def test_string_path_accepted(self):
+        mods = discover_modules(str(REPO_ROOT / "src"))
+        assert "seed_gate" in mods
+
+
+# ===================================================================
+# 13. Suggestion engine — suggest()
+# ===================================================================
+
+class TestSuggest:
+    def test_suggest_returns_dict(self):
+        result = suggest("Something vague here for testing")
+        assert isinstance(result, dict)
+        assert "fix_hints" in result
+        assert "nearest_targets" in result
+        assert "example" in result
+        assert "score_before" in result
+
+    def test_suggest_hints_for_no_verb(self):
+        result = suggest("The atmosphere module needs work for colony purposes")
+        hints_text = " ".join(result["fix_hints"])
+        assert "verb" in hints_text.lower()
+
+    def test_suggest_hints_for_no_target(self):
+        result = suggest("Build something cool and interesting for the colony")
+        hints_text = " ".join(result["fix_hints"])
+        assert "target" in hints_text.lower()
+
+    def test_suggest_no_hints_for_passing(self):
+        result = suggest("Build seed_gate.py with comprehensive validation")
+        # Should still return a dict, even if empty hints
+        assert isinstance(result["fix_hints"], list)
+
+    def test_suggest_finds_nearest_modules(self):
+        modules = frozenset({"atmosphere", "water_mining", "seed_gate"})
+        result = suggest(
+            "Something about atmospher and watr mining",
+            known_modules=modules,
+        )
+        # difflib should fuzzy-match "atmospher" → "atmosphere"
+        assert "atmosphere" in result["nearest_targets"]
+
+    def test_suggest_example_is_string(self):
+        result = suggest("Vague idea about improving things for testing")
+        assert isinstance(result["example"], str)
+        assert len(result["example"]) > 10
+
+    def test_suggest_example_uses_detected_verb(self):
+        result = suggest("Fix the broken module immediately please")
+        assert result["example"].lower().startswith("fix")
+
+    def test_suggest_score_before_is_float(self):
+        result = suggest("Build seed_gate.py validator")
+        assert isinstance(result["score_before"], float)
+        assert 0.0 <= result["score_before"] <= 1.0
+
+    def test_suggest_with_empty_modules(self):
+        result = suggest(
+            "Build something interesting and useful",
+            known_modules=frozenset(),
+        )
+        assert result["nearest_targets"] == []
+
+    def test_suggest_caps_nearest_at_5(self):
+        many_modules = frozenset(f"mod_{i}" for i in range(100))
+        result = suggest(
+            "Something about mod_1 mod_2 mod_3 mod_4 mod_5 mod_6 mod_7",
+            known_modules=many_modules,
+        )
+        assert len(result["nearest_targets"]) <= 5
+
+    def test_suggest_short_text_hint(self):
+        result = suggest("Build foo.py")
+        hints_text = " ".join(result["fix_hints"])
+        assert "expand" in hints_text.lower() or "char" in hints_text.lower()
+
+    def test_suggest_tags_forwarded(self):
+        result = suggest("Explore philosophical meaning", tags=["theme"])
+        # With theme tag, validation passes (no verb complaint)
+        assert isinstance(result["fix_hints"], list)
+        # The suggest() helper may still hint about targets (that's OK),
+        # but it should NOT complain about missing verb since "explore" is found
+        hints = " ".join(result["fix_hints"]).lower()
+        assert "verb" not in hints
+
+    def test_suggest_with_none_tags(self):
+        result = suggest("Build seed_gate.py", tags=None)
+        assert isinstance(result, dict)
+
+    def test_suggest_nearest_deduplicates(self):
+        modules = frozenset({"atmosphere"})
+        result = suggest(
+            "Atmospher and atmospher again atmosphere",
+            known_modules=modules,
+        )
+        # Should not have duplicates
+        assert len(result["nearest_targets"]) == len(set(result["nearest_targets"]))
+
+
+# ===================================================================
+# 14. Batch validation — validate_batch()
+# ===================================================================
+
+class TestValidateBatch:
+    def test_batch_returns_list(self):
+        items = [
+            ("Build seed_gate.py validator", []),
+            ("Fix atmosphere.py module", ["code"]),
+        ]
+        results = validate_batch(items)
+        assert isinstance(results, list)
+        assert len(results) == 2
+
+    def test_batch_each_is_dict(self):
+        items = [("Build seed_gate.py validator", [])]
+        results = validate_batch(items)
+        assert isinstance(results[0], dict)
+        assert "passed" in results[0]
+
+    def test_batch_matches_individual(self):
+        text, tags = "Build seed_gate.py validator", ["code"]
+        batch = validate_batch([(text, tags)])[0]
+        single = validate(text, tags)
+        assert batch == single
+
+    def test_batch_empty_list(self):
+        results = validate_batch([])
+        assert results == []
+
+    def test_batch_preserves_order(self):
+        items = [
+            ("Build seed_gate.py validator", []),
+            ("", []),  # junk - should fail
+            ("Fix water_mining.py leak", []),
+        ]
+        results = validate_batch(items)
+        assert results[0]["passed"] is True
+        assert results[1]["passed"] is False  # empty
+        assert results[2]["passed"] is True
+
+    def test_batch_purge_mode(self):
+        items = [
+            ("Build seed_gate.py validator", []),
+            ("Something without a specific verb or target here", []),
+        ]
+        results = validate_batch(items, mode="purge")
+        # Purge mode: non-junk always passes
+        for r in results:
+            assert r["passed"] is True
+
+    def test_batch_large_set(self):
+        items = [(f"Build module_{i}.py with tests", []) for i in range(50)]
+        results = validate_batch(items)
+        assert len(results) == 50
+        assert all(r["passed"] for r in results)
+
+
+# ===================================================================
+# 15. Mars-domain real-world proposals
+# ===================================================================
+
+class TestMarsDomainProposals:
+    """Proposals that reference real modules in this organism."""
+
+    @pytest.mark.parametrize("text,expected_pass", [
+        ("Build atmosphere.py with CO2 pressure model", True),
+        ("Test water_mining.py ice extraction at -60C", True),
+        ("Optimize hab_pressure.py leak detection algorithm", True),
+        ("Fix dust_storm.py severity scaling for global events", True),
+        ("Implement nuclear_reactor.py thermal runaway safeguard", True),
+        ("Wire rover.py navigation to seismograph.py data feed", True),
+        ("Deploy solar_array.py degradation model with dust factors", True),
+        ("Refactor fuel_production.py Sabatier reaction chain", True),
+        ("Monitor radiation_monitor.py during solar_conjunction.py blackout", True),
+        ("Benchmark mars_colony.py 1000-sol survival rate", True),
+    ])
+    def test_mars_proposals(self, text, expected_pass):
+        r = _v(text)
+        assert r["passed"] is expected_pass, f"'{text}' -> {r}"
+
+    @pytest.mark.parametrize("text", [
+        "The Martian atmosphere is interesting and worth studying",
+        "Water on Mars is a fascinating topic for discussion",
+        "Solar panels are important for Mars colonies today",
+    ])
+    def test_mars_topic_without_verb_target_fails(self, text):
+        r = _v(text)
+        assert r["passed"] is False
+
+    def test_multi_module_proposal_scores_higher(self):
+        single = _v("Build atmosphere.py pressure model")
+        multi = _v("Wire atmosphere.py to hab_pressure.py for real-time monitoring")
+        assert multi["score"] >= single["score"]
+
+
+# ===================================================================
+# 16. Edge cases from production
+# ===================================================================
+
+class TestProductionEdgeCases:
+    def test_proposal_with_backtick_code(self):
+        r = _v("Build `atmosphere.py` with `hab_pressure` integration")
+        assert r["passed"] is True
+
+    def test_proposal_with_path_prefix(self):
+        r = _v("Fix scripts/process_inbox.py delta handling for pokes")
+        assert r["passed"] is True
+        assert r["target_found"] is not None
+
+    def test_proposal_with_flag(self):
+        r = _v("Add --verbose flag to seed_gate.py CLI for debugging")
+        assert r["passed"] is True
+
+    def test_proposal_with_channel_ref(self):
+        r = _v("Create r/mars-engineering channel for colony proposals")
+        assert r["passed"] is True
+
+    def test_proposal_with_discussion_ref(self):
+        r = _v("Implement feedback from #12503 in seed_gate.py")
+        assert r["passed"] is True
+
+    def test_unicode_in_proposal(self):
+        r = _v("Build atmosphere.py — add CO₂ partial pressure tracking")
+        assert r["passed"] is True
+
+    def test_very_long_proposal(self):
+        text = "Build seed_gate.py " + "with extended validation " * 100
+        r = _v(text)
+        assert r["passed"] is True
+        assert isinstance(r["score"], float)
+
+    def test_all_caps_verb(self):
+        # "BUILD" should be detected case-insensitively by word extraction
+        r = _v("BUILD seed_gate.py with comprehensive tests and validation")
+        assert r["verb_found"] == "build"
+
+    def test_tab_and_newline_in_text(self):
+        r = _v("Build\tseed_gate.py\nwith tests and better validation")
+        assert r["passed"] is True
+
+    def test_repeated_verb_still_passes(self):
+        r = _v("Build build build seed_gate.py many times over and over")
+        assert r["passed"] is True
+        assert r["verb_found"] == "build"

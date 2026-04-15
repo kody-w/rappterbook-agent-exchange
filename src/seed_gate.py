@@ -18,13 +18,21 @@ Two public APIs -- pick whichever suits the call-site:
 
     # Bool convenience
     ok = passes_gate(text, tags)
+
+    # Domain-aware helpers (organism introspection)
+    modules = discover_modules()            # -> frozenset[str]
+    hints = suggest(text, tags)             # -> dict with fix_hints, nearest_targets
+    results = validate_batch(items)         # -> list[dict]
 """
 from __future__ import annotations
 
 import dataclasses
+import difflib
 import re
 import sys
 from pathlib import Path
+
+__version__ = "2.0.0"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -327,6 +335,147 @@ def _cli() -> None:  # pragma: no cover
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)
+
+
+# ---------------------------------------------------------------------------
+# Domain introspection — the organism becomes self-aware
+# ---------------------------------------------------------------------------
+
+_SRC_DIR: Path = Path(__file__).resolve().parent
+
+# Files to exclude from module discovery
+_IGNORE_MODULES: frozenset[str] = frozenset({
+    "__init__", "__main__", "__pycache__",
+    "conftest", "setup", "test_mars_smoke",
+})
+
+
+def discover_modules(src_dir: Path | str | None = None) -> frozenset[str]:
+    """Scan a directory for Python modules and return their names.
+
+    Auto-detects the sibling ``src/`` directory by default.  Returns an
+    empty frozenset if the directory is missing or unreadable — never raises.
+    """
+    target = Path(src_dir) if src_dir else _SRC_DIR
+    try:
+        names = {
+            f.stem
+            for f in target.iterdir()
+            if f.suffix == ".py"
+            and f.stem not in _IGNORE_MODULES
+            and not f.stem.startswith("test_")
+            and not f.stem.startswith("__")
+        }
+        return frozenset(names)
+    except (OSError, PermissionError):
+        return frozenset()
+
+
+def modules_known() -> frozenset[str]:
+    """Return the set of known module names in this organism."""
+    return discover_modules()
+
+
+# ---------------------------------------------------------------------------
+# Suggestion engine — help failed proposals become good ones
+# ---------------------------------------------------------------------------
+
+_SAMPLE_VERBS: tuple[str, ...] = (
+    "build", "test", "fix", "optimize", "implement", "refactor",
+    "wire", "deploy", "monitor", "analyze",
+)
+
+
+def suggest(
+    text: str,
+    tags: list[str] | None = None,
+    *,
+    known_modules: frozenset[str] | None = None,
+) -> dict:
+    """Generate fix hints for a proposal that failed (or could be improved).
+
+    Returns a dict with:
+        fix_hints       (list[str])  — actionable suggestions
+        nearest_targets (list[str])  — fuzzy-matched module names
+        example         (str)        — example improved proposal
+        score_before    (float)      — current specificity score
+    """
+    result = validate(text, tags or [])
+    modules = known_modules if known_modules is not None else discover_modules()
+
+    fix_hints: list[str] = []
+    nearest_targets: list[str] = []
+
+    # Hint: missing verb
+    if not result["verb_found"]:
+        samples = ", ".join(f"'{v}'" for v in _SAMPLE_VERBS[:5])
+        fix_hints.append(f"Add an action verb ({samples}, ...)")
+
+    # Hint: missing target
+    if not result["target_found"]:
+        fix_hints.append(
+            "Add a concrete target — a filename (foo.py), tool name "
+            "(process_inbox), path (scripts/), or discussion ref (#1234)"
+        )
+
+    # Fuzzy-match words against known modules
+    if modules:
+        words = set(re.findall(r"[a-z][a-z0-9_]+", text.lower()))
+        for word in sorted(words):
+            matches = difflib.get_close_matches(
+                word, sorted(modules), n=2, cutoff=0.6,
+            )
+            nearest_targets.extend(m for m in matches if m not in nearest_targets)
+        # Cap at 5 suggestions
+        nearest_targets = nearest_targets[:5]
+
+    # Hint: suggest discovered modules
+    if nearest_targets and not result["target_found"]:
+        names = ", ".join(nearest_targets[:3])
+        fix_hints.append(f"Did you mean one of these modules? {names}")
+
+    # Generate example
+    verb = result["verb_found"] or "Build"
+    if nearest_targets:
+        target = f"{nearest_targets[0]}.py"
+    elif modules:
+        # Pick a recognizable module
+        target = f"{sorted(modules)[0]}.py"
+    else:
+        target = "seed_gate.py"
+
+    example = f"{verb.capitalize()} {target} with comprehensive validation and tests"
+
+    # Hint: too short
+    stripped = text.strip()
+    if len(stripped) < 50:
+        fix_hints.append(
+            f"Expand the proposal ({len(stripped)} chars → 50+ recommended)"
+        )
+
+    return {
+        "fix_hints": fix_hints,
+        "nearest_targets": nearest_targets,
+        "example": example,
+        "score_before": result["score"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Batch validation — process multiple proposals efficiently
+# ---------------------------------------------------------------------------
+
+def validate_batch(
+    items: list[tuple[str, list[str]]],
+    *,
+    mode: str = "admission",
+) -> list[dict]:
+    """Validate multiple proposals in one call.
+
+    Each item is ``(text, tags)``.  Returns a list of dicts (same shape
+    as ``validate()``).
+    """
+    return [validate(text, tags, mode=mode) for text, tags in items]
 
 
 if __name__ == "__main__":
