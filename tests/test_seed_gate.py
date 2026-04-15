@@ -19,9 +19,9 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from seed_gate import (
     ACTION_VERBS, CHANNEL_RE, EXEMPT_TAGS, FILE_RE, FUNC_RE, PATH_RE,
-    SPECIAL_FILE_RE, TOOL_RE, SeedGateResult,
+    REF_RE, SPECIAL_FILE_RE, TOOL_RE, SeedGateResult,
     compute_score, find_action_verb, find_concrete_target,
-    passes_gate, validate_seed,
+    passes_gate, validate, validate_seed,
 )
 
 
@@ -592,3 +592,98 @@ class TestSmoke:
         assert isinstance(r.passes, bool)
         assert 0 <= r.score <= 10
         assert isinstance(r.reason, str)
+
+
+# === validate() dict API (propose_seed.py compatibility) ===
+
+class TestValidateDictAPI:
+    def test_returns_dict(self):
+        result = validate("Build seed_gate.py with comprehensive tests")
+        assert isinstance(result, dict)
+
+    def test_passed_key(self):
+        result = validate("Build seed_gate.py with comprehensive tests")
+        assert result["passed"] is True
+
+    def test_failed_passed_key(self):
+        result = validate("The colony needs more water and food")
+        assert result["passed"] is False
+
+    def test_reasons_empty_on_pass(self):
+        result = validate("Build seed_gate.py with comprehensive tests")
+        assert result["reasons"] == []
+
+    def test_reasons_populated_on_fail(self):
+        result = validate("The colony needs more water and food")
+        assert len(result["reasons"]) > 0
+        assert isinstance(result["reasons"][0], str)
+
+    def test_verb_and_target_present(self):
+        result = validate("Build seed_gate.py with comprehensive tests")
+        assert result["verb"] == "build"
+        assert result["target"] == "seed_gate.py"
+
+    def test_score_in_dict(self):
+        result = validate("Build seed_gate.py with comprehensive tests")
+        assert 0 <= result["score"] <= 10
+
+    def test_code_in_dict(self):
+        result = validate("Build seed_gate.py with comprehensive tests")
+        assert result["code"] == "ok"
+
+    def test_tags_passed_through(self):
+        result = validate(
+            "Explore the meaning of consciousness for all agents",
+            tags=["philosophy"],
+        )
+        assert result["passed"] is True
+
+    def test_purge_mode(self):
+        result = validate("Build seed_gate.py with tests", mode="purge")
+        assert result["passed"] is True
+
+    def test_propose_seed_integration_pattern(self):
+        """Simulate exactly how propose_seed.py calls validate()."""
+        gate = validate("Build seed_gate.py with comprehensive tests", ["artifact"])
+        assert gate["passed"], gate["reasons"]
+
+
+# === REF_RE (discussion/issue references as targets) ===
+
+class TestDiscussionRefs:
+    def test_ref_re_matches_issue(self):
+        assert REF_RE.search("#12503")
+
+    def test_ref_re_matches_discussion(self):
+        assert REF_RE.search("See discussion #6135 for details")
+
+    def test_ref_re_rejects_short_numbers(self):
+        assert not REF_RE.search("#42")
+
+    def test_ref_as_target(self):
+        assert find_concrete_target("Fix the bug reported in #12503") == "#12503"
+
+    def test_ref_passes_gate(self):
+        r = validate_seed("Fix the regression documented in issue #12503 urgently")
+        assert r.passes is True
+        assert r.target == "#12503"
+
+
+# === Fragment detection improvements ===
+
+class TestFragmentDetection:
+    def test_filename_start_not_fragment(self):
+        r = validate_seed("seed_gate.py really needs attention from the whole team of agents")
+        assert r.code != "fragment"
+
+    def test_tool_name_start_not_fragment(self):
+        r = validate_seed("run_python is used to execute the simulation step every frame")
+        assert r.code != "fragment"
+
+    def test_lowercase_regular_word_is_fragment(self):
+        r = validate_seed("the colony needs more water and food to survive the winter today")
+        assert r.code == "fragment"
+
+    def test_pytest_start_not_fragment(self):
+        r = validate_seed("pytest should be run against seed_gate.py after every change made")
+        assert r.code != "fragment"

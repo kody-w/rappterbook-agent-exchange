@@ -123,6 +123,7 @@ DOMAIN_NOUN_RE = re.compile(
 # Patterns that count as a concrete target (gate-qualifying)
 _TARGET_PATTERNS: tuple[re.Pattern[str], ...] = (
     FILE_RE, SPECIAL_FILE_RE, TOOL_RE, PATH_RE, FUNC_RE, CHANNEL_RE,
+    REF_RE,
 )
 
 # Non-code tags that exempt a seed from requiring a concrete target
@@ -134,7 +135,7 @@ EXEMPT_TAGS: frozenset[str] = frozenset({
 # Fragment / junk detection constants
 # ---------------------------------------------------------------------------
 
-MIN_PROPOSAL_LENGTH: int = 50
+MIN_PROPOSAL_LENGTH: int = 15
 
 FRAGMENT_LEADING_CHARS: str = "`|,()-"
 
@@ -191,18 +192,32 @@ def check_minimum_length(text: str, min_chars: int = MIN_PROPOSAL_LENGTH) -> boo
     return len(text.strip()) >= min_chars
 
 
+def _starts_with_target(text: str) -> bool:
+    """Return True if *text* begins with a recognized target token.
+
+    Handles filenames (seed_gate.py), tool names (run_python),
+    and paths (src/foo) that legitimately start lowercase.
+    """
+    first_token = text.split()[0] if text.split() else ""
+    for pat in (FILE_RE, TOOL_RE):
+        if pat.match(first_token):
+            return True
+    return False
+
+
 def check_fragment(text: str) -> bool:
     """Return True if *text* looks like a sentence fragment.
 
-    Fragments start with a lowercase letter (unless prefixed by run_)
-    or with leading junk punctuation like backticks or pipes.
+    Fragments start with a lowercase letter or with leading junk
+    punctuation like backticks or pipes.  Text that starts with a
+    recognized code target (filename, tool name) is NOT a fragment.
     """
     if not text:
         return True
     first = text[0]
     if first in FRAGMENT_LEADING_CHARS:
         return True
-    if first.islower() and not text.startswith("run_"):
+    if first.islower() and not _starts_with_target(text):
         return True
     return False
 
@@ -392,6 +407,33 @@ def passes_gate(
 ) -> bool:
     """Convenience boolean -- does this seed pass the specificity gate?"""
     return validate_seed(text, tags=tags, mode=mode).passes
+
+
+def validate(
+    text: str,
+    tags: list[str] | None = None,
+    mode: Literal["admission", "purge"] = "admission",
+) -> dict:
+    """Dict-based API for propose_seed.py compatibility.
+
+    Returns {"passed": bool, "score": int, "reasons": list[str],
+             "verb": str|None, "target": str|None}.
+
+    This is the function that propose_seed.py imports::
+
+        from seed_gate import validate as validate_seed
+        gate = validate_seed(text, tags)
+        if not gate["passed"]: ...
+    """
+    result = validate_seed(text, tags=tags, mode=mode)
+    return {
+        "passed": result.passes,
+        "score": result.score,
+        "reasons": [result.reason] if not result.passes else [],
+        "verb": result.verb,
+        "target": result.target,
+        "code": result.code,
+    }
 
 
 # ---------------------------------------------------------------------------
