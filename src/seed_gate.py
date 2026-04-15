@@ -15,16 +15,21 @@ Two public APIs -- pick whichever suits the call-site:
     # Dataclass API
     result = validate_seed(text, tags)  # -> SeedGateResult
     if not result.passed: ...
+    result.confidence                   # "high" | "medium" | "low" | "none"
+    result.suggestions                  # tuple[str, ...] of actionable hints
 
     # Bool convenience
     ok = passes_gate(text, tags)
+
+    # Suggestion engine
+    hints = suggest(text, tags)         # -> list[str]
 
     # Batch API (for purge_junk in propose_seed.py)
     br = validate_batch(proposals)      # -> BatchResult
     for item in br.junk_items: ...
 
     # Composable helpers
-    verb   = find_verb(text)          # str | None
+    verb   = find_verb(text)          # str | None  (handles inflected forms)
     target = find_target(text)        # (str, str) pair
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
@@ -36,9 +41,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb normalization (inflected forms: ing/ed/s/es),
+                  suggestion engine, confidence levels, expanded
+                  KNOWN_TOOLS (from PR #251).
 """
 from __future__ import annotations
 
@@ -151,6 +159,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    "inject_seed", "tally_votes", "steer", "reconcile_state",
+    "run_proof", "run_python", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -264,6 +274,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    suggestions: tuple = ()
 
     @property
     def verb(self) -> str:
@@ -272,6 +283,17 @@ class SeedGateResult:
     @property
     def target(self) -> str:
         return self.target_found or ""
+
+    @property
+    def confidence(self) -> str:
+        """Gate-aware confidence: 'none' when not passed, else score-based."""
+        if not self.passed or self.junk:
+            return "none"
+        if self.score >= 0.65:
+            return "high"
+        if self.score >= 0.35:
+            return "medium"
+        return "low"
 
     def to_dict(self) -> dict:
         return {
@@ -284,6 +306,8 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "suggestions": list(self.suggestions),
+            "confidence": self.confidence,
         }
 
 
@@ -322,6 +346,58 @@ class BatchResult:
 
 
 # ---------------------------------------------------------------------------
+# Verb normalization (inflected forms -> base form)
+# ---------------------------------------------------------------------------
+
+def _normalize_verb(word: str) -> str | None:
+    """Strip common inflection suffixes and return base verb if in ACTION_VERBS.
+
+    Only strips ing/ed/es/s -- NOT -tion/-ment which are nouns.
+    Membership-gated: returns None if the base form isn't a known verb.
+    """
+    if word in ACTION_VERBS:
+        return word
+    # -ing: "refactoring" -> "refactor", "shipping" -> "ship"
+    if word.endswith("ing") and len(word) > 4:
+        base = word[:-3]
+        # doubled consonant: running -> run, shipping -> ship
+        if len(base) >= 2 and base[-1] == base[-2]:
+            candidate = base[:-1]
+            if candidate in ACTION_VERBS:
+                return candidate
+        # e-drop: creating -> create, writing -> write
+        if (base + "e") in ACTION_VERBS:
+            return base + "e"
+        # direct: building -> build
+        if base in ACTION_VERBS:
+            return base
+    # -ed: "deployed" -> "deploy", "created" -> "create"
+    if word.endswith("ed") and len(word) > 3:
+        base = word[:-2]
+        if len(base) >= 2 and base[-1] == base[-2]:
+            candidate = base[:-1]
+            if candidate in ACTION_VERBS:
+                return candidate
+        if (base + "e") in ACTION_VERBS:
+            return base + "e"
+        if base in ACTION_VERBS:
+            return base
+    # -es: "patches" -> "patch", "analyzes" -> "analyze"
+    if word.endswith("es") and len(word) > 3:
+        base = word[:-2]
+        if (base + "e") in ACTION_VERBS:
+            return base + "e"
+        if base in ACTION_VERBS:
+            return base
+    # -s: "builds" -> "build", "tests" -> "test"
+    if word.endswith("s") and not word.endswith("es") and len(word) > 3:
+        base = word[:-1]
+        if base in ACTION_VERBS:
+            return base
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -331,7 +407,7 @@ def _is_false_file_match(match_text: str) -> bool:
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single, phrasal, or inflected)."""
     words = text.split()
     if not words:
         return False
@@ -340,7 +416,7 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,7 +432,10 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Handles phrasal verbs and inflected forms (refactoring -> refactor).
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
@@ -364,13 +443,17 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
                 return _PHRASAL_FIRST[word][next_word]
-        if word in ACTION_VERBS:
-            return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Handles phrasal verbs and inflected forms.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -388,9 +471,10 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        normalized = _normalize_verb(word)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
     return result
 
 
@@ -593,6 +677,52 @@ _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind
 
 
 # ---------------------------------------------------------------------------
+# Suggestion engine
+# ---------------------------------------------------------------------------
+
+_EXAMPLE_VERBS = ("build", "test", "fix", "refactor", "optimize", "deploy")
+_EXAMPLE_TARGETS = ("water_mining.py", "process_inbox", "r/mars-engineering", "#12503")
+
+
+def suggest(text: str, tags: list = None) -> list[str]:
+    """Return actionable hints to improve a seed proposal.
+
+    Derives suggestions from the validation result (reasons, advisory,
+    passed, exempt state) rather than raw score, so advice is consistent
+    with gate outcome.
+    """
+    result = validate_seed(text, tags or [])
+    return list(result.suggestions)
+
+
+def _build_suggestions(
+    passed: bool,
+    verb: str | None,
+    target: str | None,
+    is_exempt: bool,
+    advisory: str,
+    junk: bool,
+    score: float,
+) -> tuple[str, ...]:
+    """Build suggestion hints from validation state."""
+    hints: list[str] = []
+    if junk:
+        hints.append("Proposal looks like junk or a parser artifact -- rewrite as a clear sentence")
+        return tuple(hints)
+    if not verb:
+        examples = ", ".join(_EXAMPLE_VERBS[:4])
+        hints.append(f"Start with an action verb (e.g. {examples})")
+    if not target and not is_exempt:
+        examples = ", ".join(_EXAMPLE_TARGETS[:3])
+        hints.append(f"Add a concrete target ({examples})")
+    if passed and advisory == "needs-specificity":
+        hints.append("Proposal passes but would score higher with a specific target")
+    if passed and score < 0.35:
+        hints.append("Add more context or a second target to strengthen the proposal")
+    return tuple(hints)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -611,9 +741,14 @@ def validate_seed(
     junk_limit = 60 if mode == "purge" else 0
     junk_reason = is_junk(text, limit=junk_limit)
     if junk_reason:
+        suggestions = _build_suggestions(
+            passed=False, verb=None, target=None,
+            is_exempt=is_exempt, advisory="", junk=True, score=0.0,
+        )
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            suggestions=suggestions,
         )
 
     # -- Verb + target ---
@@ -640,11 +775,16 @@ def validate_seed(
 
     # -- Soft artifact check ---
     if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+        suggestions = _build_suggestions(
+            passed=False, verb=verb, target=target,
+            is_exempt=is_exempt, advisory="", junk=True, score=0.0,
+        )
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            suggestions=suggestions,
         )
 
     # -- Decision ---
@@ -667,10 +807,17 @@ def validate_seed(
     elif verb and not target:
         advisory = "needs-specificity"
 
+    suggestions = _build_suggestions(
+        passed=passed, verb=verb, target=target,
+        is_exempt=is_exempt, advisory=advisory,
+        junk=False, score=specificity,
+    )
+
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        suggestions=suggestions,
     )
 
 
