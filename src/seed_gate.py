@@ -18,6 +18,12 @@ Two public APIs -- pick whichever suits the call-site:
 
     # Bool convenience
     ok = passes_gate(text, tags)
+
+    # Composable helpers
+    verb   = find_verb(text)       # str | None
+    target = find_target(text)     # str | None
+    junk   = is_junk(text)         # str (reason) or empty string
+    score  = compute_score(text, verb, target, target_kind)  # float
 """
 from __future__ import annotations
 
@@ -30,7 +36,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 46 action verbs -- frozenset for O(1) lookup  (from #12503)
+# 70 action verbs -- frozenset for O(1) lookup  (from #12503 + main repo)
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
@@ -44,6 +50,10 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "document", "map", "diagram", "prototype",
     "explore", "investigate", "analyze", "evaluate", "assess",
     "consider", "debate", "discuss", "propose", "plan",
+    # From main repo consolidation (#12505, #12521)
+    "consolidate", "decode", "establish", "execute", "extend",
+    "instrument", "measure", "merge", "remove", "render",
+    "review", "run", "score", "validate",
 })
 
 # Target regex patterns (compiled once)
@@ -56,6 +66,16 @@ FILE_RE = re.compile(
 # Tool / module name: snake_case or kebab-case with 2+ segments
 TOOL_RE = re.compile(
     r"\b[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+\b"
+)
+
+# Repo path: state/agents, scripts/process_inbox, etc.  (from main repo)
+PATH_RE = re.compile(
+    r"\b(?:state|scripts|docs|sdk|tests|src|engine|api|zion)/[\w_./-]+"
+)
+
+# Function call: validate(), compute_score(), etc.  (from main repo)
+FUNC_RE = re.compile(
+    r"\b[\w_]+\(\)"
 )
 
 # CLI-ish invocations: `some_command`, --flag, -f
@@ -95,6 +115,14 @@ _JUNK_PATTERNS: list[re.Pattern[str]] = [
 
 # Exception: `run_` prefix is OK even though it starts lowercase
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
+
+# Artifact signals -- parser artifacts from automated extraction (#12507)
+ARTIFACT_SIGNALS: tuple[str, ...] = (
+    "` has `", "` and `", "`) and ", "` is ",
+    "the regex", "the parser", "the fragment",
+    "outside that grammar", "parser grabbed",
+    "parsing artifact", "substring", "the fragment was",
+)
 
 # ---------------------------------------------------------------------------
 # Dataclass result
@@ -137,25 +165,44 @@ class SeedGateResult:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Public composable helpers
 # ---------------------------------------------------------------------------
 
-def _detect_verb(text: str, limit: int = 0) -> str:
-    """Return the first action verb found in *text*, or empty string."""
+def find_verb(text: str, limit: int = 0) -> str | None:
+    """Return the first action verb found in *text*, or None.
+
+    Parameters
+    ----------
+    text : str
+        The text to search.
+    limit : int
+        If > 0, only search the first *limit* characters.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for word in words:
         if word in ACTION_VERBS:
             return word
-    return ""
+    return None
 
 
-def _detect_target(text: str) -> tuple:
-    """Return (target_string, target_kind) or ('', '')."""
+def find_target(text: str) -> tuple[str, str]:
+    """Return ``(target_string, target_kind)`` or ``('', '')``.
+
+    Target kinds (in priority order):
+    ``"file"``, ``"path"``, ``"func"``, ``"tool"``, ``"cli"``,
+    ``"discussion"``, ``"channel"``, ``"quoted"``.
+    """
     # Order matters -- most specific first
     m = FILE_RE.search(text)
     if m:
         return m.group(), "file"
+    m = PATH_RE.search(text)
+    if m:
+        return m.group(), "path"
+    m = FUNC_RE.search(text)
+    if m:
+        return m.group(), "func"
     m = TOOL_RE.search(text)
     if m:
         return m.group(), "tool"
@@ -174,8 +221,12 @@ def _detect_target(text: str) -> tuple:
     return "", ""
 
 
-def _is_junk(text: str, limit: int = 0) -> str:
-    """Return a reason string if *text* looks like junk, else empty string."""
+def is_junk(text: str, limit: int = 0) -> str:
+    """Return a reason string if *text* looks like junk, else empty string.
+
+    Checks: empty/short text, junk punctuation starts, lowercase fragments,
+    numbered list items, bare URLs, leftover comments, parser artifact signals.
+    """
     check = text[:limit] if limit else text
     stripped = check.strip()
     if not stripped:
@@ -187,32 +238,58 @@ def _is_junk(text: str, limit: int = 0) -> str:
     for pat in _JUNK_PATTERNS:
         if pat.search(stripped):
             return "junk signal: %r" % pat.pattern
+    # Artifact signal detection (#12507, main repo)
+    head = stripped[:80].lower()
+    for signal in ARTIFACT_SIGNALS:
+        if signal in head:
+            return "parsing artifact: %r" % signal
     return ""
 
 
-def _score(text: str, verb: str, target: str, target_kind: str) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0
+def compute_score(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> float:
+    """Compute a 0.0-1.0 specificity score.
+
+    Weights targets higher than verbs (#12511). Bonus for multiple
+    concrete targets and length/detail.
+    """
+    raw = 0.0
     if verb:
-        raw += 3
+        raw += 2.5
     if target:
         kind_scores = {
-            "file": 4, "tool": 3, "cli": 3,
-            "discussion": 2, "channel": 2, "quoted": 1,
+            "file": 4.0, "path": 3.5, "func": 3.0,
+            "tool": 3.0, "cli": 3.0,
+            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
-        raw += kind_scores.get(target_kind, 1)
+        raw += kind_scores.get(target_kind, 1.5)
     # Bonus for length / detail
     words = text.split()
     if len(words) >= 8:
-        raw += 1
+        raw += 0.5
     if len(words) >= 15:
-        raw += 1
+        raw += 0.5
     # Bonus for multiple concrete targets
     file_count = len(FILE_RE.findall(text))
     tool_count = len(TOOL_RE.findall(text))
-    if (file_count + tool_count) >= 2:
-        raw += 1
+    path_count = len(PATH_RE.findall(text))
+    if (file_count + tool_count + path_count) >= 2:
+        raw += 1.0
     return min(raw / 10.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Private aliases (backward compat for any code importing underscore names)
+# ---------------------------------------------------------------------------
+
+_detect_verb = find_verb
+_detect_target = find_target
+_is_junk = is_junk
+_score = lambda text, verb, target, target_kind: compute_score(text, verb, target, target_kind)
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +320,7 @@ def validate_seed(
 
     # -- Junk check ---------------------------------------------------------
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = _is_junk(text, limit=junk_limit)
+    junk_reason = is_junk(text, limit=junk_limit)
     is_junk_flag = bool(junk_reason)
 
     if is_junk_flag:
@@ -258,10 +335,10 @@ def validate_seed(
 
     # -- Verb check ---------------------------------------------------------
     verb_limit = 200 if mode == "purge" else 0
-    verb = _detect_verb(text, limit=verb_limit)
+    verb = find_verb(text, limit=verb_limit)
 
     # -- Target check -------------------------------------------------------
-    target, target_kind = _detect_target(text)
+    target, target_kind = find_target(text)
 
     # -- Decision -----------------------------------------------------------
     if mode == "purge":
@@ -271,9 +348,9 @@ def validate_seed(
     else:
         # Admission mode: require verb + (target or exempt)
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = _score(text, verb, target, target_kind)
+        specificity = compute_score(text, verb, target, target_kind)
 
-    reasons = []
+    reasons: list[str] = []
     if not passed:
         if not verb:
             reasons.append("No action verb found")
