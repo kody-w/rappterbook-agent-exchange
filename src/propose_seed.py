@@ -99,9 +99,15 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
+            return p
+
+    # Near-duplicate check via similarity (verb+target guarded)
+    from seed_gate import similarity as _similarity
+    for p in seeds.get("proposals", []):
+        if _similarity(text, p.get("text", "")) >= 0.70:
             return p
 
     proposal = {

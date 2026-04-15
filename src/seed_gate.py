@@ -45,6 +45,12 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- diagnostics + intelligence: explain() API; score_breakdown()
+                  with decomposed components; find_verb_with_position()
+                  returning (verb, start, end) spans; clause-scoped
+                  negation detection (don't/never/shouldn't before primary
+                  verb → reject); similarity() for near-duplicate detection
+                  with target+verb guards.
 """
 from __future__ import annotations
 
@@ -182,6 +188,24 @@ for _inf_phrase, _inf_canonical in _INFLECTION_MAP.items():
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+# ---------------------------------------------------------------------------
+# Negation detection -- clause-scoped (rubber-duck advised)
+# ---------------------------------------------------------------------------
+
+# Negation words that cancel the actionability of a verb
+_NEGATION_WORDS: frozenset[str] = frozenset({
+    "don't", "dont", "do not", "doesn't", "doesnt", "does not",
+    "didn't", "didnt", "did not", "won't", "wont", "will not",
+    "can't", "cant", "cannot", "can not",
+    "shouldn't", "shouldnt", "should not",
+    "wouldn't", "wouldnt", "would not",
+    "couldn't", "couldnt", "could not",
+    "never", "stop", "avoid", "cease", "halt", "prevent",
+})
+
+# Clause boundary characters -- negation resets at these
+_CLAUSE_BOUNDARY_RE = re.compile(r"[.;:!?\-—]|\bbut\b|\band\b|\bor\b|\binstead\b|\brather\b")
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -356,6 +380,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    negated: bool = False
 
     @property
     def verb(self) -> str:
@@ -386,6 +411,7 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "negated": self.negated,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -469,6 +495,35 @@ def _starts_with_file(text: str) -> bool:
     return False
 
 
+def _detect_negation(text: str, verb_start: int) -> bool:
+    """Return True if the primary verb is negated within its clause.
+
+    Uses clause boundaries (.;:!?— but and or instead rather) to scope
+    the negation.  "Don't build X" → negated.  "Fix why we shouldn't
+    remove auth.py" → NOT negated (negation is in a subordinate clause).
+    """
+    lower = text.lower()
+    # Find the clause containing the verb
+    boundaries = [m.start() for m in _CLAUSE_BOUNDARY_RE.finditer(lower)]
+    clause_start = 0
+    for b in boundaries:
+        if b < verb_start:
+            clause_start = b + 1
+        else:
+            break
+    clause_before_verb = lower[clause_start:verb_start]
+    # Check for negation words in the same clause, before the verb
+    for neg in _NEGATION_WORDS:
+        if " " in neg:
+            if neg in clause_before_verb:
+                return True
+        else:
+            # Match as whole word
+            if re.search(r"\b" + re.escape(neg) + r"\b", clause_before_verb):
+                return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
@@ -493,6 +548,43 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             return word
         if word in _INFLECTION_MAP:
             return _INFLECTION_MAP[word]
+    return None
+
+
+def find_verb_with_position(text: str) -> tuple[str, int, int] | None:
+    """Return (canonical_verb, start_offset, end_offset) in original text.
+
+    Offsets refer to the original text (not lowered/tokenized).  For phrasal
+    verbs the span covers both words.  Returns None if no verb is found.
+    """
+    lower = text.lower()
+    # Try phrasal verbs first (longer match wins)
+    for phrase in sorted(PHRASAL_VERBS, key=len, reverse=True):
+        idx = lower.find(phrase)
+        if idx >= 0:
+            before = lower[:idx]
+            if not before or not before[-1].isalpha():
+                after_idx = idx + len(phrase)
+                if after_idx >= len(lower) or not lower[after_idx].isalpha():
+                    return PHRASAL_VERBS[phrase], idx, after_idx
+    # Try inflected phrasal verbs
+    for inf_phrase, canonical in _INFLECTION_MAP.items():
+        if " " not in inf_phrase:
+            continue
+        idx = lower.find(inf_phrase)
+        if idx >= 0:
+            before = lower[:idx]
+            if not before or not before[-1].isalpha():
+                after_idx = idx + len(inf_phrase)
+                if after_idx >= len(lower) or not lower[after_idx].isalpha():
+                    return canonical, idx, after_idx
+    # Single-word verbs (base and inflected)
+    for m in re.finditer(r"[a-zA-Z]+", text):
+        word = m.group().lower()
+        if word in ACTION_VERBS:
+            return word, m.start(), m.end()
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word], m.start(), m.end()
     return None
 
 
@@ -704,6 +796,41 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _compute_score_components(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict[str, float]:
+    """Internal: compute individual score components as a dict.
+
+    Single source of truth for scoring -- used by both compute_score()
+    and score_breakdown().
+    """
+    components: dict[str, float] = {}
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    components["verb"] = 2.5 if verb else 0.0
+    components["target"] = kind_scores.get(target_kind, 1.5) if target else 0.0
+    words = text.split()
+    length_bonus = 0.0
+    if len(words) >= 8:
+        length_bonus += 0.5
+    if len(words) >= 15:
+        length_bonus += 1.0
+    components["length"] = length_bonus
+    unique = count_unique_targets(text)
+    components["multi_target"] = 1.0 if unique >= 2 else 0.0
+    components["imperative"] = 0.5 if (verb and _starts_with_verb(text)) else 0.0
+    total_raw = sum(components.values())
+    components["total_raw"] = total_raw
+    components["normalized"] = min(total_raw / 10.0, 1.0)
+    return components
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -711,28 +838,24 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    return _compute_score_components(text, verb, target, target_kind)["normalized"]
+
+
+def score_breakdown(text: str, tags: list = None) -> dict[str, float]:
+    """Return decomposed score components for a proposal.
+
+    Returns a dict with keys: verb, target, length, multi_target,
+    imperative, total_raw, normalized.  Makes compute_score transparent.
+    """
+    verb = find_verb(text)
+    target, target_kind = find_target(text)
+    if not verb:
+        tag_set = frozenset(t.lower().strip() for t in (tags or []))
+        for tag in tag_set:
+            if tag in TAG_IMPLIED_VERBS:
+                verb = TAG_IMPLIED_VERBS[tag]
+                break
+    return _compute_score_components(text, verb, target, target_kind)
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -759,6 +882,107 @@ def suggest(text: str, tags: list = None) -> list[str]:
             "Rewrite as a complete sentence starting with a capital letter"
         )
     return suggestions
+
+
+def explain(text: str, tags: list = None) -> list[str]:
+    """Return detailed diagnostic lines explaining how a proposal was scored.
+
+    Each line is a human-readable explanation of a specific scoring decision.
+    Useful for debugging why proposals pass/fail and what could improve them.
+    """
+    result = validate_seed(text, tags)
+    lines: list[str] = []
+    # Junk check
+    junk_reason = is_junk(text)
+    if junk_reason:
+        lines.append(f"JUNK: {junk_reason}")
+        return lines
+    # Verb analysis
+    vp = find_verb_with_position(text)
+    if vp:
+        verb, start, end = vp
+        original_span = text[start:end]
+        if original_span.lower() != verb:
+            lines.append(f"VERB: '{original_span}' → '{verb}' (inflected) at position {start}")
+        else:
+            lines.append(f"VERB: '{verb}' at position {start}")
+        if _starts_with_verb(text):
+            lines.append("BONUS: imperative form (verb-first) +0.5")
+        # Negation check
+        if _detect_negation(text, start):
+            lines.append(f"NEGATED: verb '{verb}' is negated in its clause")
+    else:
+        lines.append("VERB: none found")
+        tag_set = frozenset(t.lower().strip() for t in (tags or []))
+        for tag in tag_set:
+            if tag in TAG_IMPLIED_VERBS:
+                lines.append(f"VERB (implied): '{TAG_IMPLIED_VERBS[tag]}' from tag '{tag}'")
+                break
+    # Target analysis
+    target, target_kind = find_target(text)
+    if target:
+        lines.append(f"TARGET: '{target}' (kind: {target_kind})")
+    else:
+        lines.append("TARGET: none found")
+    all_targets = _find_all_targets(text)
+    if len(all_targets) > 1:
+        names = [t for t, _k in all_targets]
+        lines.append(f"MULTI-TARGET: {len(all_targets)} targets found: {names}")
+    # Score breakdown
+    breakdown = score_breakdown(text, tags)
+    components = {k: v for k, v in breakdown.items() if k not in ("total_raw", "normalized") and v > 0}
+    if components:
+        parts = [f"{k}={v}" for k, v in components.items()]
+        lines.append(f"SCORE: {breakdown['normalized']:.2f} ({', '.join(parts)})")
+    else:
+        lines.append(f"SCORE: {breakdown['normalized']:.2f}")
+    # Decision
+    if result.passed:
+        lines.append(f"RESULT: PASS (confidence: {result.confidence})")
+    else:
+        lines.append(f"RESULT: FAIL — {', '.join(result.reasons)}")
+    if result.advisory:
+        lines.append(f"ADVISORY: {result.advisory}")
+    return lines
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute token-overlap similarity between two proposals (0.0-1.0).
+
+    Uses Jaccard index on canonicalized tokens, guarded by target/verb
+    overlap.  Two proposals with different primary targets or opposing
+    verbs are never considered similar (returns 0.0).
+
+    Useful for near-duplicate detection in propose_seed.py.
+    """
+    def _tokenize(text: str) -> set[str]:
+        return {w.lower().strip("\"'`.,;:!?()-") for w in text.split() if len(w) > 1}
+    tokens_a = _tokenize(a)
+    tokens_b = _tokenize(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    # Guard: primary targets must overlap
+    target_a, _ = find_target(a)
+    target_b, _ = find_target(b)
+    if target_a and target_b:
+        ca = canonicalize_target(target_a)
+        cb = canonicalize_target(target_b)
+        if ca and cb and ca != cb and ca not in cb and cb not in ca:
+            return 0.0
+    # Guard: opposing verb families = not similar
+    verb_a = find_verb(a)
+    verb_b = find_verb(b)
+    _opposing = {
+        frozenset({"build", "remove"}), frozenset({"deploy", "delete"}),
+        frozenset({"enable", "disable"}), frozenset({"add", "remove"}),
+        frozenset({"install", "delete"}), frozenset({"create", "remove"}),
+    }
+    if verb_a and verb_b and frozenset({verb_a, verb_b}) in _opposing:
+        return 0.0
+    # Jaccard index
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    return len(intersection) / len(union) if union else 0.0
 
 
 # Backward-compat aliases
@@ -827,22 +1051,33 @@ def validate_seed(
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
         )
 
+    # -- Negation check (clause-scoped) ---
+    negated = False
+    if verb and mode == "admission":
+        vp = find_verb_with_position(text)
+        if vp:
+            _, verb_start, _ = vp
+            negated = _detect_negation(text, verb_start)
+
     # -- Decision ---
     if mode == "purge":
         passed = True
         specificity = 0.5
     else:
-        passed = bool(verb) and (bool(target) or is_exempt)
+        passed = bool(verb) and (bool(target) or is_exempt) and not negated
         specificity = compute_score(text, verb, target, target_kind)
 
     reasons: list[str] = []
     advisory = ""
     if not passed:
-        if not verb:
+        if negated:
+            reasons.append("Primary verb is negated (not an actionable proposal)")
+            advisory = "negated"
+        elif not verb:
             reasons.append("No action verb found")
-        if not target and not is_exempt:
+        if not target and not is_exempt and not negated:
             reasons.append("No concrete target (filename, tool, or reference)")
-        if verb and not target and not is_exempt:
+        if verb and not target and not is_exempt and not negated:
             advisory = "needs-specificity"
     elif verb and not target:
         advisory = "needs-specificity"
@@ -851,6 +1086,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        negated=negated,
     )
 
 
