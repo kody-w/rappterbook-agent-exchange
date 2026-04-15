@@ -33,9 +33,11 @@ Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
     PR #245  -- auto-discovered modules, two-tier artifacts, propose_seed wiring
-    This frame -- consolidated #245/#246/#247: false-file filter, special
-                  files, known tools, question stems, batch API, smart
-                  lowercase, substring dedup.
+    PR #248  -- consolidated #245/#246/#247: false-file filter, special
+               files, known tools, question stems, batch API, smart
+               lowercase, substring dedup.
+    This frame -- version-string filter, colon-prefix handling, centralized
+                  file validation in count_unique_targets, new verbs.
 """
 from __future__ import annotations
 
@@ -49,7 +51,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 70 action verbs -- frozenset for O(1) lookup  (from #12503 + main repo)
+# 86 action verbs -- frozenset for O(1) lookup  (from #12503 + main repo)
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
@@ -66,6 +68,10 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "consolidate", "decode", "establish", "execute", "extend",
     "instrument", "measure", "merge", "remove", "render",
     "review", "run", "score", "validate",
+    # Added this frame: common real-world proposal verbs
+    "configure", "scaffold", "bootstrap", "provision",
+    "automate", "archive", "inject", "normalize",
+    "update", "delete", "enable", "disable",
 })
 
 # ---------------------------------------------------------------------------
@@ -79,6 +85,9 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
     "e.g", "i.e", "a.m", "p.m", "vs.",
 })
+
+# Version strings that FILE_RE catches: v2.0, v1.2.3, 3.11
+_VERSION_RE = re.compile(r"^v?\d+(?:\.\d+)+$")
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -171,6 +180,14 @@ _LOWERCASE_START_RE = re.compile(r"^[a-z]")
 _FILE_START_RE = re.compile(r"^[\w./-]*\w+\.\w{1,8}\b")
 
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
+
+# Conventional-commit-style prefixes: "build:", "fix(parser):", "feat!:"
+# Stripped before lowercase-start check so "build: fix CI" isn't rejected.
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:build|fix|feat|test|docs|refactor|chore|ci|perf|style|revert)"
+    r"(?:\([^)]*\))?!?\s*:\s*",
+    re.I,
+)
 
 # Two-tier artifact signals (rubber-duck advised split):
 # Hard: always fail -- parser/extraction garbage
@@ -282,8 +299,15 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Catches abbreviations (e.g., i.e.) and version strings (v2.0, 3.11).
+    """
+    if match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -380,10 +404,20 @@ def is_junk(text: str, limit: int = 0) -> str:
     for pat in _JUNK_PATTERNS:
         if pat.search(stripped):
             return "junk signal: %r" % pat.pattern
-    # Smart lowercase handling: verb-starting or file-starting text is OK
+    # Smart lowercase handling: verb-starting or file-starting text is OK.
+    # Also strip conventional-commit prefixes ("build: ...", "fix(x): ...")
+    # so the remainder gets a fair check.
     if _LOWERCASE_START_RE.match(stripped):
-        if not _starts_with_verb(stripped) and not _starts_with_file(stripped):
-            return "starts lowercase (not a verb or file)"
+        check_text = _COMMIT_PREFIX_RE.sub("", stripped)
+        if check_text == stripped:
+            # No prefix stripped -- check directly
+            if not _starts_with_verb(stripped) and not _starts_with_file(stripped):
+                return "starts lowercase (not a verb or file)"
+        else:
+            # Valid commit prefix present -- not junk if body is non-empty.
+            # Let validate_seed() handle verb+target specificity.
+            if not check_text.strip():
+                return "commit prefix with empty body"
     # Hard artifact signals -- always fail (first 80 chars)
     head = stripped[:80].lower()
     for signal in _HARD_ARTIFACT_SIGNALS:
@@ -418,7 +452,11 @@ def count_unique_targets(text: str) -> int:
     both appear, they count as one (PR #246).
     """
     raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    # Filter false file matches (version strings, abbreviations)
+    for m in FILE_RE.finditer(text):
+        if not _is_false_file_match(m.group()):
+            raw_targets.append(m.group())
+    for pattern in (PATH_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
     canonical: list[str] = []
