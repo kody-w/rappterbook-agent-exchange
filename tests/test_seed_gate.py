@@ -26,6 +26,7 @@ from seed_gate import (  # noqa: E402
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    _starts_with_target,
     passes_gate,
     validate,
     validate_seed,
@@ -765,3 +766,99 @@ class TestModeConsistency:
         pur = _v(text, mode="purge")
         assert adm["verb"] == "build"
         assert pur["verb"] == ""
+
+
+# ===================================================================
+# Fragment exemption (concrete-target starts)
+# ===================================================================
+
+class TestStartsWithTarget:
+    """Unit tests for _starts_with_target helper."""
+
+    def test_filename_at_start(self):
+        assert _starts_with_target("seed_gate.py needs attention") is True
+
+    def test_path_at_start(self):
+        assert _starts_with_target("src/seed_gate.py needs tests") is True
+
+    def test_tool_at_start(self):
+        assert _starts_with_target("propose_seed should validate specificity") is True
+
+    def test_channel_at_start(self):
+        assert _starts_with_target("r/general needs better moderation") is True
+
+    def test_channel_c_prefix(self):
+        assert _starts_with_target("c/mars-colony needs expansion") is True
+
+    def test_discussion_at_start(self):
+        assert _starts_with_target("#12503 needs review before merge") is True
+
+    def test_plain_lowercase_not_target(self):
+        assert _starts_with_target("the colony needs more water") is False
+
+    def test_single_word_not_target(self):
+        assert _starts_with_target("build something cool") is False
+
+    def test_empty_string(self):
+        assert _starts_with_target("") is False
+
+    def test_run_prefix_still_matches(self):
+        assert _starts_with_target("run_python is the entrypoint") is True
+
+
+class TestFragmentExemption:
+    """Integration tests: proposals starting with concrete targets
+    should NOT be rejected as junk even though they start lowercase."""
+
+    def test_filename_start_not_junk(self):
+        r = _v("seed_gate.py needs more comprehensive test coverage for edge cases")
+        assert r["code"] != "junk", f"expected not-junk, got {r}"
+
+    def test_filename_start_passes_with_verb(self):
+        r = _v("seed_gate.py — Build comprehensive test coverage for all edge cases")
+        assert r["passed"] is True
+
+    def test_tool_start_not_junk(self):
+        r = _v("propose_seed should validate specificity before entering pipeline")
+        assert r["code"] != "junk"
+
+    def test_channel_start_not_junk(self):
+        r = _v("r/general needs better moderation tools to handle spam effectively")
+        assert r["code"] != "junk"
+
+    def test_discussion_start_not_junk(self):
+        r = _v("#12503 needs review before merge — agents wrote conflicting gates")
+        assert r["code"] != "junk"
+
+    def test_plain_lowercase_still_junk(self):
+        r = _v("the colony needs more water to survive the long winter ahead")
+        assert r["code"] == "junk"
+
+    def test_generic_lowercase_still_junk(self):
+        r = _v("make the habitat stronger and more resilient against dust storms")
+        assert r["code"] == "junk"
+
+    def test_run_prefix_still_exempted(self):
+        """Existing run_ exemption unchanged by fragment fix."""
+        r = _v("run_test for my_module.py quickly")
+        assert r["code"] != "junk"
+
+    def test_filename_with_verb_passes_gate(self):
+        assert passes_gate("Build seed_gate.py with comprehensive tests")
+
+    def test_filename_start_with_verb_passes(self):
+        r = _v("seed_gate.py — Implement fragment exemption for concrete targets")
+        assert r["passed"] is True
+        assert r["target"] != ""
+
+    def test_path_start_not_junk(self):
+        r = _v("scripts/propose_seed.py needs the gate wired into its propose function")
+        assert r["code"] != "junk"
+
+    def test_compound_tool_not_junk(self):
+        r = _v("compute_trending is slow — Optimize the scoring algorithm for speed")
+        assert r["code"] != "junk"
+
+    def test_kebab_tool_not_junk(self):
+        r = _v("safe-commit needs retry logic — Add exponential backoff on push failure")
+        assert r["code"] != "junk"

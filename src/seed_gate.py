@@ -94,6 +94,15 @@ _JUNK_PATTERNS: list[re.Pattern[str]] = [
 # Exception: `run_` prefix is OK even though it starts lowercase
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 
+# Patterns that exempt lowercase-start text from the fragment check.
+# A proposal starting with a concrete target IS specific, not a fragment.
+_FRAGMENT_EXEMPT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    FILE_RE,          # seed_gate.py, bundle.sh, etc.
+    TOOL_RE,          # propose_seed, compute_trending, etc.
+    CHANNEL_RE,       # r/general, c/code, etc.
+    DISCUSSION_RE,    # #12503
+)
+
 # ---------------------------------------------------------------------------
 # Dataclass result
 # ---------------------------------------------------------------------------
@@ -159,15 +168,34 @@ def _detect_target(text: str) -> tuple[str, str]:
     return "", ""
 
 
+def _starts_with_target(text: str) -> bool:
+    """Return True if *text* starts with a concrete target pattern.
+
+    Used to exempt lowercase-starting proposals from the fragment check.
+    "seed_gate.py needs attention" starts lowercase but IS specific.
+    """
+    for pat in _FRAGMENT_EXEMPT_PATTERNS:
+        m = pat.match(text)
+        if m and m.start() == 0:
+            return True
+    return False
+
+
 def _is_junk(text: str, limit: int | None = None) -> str | None:
-    """Return a reason string if *text* looks like junk, else None."""
+    """Return a reason string if *text* looks like junk, else None.
+
+    Exempts text starting with ``run_`` prefix or a concrete target
+    (filename, tool, channel, discussion ref) from the lowercase
+    fragment check.
+    """
     check = text[:limit] if limit else text
     stripped = check.strip()
     if not stripped:
         return "empty or whitespace-only"
     if len(stripped) < 15:
         return f"too short ({len(stripped)} chars)"
-    if _JUNK_EXCEPTION_RE.match(stripped):
+    # Exempt concrete target starts from the lowercase fragment check
+    if _JUNK_EXCEPTION_RE.match(stripped) or _starts_with_target(stripped):
         return None
     for pat in _JUNK_PATTERNS:
         if pat.search(stripped):
