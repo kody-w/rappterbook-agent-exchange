@@ -26,8 +26,10 @@ from seed_gate import (  # noqa: E402
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    _ARTIFACT_SIGNALS,
     passes_gate,
     validate,
+    validate_batch,
     validate_seed,
 )
 
@@ -722,3 +724,117 @@ class TestProposeSeedContract:
         r = _v("Build seed_gate.py validator")
         assert "junk" in r
         assert isinstance(r["junk"], bool)
+
+
+# ===================================================================
+# 14. New verbs (backported from main rappterbook repo)
+# ===================================================================
+
+class TestNewVerbs:
+    """Verify the 14 verbs merged from the main repo are detected."""
+
+    @pytest.mark.parametrize("verb", [
+        "consolidate", "decode", "establish", "execute", "extend",
+        "instrument", "measure", "merge", "remove", "render",
+        "review", "run", "score", "validate",
+    ])
+    def test_new_verb_detected(self, verb):
+        text = f"{verb.capitalize()} the thermal_control.py module"
+        r = _v(text)
+        assert r["verb_found"] == verb, f"{verb} not detected"
+        assert r["passed"]
+
+    def test_total_verb_count(self):
+        assert len(ACTION_VERBS) >= 60, f"Expected >=60 verbs, got {len(ACTION_VERBS)}"
+
+
+# ===================================================================
+# 15. Artifact signal detection (#12507 backport)
+# ===================================================================
+
+class TestArtifactSignals:
+    """Verify parsing artifact detection from main repo."""
+
+    @pytest.mark.parametrize("signal", _ARTIFACT_SIGNALS)
+    def test_artifact_signal_is_junk(self, signal):
+        # Capitalize first char so it doesn't trigger "starts lowercase"
+        text = f"The {signal} was extracted from upstream"
+        r = _v(text)
+        assert r["junk"] is True, f"Expected junk for signal: {signal!r}"
+
+    def test_artifact_only_checks_first_80(self):
+        """Artifact signals beyond char 80 should not trigger junk."""
+        padding = "Build a thermal_control.py " + ("x " * 30)
+        text = padding + "the regex pattern failed"
+        r = _v(text)
+        # Signal is past char 80, so not junk
+        assert r["junk"] is False
+
+    def test_clean_text_no_artifact(self):
+        r = _v("Build thermal_control.py with robust error handling")
+        assert r["junk"] is False
+
+
+# ===================================================================
+# 16. Batch validation
+# ===================================================================
+
+class TestBatchValidation:
+    def test_batch_empty(self):
+        results = validate_batch([])
+        assert results == []
+
+    def test_batch_all_pass(self):
+        proposals = [
+            {"text": "Build thermal_control.py module"},
+            {"text": "Fix rover.py navigation"},
+        ]
+        results = validate_batch(proposals)
+        assert len(results) == 2
+        assert all(r["passed"] for r in results)
+
+    def test_batch_mixed(self):
+        proposals = [
+            {"text": "Build thermal_control.py module"},
+            {"text": ""},
+            {"text": "Fix rover.py navigation"},
+        ]
+        results = validate_batch(proposals)
+        assert results[0]["passed"] is True
+        assert results[1]["passed"] is False
+        assert results[2]["passed"] is True
+
+    def test_batch_preserves_index(self):
+        proposals = [
+            {"text": "Build thermal_control.py module"},
+            {"text": "Bad proposal no verb no target"},
+        ]
+        results = validate_batch(proposals)
+        assert results[0]["index"] == 0
+        assert results[1]["index"] == 1
+
+    def test_batch_respects_tags(self):
+        proposals = [
+            {"text": "Explore the philosophy of terraforming", "tags": ["theme"]},
+        ]
+        results = validate_batch(proposals)
+        assert results[0]["passed"] is True
+
+    def test_batch_purge_mode(self):
+        proposals = [
+            {"text": "Build thermal_control.py module"},
+            {"text": "Something without a verb or target but long enough"},
+        ]
+        results = validate_batch(proposals, mode="purge")
+        assert all(r["passed"] for r in results)
+
+    def test_batch_returns_full_dict_shape(self):
+        results = validate_batch([{"text": "Build thermal_control.py"}])
+        r = results[0]
+        assert "passed" in r
+        assert "score" in r
+        assert "reasons" in r
+        assert "verb_found" in r
+        assert "target_found" in r
+        assert "junk" in r
+        assert "index" in r

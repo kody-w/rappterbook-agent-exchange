@@ -30,20 +30,21 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 46 action verbs -- frozenset for O(1) lookup  (from #12503)
+# 60 action verbs -- frozenset for O(1) lookup  (from #12503, merged w/ main repo)
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
     "refactor", "optimize", "improve", "upgrade", "migrate", "port",
-    "wire", "connect", "hook",
+    "wire", "connect", "hook", "consolidate", "establish", "extend",
     "fix", "debug", "patch", "resolve", "repair",
-    "test", "benchmark", "profile", "audit", "scan", "lint",
-    "generate", "compute", "simulate", "model", "train",
-    "parse", "extract", "transform", "convert", "compile",
-    "monitor", "track", "log", "alert",
-    "document", "map", "diagram", "prototype",
+    "test", "benchmark", "profile", "audit", "scan", "lint", "validate",
+    "generate", "compute", "simulate", "model", "train", "render",
+    "parse", "extract", "transform", "convert", "compile", "decode",
+    "monitor", "track", "log", "alert", "measure", "instrument",
+    "document", "map", "diagram", "prototype", "review",
     "explore", "investigate", "analyze", "evaluate", "assess",
     "consider", "debate", "discuss", "propose", "plan",
+    "execute", "run", "merge", "remove", "score",
 })
 
 # Target regex patterns (compiled once)
@@ -92,6 +93,15 @@ _JUNK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:TODO|FIXME|HACK)\b", re.I), # leftover comment
     re.compile(r"^\s*$"),                         # blank / whitespace-only
 ]
+
+# Artifact signals — substrings in the first 80 chars that indicate a parsing
+# artifact from upstream extraction (#12507, main repo backport)
+_ARTIFACT_SIGNALS: tuple[str, ...] = (
+    "` has `", "` and `", "`) and ", "` is ", "the regex",
+    "the parser", "the fragment", "outside that grammar",
+    "parser grabbed", "parsing artifact", "substring",
+    "the fragment was",
+)
 
 # Exception: `run_` prefix is OK even though it starts lowercase
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
@@ -187,6 +197,11 @@ def _is_junk(text: str, limit: int = 0) -> str:
     for pat in _JUNK_PATTERNS:
         if pat.search(stripped):
             return "junk signal: %r" % pat.pattern
+    # Artifact signals in first 80 chars (#12507 backport)
+    head = stripped[:80].lower()
+    for signal in _ARTIFACT_SIGNALS:
+        if signal in head:
+            return "parsing artifact: %r" % signal
     return ""
 
 
@@ -301,6 +316,28 @@ def validate(
     target_found, junk.
     """
     return validate_seed(text, tags, mode=mode).to_dict()
+
+
+def validate_batch(
+    proposals: list[dict],
+    mode: str = "admission",
+) -> list[dict]:
+    """Validate a list of proposals in one call.
+
+    Each item in *proposals* must have at least a ``"text"`` key.
+    Optional: ``"tags"`` (list of str).
+
+    Returns a list of dicts (same shape as ``validate()``), each
+    augmented with ``"index"`` pointing back to the input position.
+    """
+    results: list[dict] = []
+    for i, item in enumerate(proposals):
+        text = item.get("text", "")
+        tags = item.get("tags") or []
+        result = validate(text, tags, mode=mode)
+        result["index"] = i
+        results.append(result)
+    return results
 
 
 def passes_gate(
