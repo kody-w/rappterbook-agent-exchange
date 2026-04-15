@@ -1425,12 +1425,17 @@ class TestInflectionMap:
 
     @pytest.mark.parametrize("irregular,expected", [
         ("built", "build"), ("wrote", "write"), ("ran", "run"),
-        ("sent", "send"), ("kept", "keep"), ("made", "make"),
-        ("found", "find"), ("got", "get"),
     ])
     def test_irregular_past(self, irregular, expected):
         from seed_gate import _INFLECTION_MAP
         assert _INFLECTION_MAP.get(irregular) == expected
+
+    def test_irregular_only_valid_bases(self):
+        """Irregular past entries must map to verbs in ACTION_VERBS."""
+        from seed_gate import _IRREGULAR_PAST, _INFLECTION_MAP
+        for form, base in _IRREGULAR_PAST.items():
+            if base in ACTION_VERBS:
+                assert form in _INFLECTION_MAP
 
 
 class TestInflectedVerbDetection:
