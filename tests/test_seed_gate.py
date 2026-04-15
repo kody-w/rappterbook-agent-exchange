@@ -31,7 +31,13 @@ from seed_gate import (
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    compute_score,
+    explain,
+    find_target,
+    find_verb,
+    find_verb_with_position,
     passes_gate,
+    score_breakdown,
     validate,
     validate_seed,
     canonicalize_target,
@@ -1652,3 +1658,369 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===========================================================================
+# PR #272 -- negation awareness, score_breakdown, explain, find_verb_with_position
+# ===========================================================================
+
+
+class TestNegationAwareness:
+    """Negated verbs should NOT pass the gate (#12503/#12507)."""
+
+    def test_dont_build_rejected(self):
+        assert not passes_gate("Don't build seed_gate.py")
+
+    def test_never_deploy_rejected(self):
+        assert not passes_gate("Never deploy the solar_array.py to production")
+
+    def test_cannot_test_rejected(self):
+        assert not passes_gate("Cannot test water_mining.py right now")
+
+    def test_wont_fix_rejected(self):
+        assert not passes_gate("Won't fix the thermal_control.py bug")
+
+    def test_shouldnt_refactor_rejected(self):
+        assert not passes_gate("Shouldn't refactor greenhouse.py module")
+
+    def test_not_deploy_rejected(self):
+        assert not passes_gate("Not deploy the rover.py module this frame")
+
+    def test_affirmative_still_passes(self):
+        assert passes_gate("Build seed_gate.py specificity validator")
+
+    def test_negated_then_affirmative_passes(self):
+        """'Don't build X, test Y' — the affirmative verb should be found."""
+        r = validate_seed("Don't build seed_gate.py, test water_mining.py instead")
+        assert r.passed
+        assert r.verb_found == "test"
+
+    def test_clause_boundary_resets_negation(self):
+        """Comma separates clauses — negation doesn't cross."""
+        r = validate_seed("Nothing special, build seed_gate.py now")
+        assert r.passed
+        assert r.verb_found == "build"
+
+    def test_negation_with_phrasal_verb(self):
+        assert not passes_gate("Don't set up the water_mining.py pipeline")
+
+    def test_curly_apostrophe_negation(self):
+        assert not passes_gate("Don\u2019t build seed_gate.py")
+
+    def test_double_negation_still_negated(self):
+        """'don't not build' -- we treat any negation as rejection (pragmatic)."""
+        assert not passes_gate("Don't not build seed_gate.py")
+
+    def test_find_verb_default_ignores_negation(self):
+        """Default find_verb() is backward-compat: ignores negation."""
+        assert find_verb("Don't build seed_gate.py") == "build"
+
+    def test_find_verb_skip_negated(self):
+        assert find_verb("Don't build seed_gate.py", skip_negated=True) is None
+
+    def test_find_verb_negated_then_affirmative(self):
+        v = find_verb("Don't build X, test Y", skip_negated=True)
+        assert v == "test"
+
+    def test_never_with_gap(self):
+        """'never really deploy' — negation with intervening word."""
+        assert not passes_gate("Never really deploy the rover.py system")
+
+    def test_no_build_rejected(self):
+        assert not passes_gate("No build of seed_gate.py is needed")
+
+    def test_negation_inflected_verb(self):
+        """Negation before an inflected form (building -> build)."""
+        assert find_verb("Don't be building seed_gate.py", skip_negated=True) is None
+
+
+class TestFindVerbWithPosition:
+    """find_verb_with_position returns (verb, index) pairs."""
+
+    def test_first_word(self):
+        verb, pos = find_verb_with_position("Build seed_gate.py")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_mid_sentence(self):
+        verb, pos = find_verb_with_position("We should build seed_gate.py")
+        assert verb == "build"
+        assert pos is not None
+        assert pos > 0
+
+    def test_none_when_no_verb(self):
+        verb, pos = find_verb_with_position("The seed_gate.py module")
+        assert verb is None
+        assert pos is None
+
+    def test_phrasal_verb_position(self):
+        verb, pos = find_verb_with_position("Set up the water_mining.py pipeline")
+        assert verb == "set up"
+        assert pos == 0
+
+    def test_inflected_verb_returns_base(self):
+        verb, pos = find_verb_with_position("Building seed_gate.py now")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_skip_negated(self):
+        verb, pos = find_verb_with_position("Don't build seed_gate.py", skip_negated=True)
+        assert verb is None
+        assert pos is None
+
+    def test_negated_then_affirmative(self):
+        verb, pos = find_verb_with_position(
+            "Don't build X, test water_mining.py", skip_negated=True
+        )
+        assert verb == "test"
+        assert pos is not None
+
+
+class TestScoreBreakdown:
+    """score_breakdown decomposes the opaque score into labeled components."""
+
+    def test_returns_all_keys(self):
+        bd = score_breakdown("Build seed_gate.py")
+        expected_keys = {
+            "verb_points", "target_points", "length_points",
+            "multi_target_points", "imperative_points",
+            "raw_total", "normalized",
+        }
+        assert set(bd.keys()) == expected_keys
+
+    def test_verb_points(self):
+        bd = score_breakdown("Build seed_gate.py")
+        assert bd["verb_points"] == 2.5
+
+    def test_no_verb_zero_points(self):
+        bd = score_breakdown("The seed_gate.py module is complex", verb=None)
+        assert bd["verb_points"] == 0.0
+
+    def test_file_target_points(self):
+        bd = score_breakdown("Build seed_gate.py")
+        assert bd["target_points"] == 4.0  # file kind
+
+    def test_tool_target_points(self):
+        bd = score_breakdown("Build state_io module")
+        assert bd["target_points"] == 3.0  # tool kind
+
+    def test_no_target_zero_points(self):
+        bd = score_breakdown("Build something amazing", target=None, target_kind="")
+        assert bd["target_points"] == 0.0
+
+    def test_length_bonus_short(self):
+        bd = score_breakdown("Build seed_gate.py")
+        assert bd["length_points"] == 0.0  # less than 8 words
+
+    def test_length_bonus_medium(self):
+        text = "Build seed_gate.py with better verb detection and target scoring system"
+        bd = score_breakdown(text)
+        assert bd["length_points"] >= 0.5
+
+    def test_length_bonus_long(self):
+        text = ("Build seed_gate.py with verb detection target scoring "
+                "system using regex patterns and inflection maps for all verbs")
+        bd = score_breakdown(text)
+        assert bd["length_points"] == 1.5
+
+    def test_multi_target_bonus(self):
+        bd = score_breakdown("Build seed_gate.py and propose_seed.py together")
+        assert bd["multi_target_points"] == 1.0
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build seed_gate.py now")
+        assert bd["imperative_points"] == 0.5
+
+    def test_non_imperative_no_bonus(self):
+        bd = score_breakdown("We should build seed_gate.py")
+        assert bd["imperative_points"] == 0.0
+
+    def test_components_sum_to_raw(self):
+        bd = score_breakdown("Build seed_gate.py and water_mining.py pipeline")
+        component_sum = (
+            bd["verb_points"] + bd["target_points"] + bd["length_points"]
+            + bd["multi_target_points"] + bd["imperative_points"]
+        )
+        assert abs(bd["raw_total"] - component_sum) < 0.001
+
+    def test_normalized_capped_at_1(self):
+        text = ("Build seed_gate.py and water_mining.py and propose_seed.py "
+                "plus thermal_control.py with rover.py and greenhouse.py "
+                "for the full mars colony simulation system module grid")
+        bd = score_breakdown(text)
+        assert bd["normalized"] <= 1.0
+
+    def test_normalized_equals_compute_score(self):
+        """score_breakdown.normalized must match compute_score for consistency."""
+        text = "Build seed_gate.py specificity validator"
+        verb = find_verb(text, skip_negated=True)
+        target, kind = find_target(text)
+        bd = score_breakdown(text, verb, target, kind)
+        cs = compute_score(text, verb, target, kind)
+        assert abs(bd["normalized"] - cs) < 0.001
+
+    def test_auto_detects_verb_and_target(self):
+        """When verb/target not provided, score_breakdown detects them."""
+        bd = score_breakdown("Build seed_gate.py now")
+        assert bd["verb_points"] == 2.5
+        assert bd["target_points"] == 4.0
+
+
+class TestExplain:
+    """explain() returns structured diagnostics consistent with validate_seed()."""
+
+    def test_returns_all_sections(self):
+        e = explain("Build seed_gate.py")
+        assert "input" in e
+        assert "junk_check" in e
+        assert "verb_analysis" in e
+        assert "target_analysis" in e
+        assert "score_breakdown" in e
+        assert "decision" in e
+
+    def test_input_echoed(self):
+        e = explain("Build seed_gate.py")
+        assert e["input"] == "Build seed_gate.py"
+
+    def test_junk_check_clean(self):
+        e = explain("Build seed_gate.py validator")
+        assert e["junk_check"]["is_junk"] is False
+        assert e["junk_check"]["reason"] == ""
+
+    def test_junk_check_detected(self):
+        e = explain("")
+        assert e["junk_check"]["is_junk"] is True
+        assert e["junk_check"]["reason"] != ""
+
+    def test_verb_analysis(self):
+        e = explain("Build seed_gate.py now")
+        va = e["verb_analysis"]
+        assert va["found"] == "build"
+        assert "build" in va["all_verbs"]
+        assert va["position"] == 0
+        assert va["is_imperative"] is True
+        assert va["source"] == "direct"
+
+    def test_verb_inflected_source(self):
+        e = explain("Building seed_gate.py now")
+        assert e["verb_analysis"]["source"] == "inflected"
+
+    def test_verb_phrasal_source(self):
+        e = explain("Set up the water_mining.py pipeline")
+        assert e["verb_analysis"]["source"] == "phrasal"
+
+    def test_target_analysis(self):
+        e = explain("Build seed_gate.py and water_mining.py")
+        ta = e["target_analysis"]
+        assert ta["found"] == "seed_gate.py"
+        assert ta["kind"] == "file"
+        assert ta["unique_count"] >= 2
+
+    def test_score_breakdown_present(self):
+        e = explain("Build seed_gate.py")
+        assert "verb_points" in e["score_breakdown"]
+        assert "normalized" in e["score_breakdown"]
+
+    def test_decision_matches_validate(self):
+        """explain().decision.passed MUST match validate_seed().passed."""
+        texts = [
+            "Build seed_gate.py",
+            "Make everything better",
+            "",
+            "Don't build seed_gate.py",
+            "Test water_mining.py and deploy rover.py",
+        ]
+        for text in texts:
+            e = explain(text)
+            r = validate_seed(text)
+            assert e["decision"]["passed"] == r.passed, f"Mismatch on: {text!r}"
+
+    def test_decision_reasons(self):
+        e = explain("Make everything better and amazing")
+        assert len(e["decision"]["reasons"]) > 0
+
+    def test_decision_confidence(self):
+        e = explain("Build seed_gate.py")
+        assert e["decision"]["confidence"] in ("high", "medium", "low")
+
+    def test_decision_advisory(self):
+        e = explain("Build something in the codebase", tags=["theme"])
+        # theme-exempt, verb found, no target → advisory
+        assert e["decision"]["advisory"] == "needs-specificity"
+
+    def test_explain_with_tags(self):
+        e = explain("Explore consciousness in agents deeply", tags=["theme"])
+        assert e["decision"]["passed"] is True
+
+    def test_explain_tag_implied_verb(self):
+        e = explain("The seed_gate.py module needs work", tags=["code"])
+        va = e["verb_analysis"]
+        assert va["found"] is not None  # tag-implied
+
+
+class TestExplainEquivalence:
+    """Guarantee explain() never disagrees with validate_seed()."""
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py",
+        "Don't build seed_gate.py",
+        "Never deploy rover.py",
+        "Test water_mining.py and deploy rover.py",
+        "Make everything better",
+        "Explore consciousness",
+        "Set up the water_mining.py pipeline",
+        "Building seed_gate.py with inflected verbs",
+        "Build seed_gate.py and water_mining.py and propose_seed.py together",
+    ])
+    def test_passed_matches(self, text):
+        e = explain(text)
+        r = validate_seed(text)
+        assert e["decision"]["passed"] == r.passed
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py",
+        "Don't build seed_gate.py",
+        "Test water_mining.py",
+    ])
+    def test_score_matches(self, text):
+        e = explain(text)
+        r = validate_seed(text)
+        assert abs(e["score_breakdown"]["normalized"] - r.score) < 0.001
+
+
+class TestScoreBreakdownInvariants:
+    """Property-based invariants for score_breakdown."""
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py",
+        "Test everything in the system",
+        "",
+        "x",
+        "Build seed_gate.py and water_mining.py and propose_seed.py plus all modules",
+    ])
+    def test_all_components_non_negative(self, text):
+        bd = score_breakdown(text)
+        for key, val in bd.items():
+            assert val >= 0.0, f"{key} was negative: {val}"
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py",
+        "Deploy rover.py to production now",
+        "Build seed_gate.py and water_mining.py and propose_seed.py plus all modules",
+    ])
+    def test_normalized_between_0_and_1(self, text):
+        bd = score_breakdown(text)
+        assert 0.0 <= bd["normalized"] <= 1.0
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py",
+        "Test water_mining.py module",
+        "Deploy rover.py and greenhouse.py",
+    ])
+    def test_raw_sum_equals_raw_total(self, text):
+        bd = score_breakdown(text)
+        component_sum = (
+            bd["verb_points"] + bd["target_points"] + bd["length_points"]
+            + bd["multi_target_points"] + bd["imperative_points"]
+        )
+        assert abs(bd["raw_total"] - component_sum) < 0.001

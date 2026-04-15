@@ -45,6 +45,9 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- negation-aware verb detection (don't build, never deploy);
+                  explain() structured diagnostic API; score_breakdown()
+                  for transparent scoring; find_verb_with_position().
 """
 from __future__ import annotations
 
@@ -280,6 +283,18 @@ _QUESTION_STEM_RE = re.compile(
     re.I,
 )
 
+# Negation words -- verbs preceded by these within a 3-token window are
+# not considered action verbs (PR #12503/#12507 consolidation).
+_NEGATION_WORDS: frozenset[str] = frozenset({
+    "don\'t", "dont", "doesn\'t", "doesnt", "didn\'t", "didnt",
+    "can\'t", "cant", "cannot", "won\'t", "wont", "wouldn\'t", "wouldnt",
+    "shouldn\'t", "shouldnt", "never", "not", "no", "nor", "neither",
+    # Curly apostrophe variants
+    "don\u2019t", "doesn\u2019t", "didn\u2019t", "can\u2019t",
+    "won\u2019t", "wouldn\u2019t", "shouldn\u2019t",
+})
+
+
 # ---------------------------------------------------------------------------
 # Junk / artifact detection (#12507 + main repo consolidation)
 # ---------------------------------------------------------------------------
@@ -461,6 +476,28 @@ def _starts_with_verb(text: str) -> bool:
     return False
 
 
+
+def _normalize_apostrophes(text: str) -> str:
+    """Replace curly apostrophes with straight ones."""
+    return text.replace("\u2019", "'").replace("\u2018", "'")
+
+
+def _is_negated_context(words: list[str], verb_index: int) -> bool:
+    """Return True if the verb at *verb_index* is preceded by a negation word.
+
+    Scans up to 3 tokens backward, stopping at clause boundaries
+    (punctuation, conjunctions).
+    """
+    clause_breaks = frozenset({",", ";", ".", "!", "?", "and", "or", "but", "yet"})
+    start = max(0, verb_index - 3)
+    for i in range(verb_index - 1, start - 1, -1):
+        w = words[i].lower().rstrip(".,;:!?")
+        if w in clause_breaks:
+            return False
+        if w in _NEGATION_WORDS:
+            return True
+    return False
+
 def _starts_with_file(text: str) -> bool:
     """Return True if text starts with a file-like pattern."""
     m = _FILE_START_RE.match(text.strip())
@@ -473,27 +510,67 @@ def _starts_with_file(text: str) -> bool:
 # Public composable helpers
 # ---------------------------------------------------------------------------
 
-def find_verb(text: str, limit: int = 0) -> str | None:
+def find_verb(text: str, limit: int = 0, *, skip_negated: bool = False) -> str | None:
     """Return the first action verb found in *text*, or None.
 
     Checks base forms first, then inflected forms (builds->build,
     creating->create, deployed->deploy).  Phrasal verbs and their
     inflected forms (setting up->set up) are also recognized.
+
+    If *skip_negated* is True, verbs preceded by negation words
+    (don't, never, cannot, etc.) within a 3-token window are skipped.
     """
-    search_text = text[:limit] if limit else text
-    words = re.findall(r"[a-zA-Z]+", search_text.lower())
+    search_text = _normalize_apostrophes(text[:limit] if limit else text)
+    words = re.findall(r"[a-zA-Z']+|[,;.!?]", search_text.lower())
     for i, word in enumerate(words):
         if i + 1 < len(words):
             next_word = words[i + 1]
             if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                if skip_negated and _is_negated_context(words, i):
+                    continue
                 return _PHRASAL_FIRST[word][next_word]
             if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                if skip_negated and _is_negated_context(words, i):
+                    continue
                 return _PHRASAL_INFLECTED[word][next_word]
         if word in ACTION_VERBS:
+            if skip_negated and _is_negated_context(words, i):
+                continue
             return word
         if word in _INFLECTION_MAP:
+            if skip_negated and _is_negated_context(words, i):
+                continue
             return _INFLECTION_MAP[word]
     return None
+
+
+def find_verb_with_position(text: str, *, skip_negated: bool = False) -> tuple[str | None, int | None]:
+    """Return (verb, word_index) for the first action verb found, or (None, None).
+
+    The word_index is the 0-based position among whitespace-separated tokens.
+    """
+    normalized = _normalize_apostrophes(text)
+    words = re.findall(r"[a-zA-Z']+|[,;.!?]", normalized.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                if skip_negated and _is_negated_context(words, i):
+                    continue
+                return _PHRASAL_FIRST[word][next_word], i
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                if skip_negated and _is_negated_context(words, i):
+                    continue
+                return _PHRASAL_INFLECTED[word][next_word], i
+        if word in ACTION_VERBS:
+            if skip_negated and _is_negated_context(words, i):
+                continue
+            return word, i
+        if word in _INFLECTION_MAP:
+            if skip_negated and _is_negated_context(words, i):
+                continue
+            return _INFLECTION_MAP[word], i
+    return None, None
 
 
 def find_all_verbs(text: str) -> list[str]:
@@ -735,6 +812,50 @@ def compute_score(
     return min(raw / 10.0, 1.0)
 
 
+def score_breakdown(
+    text: str,
+    verb: str | None = None,
+    target: str | None = None,
+    target_kind: str = "",
+) -> dict[str, float]:
+    """Decompose the specificity score into labeled components.
+
+    If verb/target/target_kind are not provided, they are detected from text.
+    Returns a dict with individual point contributions and the final score.
+    """
+    if verb is None:
+        verb = find_verb(text, skip_negated=True)
+    if target is None:
+        target, target_kind = find_target(text)
+
+    verb_points = 2.5 if verb else 0.0
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    target_points = kind_scores.get(target_kind, 1.5) if target else 0.0
+    words = text.split()
+    length_points = 0.0
+    if len(words) >= 15:
+        length_points = 1.5
+    elif len(words) >= 8:
+        length_points = 0.5
+    unique = count_unique_targets(text)
+    multi_target_points = 1.0 if unique >= 2 else 0.0
+    imperative_points = 0.5 if (verb and _starts_with_verb(text)) else 0.0
+    raw_total = verb_points + target_points + length_points + multi_target_points + imperative_points
+    return {
+        "verb_points": verb_points,
+        "target_points": target_points,
+        "length_points": length_points,
+        "multi_target_points": multi_target_points,
+        "imperative_points": imperative_points,
+        "raw_total": raw_total,
+        "normalized": min(raw_total / 10.0, 1.0),
+    }
+
+
 def suggest(text: str, tags: list = None) -> list[str]:
     """Return actionable suggestions for improving a rejected proposal.
 
@@ -759,6 +880,82 @@ def suggest(text: str, tags: list = None) -> list[str]:
             "Rewrite as a complete sentence starting with a capital letter"
         )
     return suggestions
+
+
+def explain(text: str, tags: list = None) -> dict:
+    """Return a structured diagnostic showing exactly what the parser found.
+
+    Uses the same analysis path as validate_seed() to guarantee consistency.
+    The decision field always matches validate_seed().passed.
+    """
+    tags = tags or []
+    result = validate_seed(text, tags)
+    verb, verb_pos = find_verb_with_position(text, skip_negated=True)
+    target, target_kind = find_target(text)
+    all_targets = _find_all_targets(text)
+
+    # Determine verb source
+    verb_source = ""
+    if result.verb_found:
+        raw_verb = find_verb(text)
+        neg_verb = find_verb(text, skip_negated=True)
+        tag_set = frozenset(t.lower().strip() for t in tags)
+        if neg_verb:
+            # Check if it came from inflection, phrasal, or direct
+            words = re.findall(r"[a-zA-Z]+", text.lower())
+            for w in words:
+                if w in ACTION_VERBS and w == neg_verb:
+                    verb_source = "direct"
+                    break
+                if w in _INFLECTION_MAP and _INFLECTION_MAP[w] == neg_verb:
+                    verb_source = "inflected"
+                    break
+                if w in _PHRASAL_FIRST:
+                    verb_source = "phrasal"
+                    break
+                if w in _PHRASAL_INFLECTED:
+                    verb_source = "phrasal"
+                    break
+            if not verb_source:
+                verb_source = "direct"
+        elif not raw_verb:
+            # Must be tag-implied or question-stem
+            for tag in tag_set:
+                if tag in TAG_IMPLIED_VERBS:
+                    verb_source = "tag-implied"
+                    break
+            if not verb_source:
+                m = _QUESTION_STEM_RE.match(text.strip())
+                if m:
+                    verb_source = "question-stem"
+
+    return {
+        "input": text,
+        "junk_check": {
+            "is_junk": result.junk,
+            "reason": result.reasons[0] if result.junk and result.reasons else "",
+        },
+        "verb_analysis": {
+            "found": result.verb_found,
+            "all_verbs": list(result.all_verbs),
+            "position": verb_pos,
+            "is_imperative": bool(result.verb_found and _starts_with_verb(text)),
+            "source": verb_source,
+        },
+        "target_analysis": {
+            "found": result.target_found,
+            "kind": target_kind,
+            "all_targets": [list(t) for t in all_targets],
+            "unique_count": count_unique_targets(text),
+        },
+        "score_breakdown": score_breakdown(text, result.verb_found, result.target_found, target_kind),
+        "decision": {
+            "passed": result.passed,
+            "reasons": list(result.reasons),
+            "advisory": result.advisory,
+            "confidence": result.confidence,
+        },
+    }
 
 
 # Backward-compat aliases
@@ -798,7 +995,7 @@ def validate_seed(
 
     # -- Verb + target ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
+    verb = find_verb(text, limit=verb_limit, skip_negated=True)
     target, target_kind = find_target(text)
 
     # -- Tag-implied verb inference (#12530) ---
