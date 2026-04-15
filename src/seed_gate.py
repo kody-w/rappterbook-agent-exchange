@@ -1,23 +1,27 @@
 """seed_gate.py -- canonical specificity validator for seed proposals.
 
 Consolidates ideas from 6 independent implementations (#12503, #12505,
-#12507, #12511, #12521, #12530) into one validator that checks for an
-*action verb* plus a *concrete target* (filename, tool name, path, or
-discussion reference).
+#12507, #12511, #12521, #12530) and PRs #245, #246, #247 into one
+validator that checks for an *action verb* plus a *concrete target*
+(filename, tool name, path, or discussion reference).
 
 Two public APIs -- pick whichever suits the call-site:
 
     # Dict API (used by propose_seed.py)
-    from seed_gate import validate as validate_seed
-    gate = validate_seed(text, tags)        # -> dict
+    from seed_gate import validate
+    gate = validate(text, tags)         # -> dict
     if not gate["passed"]: ...
 
     # Dataclass API
-    result = validate_seed_result(text, tags)  # -> SeedGateResult
+    result = validate_seed(text, tags)  # -> SeedGateResult
     if not result.passed: ...
 
     # Bool convenience
     ok = passes_gate(text, tags)
+
+    # Batch API (for purge_junk in propose_seed.py)
+    br = validate_batch(proposals)      # -> BatchResult
+    for item in br.junk_items: ...
 
     # Composable helpers
     verb   = find_verb(text)          # str | None
@@ -28,9 +32,10 @@ Two public APIs -- pick whichever suits the call-site:
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
-    This frame -- auto-discovered KNOWN_MODULES, two-tier artifact
-                  signals, path patterns, target canonicalization,
-                  propose_seed.py wiring.
+    PR #245  -- auto-discovered modules, two-tier artifacts, propose_seed wiring
+    This frame -- consolidated #245/#246/#247: false-file filter, special
+                  files, known tools, question stems, batch API, smart
+                  lowercase, substring dedup.
 """
 from __future__ import annotations
 
@@ -70,6 +75,18 @@ ACTION_VERBS: frozenset[str] = frozenset({
 # File-like: foo.py, bar_baz.rs, my-lib.js, state/agents.json
 FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 
+# False positives that FILE_RE catches (abbreviations with periods)
+_FALSE_FILE_MATCHES: frozenset[str] = frozenset({
+    "e.g", "i.e", "a.m", "p.m", "vs.",
+})
+
+# Special files without extensions (PR #246)
+SPECIAL_FILE_RE = re.compile(
+    r"\b(?:Dockerfile|Makefile|Vagrantfile|Procfile|Gemfile|Rakefile"
+    r"|README|AGENTS|CLAUDE|CONSTITUTION|CONTRIBUTING|LICENSE"
+    r"|CHANGELOG|ROADMAP|MANIFEST|FEATURE_FREEZE)\b"
+)
+
 # Repo-aware paths: src/, tests/, engine/, state/, docs/  (from main repo)
 PATH_RE = re.compile(
     r"(?:(?:src|tests|engine|state|docs|api|scripts|sdk|zion)/[\w_./-]+)"
@@ -96,23 +113,62 @@ QUOTED_RE = re.compile(r"""(?:"[^"]{3,60}"|'[^']{3,60}')""")
 # Context-sensitive module reference: `module`, import module, from module
 MODULE_CONTEXT_RE = re.compile(r"(?:`[\w_]+`|import\s+[\w_]+|from\s+[\w_]+)")
 
+# Known rappterbook tools -- precision-matched before generic TOOL_RE (PR #246)
+KNOWN_TOOLS: frozenset[str] = frozenset({
+    "state_io", "process_inbox", "process_issues", "propose_seed",
+    "seed_gate", "compute_trending", "generate_feeds", "safe_commit",
+    "content_loader", "content_engine", "feature_flags", "github_llm",
+    "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
+    "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+})
+
+_KNOWN_TOOL_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(t) for t in sorted(KNOWN_TOOLS)) + r")\b"
+)
+
 # Tags that exempt from the *target* requirement (still need a verb)
 EXEMPT_TAGS: frozenset[str] = frozenset({
     "theme", "philosophy", "debate", "exploration", "story", "lore",
 })
 
+# Question stems -- map to implicit verbs for exempt-tag proposals (PR #247)
+QUESTION_STEMS: dict[str, str] = {
+    "what if": "explore",
+    "how might": "design",
+    "how could": "design",
+    "how would": "design",
+    "how should": "evaluate",
+    "should we": "evaluate",
+    "could we": "explore",
+    "what would": "explore",
+    "why not": "propose",
+    "why do": "investigate",
+    "why does": "investigate",
+}
+
+_QUESTION_STEM_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(s) for s in sorted(QUESTION_STEMS, key=len, reverse=True)) + r")\b",
+    re.I,
+)
+
 # ---------------------------------------------------------------------------
 # Junk / artifact detection (#12507 + main repo consolidation)
 # ---------------------------------------------------------------------------
 
+# Core junk signals -- note: ^[a-z] is handled separately to allow
+# verb-starting lowercase text (the old pattern rejected "build seed_gate.py")
 _JUNK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*[`|,()\-]"),
-    re.compile(r"^[a-z]"),
     re.compile(r"^\d+\.\s"),
     re.compile(r"^https?://"),
     re.compile(r"(?:TODO|FIXME|HACK)\b", re.I),
     re.compile(r"^\s*$"),
 ]
+
+# Lowercase start -- only junk if first word is NOT an action verb
+# and text does NOT start with a known file
+_LOWERCASE_START_RE = re.compile(r"^[a-z]")
+_FILE_START_RE = re.compile(r"^[\w./-]*\w+\.\w{1,8}\b")
 
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 
@@ -154,7 +210,7 @@ def _discover_modules() -> frozenset[str]:
 KNOWN_MODULES: frozenset[str] = _discover_modules()
 
 # ---------------------------------------------------------------------------
-# Dataclass result
+# Dataclass results
 # ---------------------------------------------------------------------------
 
 @dataclasses.dataclass(frozen=True)
@@ -187,6 +243,63 @@ class SeedGateResult:
         }
 
 
+@dataclasses.dataclass(frozen=True)
+class BatchStats:
+    """Aggregate stats for a batch validation run (PR #247)."""
+    total: int
+    passed: int
+    failed: int
+    junk: int
+
+    @property
+    def pass_rate(self) -> float:
+        return self.passed / self.total if self.total else 0.0
+
+    @property
+    def junk_rate(self) -> float:
+        return self.junk / self.total if self.total else 0.0
+
+    def merge(self, other: BatchStats) -> BatchStats:
+        return BatchStats(
+            total=self.total + other.total,
+            passed=self.passed + other.passed,
+            failed=self.failed + other.failed,
+            junk=self.junk + other.junk,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class BatchResult:
+    """Result of validate_batch() -- separates junk from merely-failed."""
+    stats: BatchStats
+    passed_items: tuple[tuple[str, dict], ...]
+    failed_items: tuple[tuple[str, dict], ...]
+    junk_items: tuple[tuple[str, dict], ...]
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _is_false_file_match(match_text: str) -> bool:
+    """Return True if a FILE_RE match is actually a false positive."""
+    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+
+
+def _starts_with_verb(text: str) -> bool:
+    """Return True if text starts with an action verb."""
+    first_word = text.split()[0].lower() if text.split() else ""
+    return first_word in ACTION_VERBS
+
+
+def _starts_with_file(text: str) -> bool:
+    """Return True if text starts with a file-like pattern."""
+    m = _FILE_START_RE.match(text.strip())
+    if m:
+        return not _is_false_file_match(m.group())
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
@@ -205,10 +318,16 @@ def find_target(text: str) -> tuple[str, str]:
     """Return (target_string, target_kind) or ('', '').
 
     Checks patterns in priority order -- most specific first.
+    Rejects common abbreviations that FILE_RE would false-match.
     Module names only match in code-ish context (backticks, imports)
     to avoid false positives on generic nouns.
     """
-    m = FILE_RE.search(text)
+    # File-like (with false-positive filtering)
+    for m in FILE_RE.finditer(text):
+        if not _is_false_file_match(m.group()):
+            return m.group(), "file"
+    # Special files (Dockerfile, Makefile, README, etc.)
+    m = SPECIAL_FILE_RE.search(text)
     if m:
         return m.group(), "file"
     m = PATH_RE.search(text)
@@ -221,6 +340,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = CHANNEL_RE.search(text)
     if m:
         return m.group(), "channel"
+    # Known tools first (precision), then generic TOOL_RE
+    m = _KNOWN_TOOL_RE.search(text)
+    if m:
+        return m.group(), "tool"
     m = TOOL_RE.search(text)
     if m:
         return m.group(), "tool"
@@ -257,6 +380,10 @@ def is_junk(text: str, limit: int = 0) -> str:
     for pat in _JUNK_PATTERNS:
         if pat.search(stripped):
             return "junk signal: %r" % pat.pattern
+    # Smart lowercase handling: verb-starting or file-starting text is OK
+    if _LOWERCASE_START_RE.match(stripped):
+        if not _starts_with_verb(stripped) and not _starts_with_file(stripped):
+            return "starts lowercase (not a verb or file)"
     # Hard artifact signals -- always fail (first 80 chars)
     head = stripped[:80].lower()
     for signal in _HARD_ARTIFACT_SIGNALS:
@@ -273,7 +400,7 @@ def is_soft_artifact(text: str) -> bool:
 
 def canonicalize_target(target: str) -> str:
     """Normalize a target string for dedup: strip path prefix, extension, quotes."""
-    t = target.strip("\"'` ")
+    t = target.strip("\"' `")
     for prefix in ("src/", "tests/", "engine/", "state/", "docs/", "scripts/"):
         if t.startswith(prefix):
             t = t[len(prefix):]
@@ -285,17 +412,27 @@ def canonicalize_target(target: str) -> str:
 
 
 def count_unique_targets(text: str) -> int:
-    """Count distinct concrete targets in *text* after canonicalization."""
+    """Count distinct concrete targets in *text* after canonicalization.
+
+    Uses substring-aware dedup: if 'seed_gate' and 'seed_gate.py'
+    both appear, they count as one (PR #246).
+    """
     raw_targets: list[str] = []
     for pattern in (FILE_RE, PATH_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
-    canonical: set[str] = set()
+    canonical: list[str] = []
     for t in raw_targets:
         c = canonicalize_target(t)
         if c:
-            canonical.add(c)
-    return len(canonical)
+            canonical.append(c)
+    # Substring dedup: remove shorter forms that are substrings of longer ones
+    canonical_sorted = sorted(set(canonical), key=len, reverse=True)
+    unique: list[str] = []
+    for c in canonical_sorted:
+        if not any(c in u for u in unique):
+            unique.append(c)
+    return len(unique)
 
 
 def compute_score(
@@ -319,7 +456,7 @@ def compute_score(
     if len(words) >= 8:
         raw += 0.5
     if len(words) >= 15:
-        raw += 0.5
+        raw += 1.0
     unique = count_unique_targets(text)
     if unique >= 2:
         raw += 1.0
@@ -365,6 +502,12 @@ def validate_seed(
     verb = find_verb(text, limit=verb_limit)
     target, target_kind = find_target(text)
 
+    # -- Question stem inference (exempt tags only) ---
+    if not verb and is_exempt:
+        m = _QUESTION_STEM_RE.match(text.strip())
+        if m:
+            verb = QUESTION_STEMS.get(m.group().lower())
+
     # -- Soft artifact check ---
     if is_soft_artifact(text) and not (verb and target) and not is_exempt:
         return SeedGateResult(
@@ -403,6 +546,44 @@ def validate(text: str, tags: list = None, mode: str = "admission") -> dict:
 def passes_gate(text: str, tags: list = None, mode: str = "admission") -> bool:
     """Convenience: return True iff the proposal passes the gate."""
     return validate_seed(text, tags, mode=mode).passed
+
+
+def validate_batch(
+    proposals: list[str],
+    tags: list = None,
+    mode: str = "admission",
+) -> BatchResult:
+    """Validate a batch of proposals; separate junk from merely-failed.
+
+    Returns a BatchResult with stats + categorized items so callers
+    (like propose_seed.purge_junk) can treat junk and vague-but-salvageable
+    proposals differently.
+    """
+    passed_items: list[tuple[str, dict]] = []
+    failed_items: list[tuple[str, dict]] = []
+    junk_items: list[tuple[str, dict]] = []
+
+    for text in proposals:
+        result = validate(text, tags, mode=mode)
+        if result["junk"]:
+            junk_items.append((text, result))
+        elif result["passed"]:
+            passed_items.append((text, result))
+        else:
+            failed_items.append((text, result))
+
+    stats = BatchStats(
+        total=len(proposals),
+        passed=len(passed_items),
+        failed=len(failed_items),
+        junk=len(junk_items),
+    )
+    return BatchResult(
+        stats=stats,
+        passed_items=tuple(passed_items),
+        failed_items=tuple(failed_items),
+        junk_items=tuple(junk_items),
+    )
 
 
 # ---------------------------------------------------------------------------
