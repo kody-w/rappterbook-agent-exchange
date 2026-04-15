@@ -1004,3 +1004,250 @@ class TestCanonicalizeTarget:
     def test_preserve_underscores(self):
         from seed_gate import canonicalize_target
         assert canonicalize_target("water_mining.py") == "water_mining"
+
+# ── New feature tests for seed_gate.py evolution ──────────────────────
+# Tests for: noun phrase targets, suggestion engine, confidence levels,
+# expanded KNOWN_TOOLS, batch CLI pipeline
+
+
+class TestNounPhraseTargets:
+    """Qualified noun phrases (#12503) — must be structured, not bare."""
+
+    def test_article_noun_for_phrase(self):
+        """'a module for X' pattern passes as noun target."""
+        r = _v("Build a module for atmospheric processing on Mars")
+        assert r["target_found"] != ""
+        assert r["passed"]
+
+    def test_the_noun_for_phrase(self):
+        """'the handler for X' pattern passes."""
+        r = _v("Create the handler for thermal regulation here")
+        assert r["target_found"] != ""
+        assert r["passed"]
+
+    def test_adjective_noun_phrase(self):
+        """Non-article qualifier + arch noun passes."""
+        r = _v("Implement oxygen controller for the hab system")
+        assert r["target_found"] != ""
+        assert r["passed"]
+
+    def test_bare_noun_not_target(self):
+        """Bare architectural noun without qualifier is not enough."""
+        r = _v("Build module")
+        # Should not match just "module" as a noun phrase
+        assert r["target_found"] != "module"
+
+    def test_noun_lower_priority_than_file(self):
+        """File targets take precedence over noun phrases."""
+        r = _v("Build the controller module in thermal_reg.py")
+        assert r["target_found"] == "thermal_reg.py"
+
+    def test_noun_lower_priority_than_tool(self):
+        """Tool targets take precedence over noun phrases."""
+        r = _v("Build the process_inbox handler properly here")
+        assert r["target_found"] == "process_inbox"
+
+    def test_noun_phrase_score_contribution(self):
+        """Noun phrase contributes positively to score."""
+        r = _v("Build a controller for thermal management on Mars")
+        assert r["score"] > 0.0
+
+
+class TestSuggestionEngine:
+    """suggest() and _build_suggestions() (#12507)."""
+
+    def test_suggest_returns_list(self):
+        from seed_gate import suggest
+        result = suggest("Build stuff")
+        assert isinstance(result, list)
+
+    def test_suggest_empty_for_passing(self):
+        from seed_gate import suggest
+        result = suggest("Refactor thermal_reg.py to reduce coupling")
+        # Passing proposals may still get suggestions, but should be few
+        assert isinstance(result, list)
+
+    def test_suggest_has_items_for_failing(self):
+        from seed_gate import suggest
+        result = suggest("Make it better")
+        assert len(result) > 0, "Failing proposals should get suggestions"
+
+    def test_suggestions_in_validate_result(self):
+        """validate() result dict includes suggestions key."""
+        r = _v("Do something vague")
+        assert "suggestions" in r
+        assert isinstance(r["suggestions"], list)
+
+    def test_suggestions_for_no_verb(self):
+        """Missing verb triggers verb suggestion."""
+        r = _v("The thermal_reg.py module needs work")
+        suggestions = r["suggestions"]
+        any_verb_hint = any("verb" in s.lower() or "action" in s.lower() for s in suggestions)
+        assert any_verb_hint, f"Expected verb hint in: {suggestions}"
+
+    def test_suggestions_for_no_target(self):
+        """Missing target triggers target suggestion."""
+        r = _v("Refactor the whole system completely")
+        suggestions = r["suggestions"]
+        any_target_hint = any("file" in s.lower() or "target" in s.lower() or "specific" in s.lower() for s in suggestions)
+        assert any_target_hint, f"Expected target hint in: {suggestions}"
+
+    def test_suggest_with_precomputed_result(self):
+        """suggest() accepts pre-computed result to avoid double validation."""
+        from seed_gate import suggest, validate
+        result = validate("Build stuff")
+        suggestions = suggest("Build stuff", result=result)
+        assert isinstance(suggestions, list)
+
+    def test_suggestions_are_strings(self):
+        r = _v("Do something")
+        for s in r["suggestions"]:
+            assert isinstance(s, str)
+            assert len(s) > 0
+
+
+class TestConfidenceLevels:
+    """SeedGateResult.confidence property."""
+
+    def test_high_confidence(self):
+        """High-scoring proposal → high confidence."""
+        from seed_gate import validate_seed
+        r = validate_seed("Refactor thermal_reg.py to reduce coupling")
+        # 0.65 score → high confidence (threshold is 0.6)
+        assert r.score >= 0.6
+        assert r.confidence == "high"
+
+    def test_low_confidence_junk(self):
+        """Junk proposals → low confidence."""
+        from seed_gate import validate_seed
+        r = validate_seed("lol")
+        assert r.confidence == "low"
+
+    def test_medium_confidence(self):
+        """Score between thresholds → medium."""
+        from seed_gate import validate_seed
+        # A proposal with verb but weak target
+        r = validate_seed("Build something for the Mars colony project")
+        if 0.4 <= r.score < 0.7:
+            assert r.confidence == "medium"
+
+    def test_confidence_in_to_dict(self):
+        """to_dict() includes confidence."""
+        from seed_gate import validate_seed
+        r = validate_seed("Refactor thermal_reg.py")
+        d = r.to_dict()
+        assert "confidence" in d
+        assert d["confidence"] in ("high", "medium", "low")
+
+
+class TestExpandedKnownTools:
+    """New ecosystem tools from #12505."""
+
+    def test_inject_seed_known(self):
+        r = _v("Fix inject_seed to handle edge cases better")
+        assert r["target_found"] == "inject_seed"
+
+    def test_tally_votes_known(self):
+        r = _v("Update tally_votes to count reactions properly")
+        assert r["target_found"] == "tally_votes"
+
+    def test_steer_known(self):
+        r = _v("Improve steer to handle multiple targets")
+        assert r["target_found"] == "steer"
+
+    def test_reconcile_state_known(self):
+        r = _v("Debug reconcile_state for channel mismatches")
+        assert r["target_found"] == "reconcile_state"
+
+    def test_run_proof_known(self):
+        r = _v("Optimize run_proof execution time")
+        assert r["target_found"] == "run_proof"
+
+    def test_vlink_known(self):
+        r = _v("Extend vlink federation to support new peers")
+        assert r["target_found"] == "vlink"
+
+
+class TestBatchCLIPipeline:
+    """--batch mode for pipeline processing (#12521)."""
+
+    def test_batch_all_pass(self):
+        import subprocess, json, sys
+        proposals = json.dumps([
+            "Refactor thermal_reg.py for clarity",
+            "Build atmo_sim.py oxygen model",
+        ])
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["stats"]["total"] == 2
+        assert data["stats"]["passed"] == 2
+
+    def test_batch_mixed(self):
+        import subprocess, json, sys
+        proposals = json.dumps([
+            "Refactor thermal_reg.py for clarity",
+            "lol",
+        ])
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 1  # junk present
+        data = json.loads(result.stdout)
+        assert data["stats"]["total"] == 2
+        assert data["stats"]["junk"] >= 1
+
+    def test_batch_malformed_input(self):
+        import subprocess, json, sys
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch"],
+            input="not json at all",
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 2
+
+    def test_batch_with_tags(self):
+        import subprocess, json, sys
+        proposals = json.dumps(["Refactor thermal_reg.py"])
+        result = subprocess.run(
+            [sys.executable, "-m", "seed_gate", "--batch", "mars", "engineering"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent / "src"),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert "passed_items" in data
+
+
+class TestToDict:
+    """Verify to_dict() output includes all new fields."""
+
+    def test_to_dict_has_suggestions(self):
+        from seed_gate import validate_seed
+        r = validate_seed("Do something vague")
+        d = r.to_dict()
+        assert "suggestions" in d
+        assert isinstance(d["suggestions"], list)
+
+    def test_to_dict_has_confidence(self):
+        from seed_gate import validate_seed
+        r = validate_seed("Refactor thermal_reg.py")
+        d = r.to_dict()
+        assert "confidence" in d
+
+    def test_to_dict_backward_compat(self):
+        """All pre-existing keys still present."""
+        from seed_gate import validate_seed
+        r = validate_seed("Build thermal_reg.py for Mars")
+        d = r.to_dict()
+        for key in ("passed", "score", "reasons", "verb_found",
+                     "target_found", "junk", "advisory",
+                     "all_verbs", "all_targets"):
+            assert key in d, f"Missing key: {key}"

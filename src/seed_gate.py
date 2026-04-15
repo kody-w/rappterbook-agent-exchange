@@ -23,6 +23,9 @@ Two public APIs -- pick whichever suits the call-site:
     br = validate_batch(proposals)      # -> BatchResult
     for item in br.junk_items: ...
 
+    # Suggestion engine (#12507 -- funnel, not just gate)
+    hints = suggest(text, tags)         # -> list[str]
+
     # Composable helpers
     verb   = find_verb(text)          # str | None
     target = find_target(text)        # (str, str) pair
@@ -36,6 +39,9 @@ Evolution log:
     This frame -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
+    This frame -- noun phrase targets (#12503), suggestion engine (#12507),
+                  confidence levels, batch CLI pipeline (#12521), expanded
+                  ecosystem tools (#12505).
 """
 from __future__ import annotations
 
@@ -67,6 +73,17 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "instrument", "measure", "merge", "remove", "render",
     "review", "run", "score", "validate",
 })
+
+# Phrasal verbs (multi-word): checked before single-word verbs
+PHRASAL_VERBS: dict[str, str] = {
+    "wire up": "wire",
+    "hook into": "hook",
+    "plug in": "integrate",
+    "set up": "build",
+    "spin up": "deploy",
+    "tear down": "remove",
+    "roll out": "deploy",
+}
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -110,6 +127,24 @@ CHANNEL_RE = re.compile(r"\b[rc]/[a-z][a-z0-9_-]+\b")
 # Quoted specifics: "some specific thing"
 QUOTED_RE = re.compile(r"""(?:"[^"]{3,60}"|'[^']{3,60}')""")
 
+# Qualified noun phrase: "a module for X", "oxygen handler" (#12503)
+_ARCH_NOUNS: tuple[str, ...] = (
+    "module", "function", "class", "endpoint", "handler", "component",
+    "service", "pipeline", "workflow", "schema", "interface", "middleware",
+    "controller", "daemon", "plugin", "reducer", "fixture", "harness",
+)
+_NOUN_JOIN = "|".join(re.escape(n) for n in _ARCH_NOUNS)
+# Branch 1: article + noun + preposition + qualifier word
+# Branch 2: non-article qualifier (4+ chars) + noun
+NOUN_PHRASE_RE = re.compile(
+    r"(?:"
+    r"(?:an?|the)\s+(?:" + _NOUN_JOIN + r")\s+(?:for|to|that|of|in|with)\s+\w+"
+    r"|"
+    r"(?!(?:an?|the)\b)[a-z][a-z_-]{3,}\s+(?:" + _NOUN_JOIN + r")"
+    r")",
+    re.I,
+)
+
 # Context-sensitive module reference: `module`, import module, from module
 MODULE_CONTEXT_RE = re.compile(r"(?:`[\w_]+`|import\s+[\w_]+|from\s+[\w_]+)")
 
@@ -120,6 +155,9 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    # Ecosystem scripts (#12505)
+    "inject_seed", "tally_votes", "steer", "reconcile_state",
+    "run_proof", "run_python", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -223,6 +261,10 @@ class SeedGateResult:
     verb_found: object
     target_found: object
     junk: bool
+    advisory: str = ""
+    all_verbs: tuple = ()
+    all_targets: tuple = ()
+    suggestions: tuple = ()
 
     @property
     def verb(self) -> str:
@@ -232,6 +274,15 @@ class SeedGateResult:
     def target(self) -> str:
         return self.target_found or ""
 
+    @property
+    def confidence(self) -> str:
+        """Confidence level derived from score: high/medium/low."""
+        if self.score >= 0.6:
+            return "high"
+        if self.score >= 0.3:
+            return "medium"
+        return "low"
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -240,6 +291,11 @@ class SeedGateResult:
             "verb_found": self.verb_found,
             "target_found": self.target_found,
             "junk": self.junk,
+            "advisory": self.advisory,
+            "all_verbs": list(self.all_verbs),
+            "all_targets": [list(t) for t in self.all_targets],
+            "suggestions": list(self.suggestions),
+            "confidence": self.confidence,
         }
 
 
@@ -347,6 +403,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = TOOL_RE.search(text)
     if m:
         return m.group(), "tool"
+    # Qualified noun phrase (#12503) -- after tools to avoid shadowing
+    m = NOUN_PHRASE_RE.search(text)
+    if m:
+        return m.group(), "noun"
     m = CLI_RE.search(text)
     if m:
         return m.group(), "cli"
@@ -448,7 +508,7 @@ def compute_score(
     if target:
         kind_scores = {
             "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0,
+            "tool": 3.0, "cli": 3.0, "noun": 2.0,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
         raw += kind_scores.get(target_kind, 1.5)
@@ -474,6 +534,74 @@ _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind
 
 
 # ---------------------------------------------------------------------------
+# Suggestion engine (#12507 -- funnel, not just gate)
+# ---------------------------------------------------------------------------
+
+_EXAMPLE_VERBS = ("build", "create", "implement", "test", "fix", "refactor")
+_EXAMPLE_FILES = ("water_mining.py", "solar_array.py", "rover.py")
+
+
+def suggest(text: str, tags: list = None, result: dict = None) -> list[str]:
+    """Return improvement hints for a seed proposal.
+
+    Thin mapper from validation results -> actionable suggestions.
+    If *result* is not provided, validates internally first.
+    """
+    if result is None:
+        result = validate(text, tags or [])
+    hints: list[str] = []
+    if result["junk"]:
+        hints.append(
+            "Start with a capital letter and write a complete sentence (50+ chars)"
+        )
+        return hints
+    if not result["verb_found"]:
+        examples = ", ".join(_EXAMPLE_VERBS[:4])
+        hints.append("Start with an action verb: %s..." % examples)
+    if not result["target_found"]:
+        examples = ", ".join(_EXAMPLE_FILES[:2])
+        hints.append(
+            "Name a concrete target: a filename (%s), tool, or #discussion" % examples
+        )
+        tag_set = frozenset(t.lower().strip() for t in (tags or []))
+        if not (tag_set & EXEMPT_TAGS):
+            hints.append(
+                "Or tag as theme/philosophy/debate to exempt from target requirement"
+            )
+    return hints
+
+
+def _build_suggestions(
+    text: str,
+    tags: list,
+    verb: object,
+    target: object,
+    is_junk_flag: bool,
+) -> tuple[str, ...]:
+    """Compute suggestion tuple for SeedGateResult construction."""
+    hints: list[str] = []
+    if is_junk_flag:
+        hints.append(
+            "Start with a capital letter and write a complete sentence (50+ chars)"
+        )
+        return tuple(hints)
+    if not verb:
+        examples = ", ".join(_EXAMPLE_VERBS[:4])
+        hints.append("Start with an action verb: %s..." % examples)
+    if not target:
+        examples = ", ".join(_EXAMPLE_FILES[:2])
+        hints.append(
+            "Name a concrete target: a filename (%s), tool, or #discussion" % examples
+        )
+        tag_set = frozenset(t.lower().strip() for t in (tags or []))
+        if not (tag_set & EXEMPT_TAGS):
+            hints.append(
+                "Or tag as theme/philosophy/debate to exempt from target requirement"
+            )
+    return tuple(hints)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -495,6 +623,7 @@ def validate_seed(
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            suggestions=_build_suggestions(text, tags, None, None, True),
         )
 
     # -- Verb + target ---
@@ -515,6 +644,7 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True,
+            suggestions=_build_suggestions(text, tags, verb, target, True),
         )
 
     # -- Decision ---
@@ -532,9 +662,11 @@ def validate_seed(
         if not target and not is_exempt:
             reasons.append("No concrete target (filename, tool, or reference)")
 
+    sug = _build_suggestions(text, tags, verb or None, target or None, False)
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
+        suggestions=sug,
     )
 
 
@@ -591,12 +723,36 @@ def validate_batch(
 # ---------------------------------------------------------------------------
 
 def _cli() -> None:  # pragma: no cover
+    import json as _json
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--batch":
+        # Pipeline mode (#12521): stdin JSON array -> stdout JSON results
+        try:
+            raw = _json.load(sys.stdin)
+        except (ValueError, _json.JSONDecodeError):
+            print('{"error": "malformed JSON on stdin"}', file=sys.stderr)
+            sys.exit(2)
+        if not isinstance(raw, list):
+            print('{"error": "expected JSON array of strings"}', file=sys.stderr)
+            sys.exit(2)
+        tags = sys.argv[2:] if len(sys.argv) > 2 else []
+        br = validate_batch(raw, tags)
+        output = {
+            "stats": dataclasses.asdict(br.stats),
+            "passed_items": [(t, r) for t, r in br.passed_items],
+            "failed_items": [(t, r) for t, r in br.failed_items],
+            "junk_items": [(t, r) for t, r in br.junk_items],
+        }
+        print(_json.dumps(output, indent=2))
+        sys.exit(0 if br.stats.failed == 0 and br.stats.junk == 0 else 1)
+
     if len(sys.argv) < 2:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --batch [tag1 ...] < proposals.json")
         sys.exit(1)
+
     text = sys.argv[1]
     tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)
