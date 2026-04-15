@@ -22,6 +22,7 @@ from seed_gate import (
     ACTION_VERBS,
     EXEMPT_TAGS,
     KNOWN_MODULES,
+    NEGATION_WORDS,
     CHANNEL_RE,
     CLI_RE,
     DISCUSSION_RE,
@@ -37,6 +38,10 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    _normalize_verb,
+    _verb_stem_candidates,
+    _mask_targets,
+    _is_negated,
 )
 
 
@@ -1376,3 +1381,384 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ---------------------------------------------------------------------------
+# New feature tests — verb inflection, negation detection, target masking
+# ---------------------------------------------------------------------------
+
+class TestVerbInflection:
+    """Test -ing/-ed inflection normalization."""
+
+    def test_building_to_build(self):
+        from seed_gate import find_verb
+        assert find_verb("Building water_mining.py") == "build"
+
+    def test_creating_to_create(self):
+        from seed_gate import find_verb
+        assert find_verb("Creating new module for the colony") == "create"
+
+    def test_deploying_to_deploy(self):
+        from seed_gate import find_verb
+        assert find_verb("Deploying fuel_cell.py to production") == "deploy"
+
+    def test_testing_to_test(self):
+        from seed_gate import find_verb
+        assert find_verb("Testing the drill.py module thoroughly") == "test"
+
+    def test_shipping_to_ship(self):
+        from seed_gate import find_verb
+        assert find_verb("Shipping the new solar_array.py module") == "ship"
+
+    def test_configured_to_configure(self):
+        from seed_gate import find_verb
+        assert find_verb("Configured the thermal_control.py system") == "configure"
+
+    def test_deployed_to_deploy(self):
+        from seed_gate import find_verb
+        assert find_verb("Deployed fuel_cell.py to the habitat") == "deploy"
+
+    def test_optimized_to_optimize(self):
+        from seed_gate import find_verb
+        assert find_verb("Optimized the drill.py performance") == "optimize"
+
+    def test_shipped_to_ship(self):
+        from seed_gate import find_verb
+        assert find_verb("Shipped the new solar_array.py system") == "ship"
+
+    def test_scanned_to_scan(self):
+        from seed_gate import find_verb
+        assert find_verb("Scanned the water_mining.py for bugs") == "scan"
+
+    def test_patched_to_patch(self):
+        from seed_gate import find_verb
+        assert find_verb("Patched the hab_pressure.py overflow") == "patch"
+
+    def test_generated_to_generate(self):
+        from seed_gate import find_verb
+        assert find_verb("Generated new feeds for the colony") == "generate"
+
+    def test_exact_still_preferred(self):
+        """Exact verb match should be returned, not the normalized form."""
+        from seed_gate import find_verb
+        assert find_verb("Build water_mining.py") == "build"
+
+    def test_validate_building(self):
+        """Building + filename should pass the gate."""
+        r = validate("Building water_mining.py optimizer for deep drilling")
+        assert r["passed"] is True
+        assert r["verb_found"] == "build"
+
+    def test_validate_deployed(self):
+        r = validate("Deployed fuel_cell.py power management module")
+        assert r["passed"] is True
+        assert r["verb_found"] == "deploy"
+
+    def test_starts_with_verb_inflected(self):
+        from seed_gate import _starts_with_verb
+        assert _starts_with_verb("building water_mining.py")
+        assert _starts_with_verb("Configured the system")
+        assert _starts_with_verb("Deploying now")
+
+    def test_not_junk_when_inflected(self):
+        """Lowercase inflected verb start should not be marked junk."""
+        r = validate("building water_mining.py optimizer for drilling")
+        assert r["junk"] is False
+        assert r["passed"] is True
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("building", "build"), ("creating", "create"), ("deploying", "deploy"),
+        ("testing", "test"), ("shipping", "ship"), ("scanning", "scan"),
+        ("fixing", "fix"), ("debugging", "debug"), ("monitoring", "monitor"),
+        ("configured", "configure"), ("deployed", "deploy"), ("optimized", "optimize"),
+        ("shipped", "ship"), ("patched", "patch"), ("scanned", "scan"),
+        ("released", "release"), ("generated", "generate"), ("computed", "compute"),
+        ("running", "run"),  # doubled consonant: running → runn → run
+    ])
+    def test_normalize_verb_parametrized(self, inflected, expected):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == expected
+
+    def test_normalize_verb_unknown(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("beautiful") is None
+        assert _normalize_verb("cat") is None
+        assert _normalize_verb("thing") is None
+
+    def test_find_all_verbs_inflected(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Building and testing auth.py then deploying it")
+        assert "build" in verbs
+        assert "test" in verbs
+        assert "deploy" in verbs
+
+
+class TestNegationDetection:
+    """Test that negated verbs are skipped."""
+
+    def test_dont_build(self):
+        from seed_gate import find_verb
+        assert find_verb("Don't build water_mining.py") is None
+
+    def test_never_deploy(self):
+        from seed_gate import find_verb
+        assert find_verb("Never deploy untested code to prod") is None
+
+    def test_cannot_build(self):
+        from seed_gate import find_verb
+        # "build" is negated by "cannot"; "installed" normalizes to "install"
+        r = find_verb("Cannot build without the SDK installed")
+        assert r != "build"  # "build" must be negated
+
+    def test_do_not_fix(self):
+        from seed_gate import find_verb
+        # "not" negates "fix"; "test" is found later as a non-negated verb
+        r = find_verb("Do not fix the broken test in drill.py")
+        # The behavior: "fix" is negated (skipped), "test" is non-negated
+        assert r != "fix"
+
+    def test_not_only_build_exempt(self):
+        """'not only build' should NOT suppress the verb."""
+        from seed_gate import find_verb
+        assert find_verb("Not only build auth.py but test it") == "build"
+
+    def test_not_just_deploy_exempt(self):
+        from seed_gate import find_verb
+        assert find_verb("Not just deploy auth.py but monitor it") == "deploy"
+
+    def test_validate_negated_rejected(self):
+        """Negated-only proposals should fail validation."""
+        r = validate("Don't build anything without a detailed specification")
+        # "build" is negated; remaining words may or may not contain a verb
+        assert r["verb_found"] != "build" or r["verb_found"] is None
+
+    def test_validate_negated_no_false_accept(self):
+        r = validate("Never deploy to production on Friday afternoon")
+        assert r["verb_found"] != "deploy" or r["verb_found"] is None
+
+    def test_negation_words_constant(self):
+        from seed_gate import NEGATION_WORDS
+        assert "not" in NEGATION_WORDS
+        assert "never" in NEGATION_WORDS
+        assert "cannot" in NEGATION_WORDS
+        assert len(NEGATION_WORDS) >= 10
+
+    def test_find_all_verbs_skips_negated(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Don't build auth.py but do test it")
+        assert "build" not in verbs
+
+
+class TestTargetMasking:
+    """Test that verb detection doesn't false-match inside filenames/paths."""
+
+    def test_test_in_filepath_not_matched(self):
+        from seed_gate import find_verb
+        assert find_verb("Coverage in tests/test_seed_gate.py for negation") is None
+
+    def test_building_py_not_matched(self):
+        from seed_gate import find_verb
+        assert find_verb("Notes about building.py module file") is None
+
+    def test_build_before_filepath_matched(self):
+        from seed_gate import find_verb
+        assert find_verb("Build tests/test_seed_gate.py coverage") == "build"
+
+    def test_fix_before_test_file_matched(self):
+        from seed_gate import find_verb
+        assert find_verb("Fix tests/test_drill.py flaky timeout") == "fix"
+
+    def test_builder_py_not_matched(self):
+        """builder.py is a filename, not an inflected verb."""
+        from seed_gate import find_verb
+        assert find_verb("Notes about builder.py module setup") is None
+
+    def test_mask_targets_function(self):
+        from seed_gate import _mask_targets
+        masked = _mask_targets("Fix tests/test_seed_gate.py and builder.py")
+        assert "test_seed_gate.py" not in masked
+        assert "builder.py" not in masked
+
+    def test_validate_with_test_filepath(self):
+        """File target should still be detected even though verb inside is masked."""
+        r = validate("Fix tests/test_seed_gate.py flaky test timeout")
+        assert r["passed"] is True
+        assert r["verb_found"] == "fix"
+        assert "test_seed_gate.py" in r["target_found"]
+
+
+class TestPhrasalInflection:
+    """Test phrasal verb inflection: 'setting up' → 'set up'."""
+
+    def test_setting_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Setting up the deployment pipeline for config.yaml") == "set up"
+
+    def test_cleaning_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Cleaning up dead code in state_io.py") == "clean up"
+
+    def test_wiring_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Wiring up the OAuth handler in auth.py") == "wire up"
+
+    def test_tearing_down(self):
+        from seed_gate import find_verb
+        assert find_verb("Tearing down the test fixtures properly") == "tear down"
+
+    def test_spinning_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Spinning up a new worker for compute_trending.py") == "spin up"
+
+    def test_backing_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Backing up the state files before migration") == "back up"
+
+    def test_scaling_up(self):
+        from seed_gate import find_verb
+        assert find_verb("Scaling up the worker fleet for the colony") == "scale up"
+
+    def test_starts_with_verb_phrasal_inflected(self):
+        from seed_gate import _starts_with_verb
+        assert _starts_with_verb("Setting up auth.py deployment")
+        assert _starts_with_verb("Cleaning up dead code here")
+
+    def test_not_junk_phrasal_inflected(self):
+        """Lowercase phrasal inflection should not be junk."""
+        r = validate("setting up the deployment pipeline for config.yaml")
+        assert r["junk"] is False
+        assert r["passed"] is True
+        assert r["verb_found"] == "set up"
+
+    def test_find_all_verbs_phrasal_inflected(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Setting up and tearing down test fixtures for config.yaml")
+        assert "set up" in verbs
+        assert "tear down" in verbs
+
+    def test_validate_phrasal_inflected(self):
+        r = validate("Setting up the deployment pipeline for config.yaml")
+        assert r["passed"] is True
+        assert r["verb_found"] == "set up"
+        assert r["target_found"] == "config.yaml"
+
+
+class TestInflectionEdgeCases:
+    """Edge cases for inflection normalization."""
+
+    def test_no_false_positive_on_short_words(self):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("ing") is None
+        assert _normalize_verb("ed") is None
+        assert _normalize_verb("ding") is None
+
+    def test_no_false_positive_on_nouns(self):
+        """Common nouns ending in -ing/-ed should not match."""
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("thing") is None
+        assert _normalize_verb("string") is None
+        assert _normalize_verb("ceiling") is None
+        assert _normalize_verb("red") is None
+
+    def test_no_s_normalization(self):
+        """We intentionally do NOT normalize -s (too noun-heavy)."""
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("tests") is None
+        assert _normalize_verb("builds") is None
+        assert _normalize_verb("ships") is None
+
+    def test_no_er_normalization(self):
+        """We intentionally do NOT normalize -er (too noun-heavy)."""
+        from seed_gate import _normalize_verb
+        assert _normalize_verb("builder") is None
+        assert _normalize_verb("debugger") is None
+        assert _normalize_verb("tester") is None
+
+    def test_verb_stem_candidates(self):
+        from seed_gate import _verb_stem_candidates
+        candidates = _verb_stem_candidates("building")
+        assert "build" in candidates
+        candidates = _verb_stem_candidates("configured")
+        assert "configure" in candidates
+        candidates = _verb_stem_candidates("shipped")
+        assert "ship" in candidates
+
+    def test_verb_stem_candidates_empty_for_base(self):
+        from seed_gate import _verb_stem_candidates
+        assert _verb_stem_candidates("build") == []
+        assert _verb_stem_candidates("fix") == []
+
+
+class TestInflectionNegationInvariants:
+    """Property-based invariants for new features."""
+
+    _INFLECTION_CORPUS = [
+        "Building water_mining.py",
+        "Deployed fuel_cell.py to hab",
+        "Don't build anything specific",
+        "Never deploy untested code ever",
+        "Setting up auth.py deployment",
+        "Coverage in tests/test_seed_gate.py",
+        "Notes about building.py module file",
+        "Not only build auth.py but test it",
+        "Cleaning up dead code in state_io.py",
+        "Configured thermal_control.py module sys",
+    ]
+
+    @pytest.mark.parametrize("text", _INFLECTION_CORPUS)
+    def test_score_in_range(self, text):
+        r = validate(text)
+        assert 0.0 <= r["score"] <= 1.0
+
+    @pytest.mark.parametrize("text", _INFLECTION_CORPUS)
+    def test_junk_passed_disjoint(self, text):
+        r = validate(text)
+        if r["junk"]:
+            assert not r["passed"]
+
+    @pytest.mark.parametrize("text", _INFLECTION_CORPUS)
+    def test_dict_equals_dataclass(self, text):
+        assert validate(text) == validate_seed(text).to_dict()
+
+    @pytest.mark.parametrize("text", _INFLECTION_CORPUS)
+    def test_passes_gate_consistent(self, text):
+        assert passes_gate(text) == validate(text)["passed"]
+
+    def test_negated_verb_never_in_all_verbs(self):
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Don't build and never deploy auth.py")
+        assert "build" not in verbs
+        assert "deploy" not in verbs
+
+
+class TestRubberDuckAdvisedTests:
+    """Tests specifically requested by rubber-duck review."""
+
+    def test_building_water_mining_not_junk(self):
+        r = validate("building water_mining.py optimizer for drilling")
+        assert r["junk"] is False
+        assert r["verb_found"] == "build"
+        assert r["passed"] is True
+
+    def test_setting_up_auth(self):
+        r = validate("setting up auth.py deployment pipeline now")
+        assert r["verb_found"] == "set up"
+        assert r["passed"] is True
+
+    def test_notes_about_building_py_no_verb(self):
+        from seed_gate import find_verb
+        assert find_verb("Notes about building.py module setup") is None
+
+    def test_builder_for_auth_no_verb(self):
+        from seed_gate import find_verb
+        # "builder" → -er not normalized; "auth" → not a verb
+        result = find_verb("Builder for auth.py deployment setup")
+        assert result != "build"
+
+    def test_build_tests_coverage(self):
+        from seed_gate import find_verb
+        assert find_verb("Build tests/test_seed_gate.py coverage") == "build"
+
+    def test_coverage_in_test_file_no_verb(self):
+        from seed_gate import find_verb
+        assert find_verb("Coverage in tests/test_seed_gate.py for negation") is None

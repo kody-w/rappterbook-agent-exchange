@@ -36,9 +36,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb inflection normalization (-ing/-ed only, no -s/-er
+                  to avoid noun false positives), negation detection
+                  (don't/never/cannot), target masking before verb scan.
 """
 from __future__ import annotations
 
@@ -95,6 +98,20 @@ _PHRASAL_FIRST: dict[str, dict[str, str]] = {}
 for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
+
+# Negation words -- used to skip negated verbs (rubber-duck advised)
+NEGATION_WORDS: frozenset[str] = frozenset({
+    "not", "never", "no", "cannot", "without",
+    # Contraction remnants after re.findall(r"[a-zA-Z]+", ...) splits
+    # "don't" → ["don", "t"], "can't" → ["can", "t"], etc.
+    "don", "doesn", "didn", "won", "shouldn", "couldn", "wouldn",
+    "isn", "aren", "wasn", "weren", "hasn", "haven",
+})
+
+# Exempt phrases: negation + adverb + verb should still pass
+_NEGATION_EXEMPT_FOLLOWERS: frozenset[str] = frozenset({
+    "only", "just", "merely", "simply",
+})
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
@@ -331,16 +348,33 @@ def _is_false_file_match(match_text: str) -> bool:
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single or phrasal).
+
+    Supports inflected forms: 'Building ...', 'Setting up ...'.
+    """
     words = text.split()
     if not words:
         return False
     first = words[0].lower()
+    # Phrasal check (exact first word)
     if first in _PHRASAL_FIRST and len(words) > 1:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    # Exact match
+    if first in ACTION_VERBS:
+        return True
+    # Inflection normalization for -ing/-ed
+    normalized = _normalize_verb(first)
+    if normalized is not None:
+        return True
+    # Phrasal with inflected first word: "Setting up" → "set up"
+    for candidate in _verb_stem_candidates(first):
+        if candidate in _PHRASAL_FIRST and len(words) > 1:
+            second = words[1].lower()
+            if second in _PHRASAL_FIRST[candidate]:
+                return True
+    return False
 
 
 def _starts_with_file(text: str) -> bool:
@@ -352,26 +386,142 @@ def _starts_with_file(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Verb inflection normalization (only -ing/-ed to avoid noun false positives)
+# ---------------------------------------------------------------------------
+
+def _normalize_verb(word: str) -> str | None:
+    """Normalize an inflected verb to its base form.
+
+    Only handles -ing and -ed suffixes.  -s/-es/-er are intentionally
+    excluded because they produce too many noun false positives
+    (e.g. "tests" as a noun, "builder" as a noun).
+
+    Returns the base verb string if it's in ACTION_VERBS, else None.
+    """
+    if word in ACTION_VERBS:
+        return word
+    for candidate in _verb_stem_candidates(word):
+        if candidate in ACTION_VERBS:
+            return candidate
+    return None
+
+
+def _verb_stem_candidates(word: str) -> list[str]:
+    """Generate candidate base forms for an inflected word.
+
+    Pure morphology — no membership check.  Callers decide
+    which set (ACTION_VERBS, _PHRASAL_FIRST, etc.) to check against.
+    """
+    candidates: list[str] = []
+
+    # -ing: building→build, creating→create, shipping→ship
+    if word.endswith("ing") and len(word) > 4:
+        base = word[:-3]
+        candidates.append(base)
+        candidates.append(base + "e")
+        # Doubled final consonant: shipping→ship, scanning→scan
+        if len(base) >= 3 and base[-1] == base[-2]:
+            candidates.append(base[:-1])
+
+    # -ed: deployed→deploy, configured→configure, shipped→ship
+    if word.endswith("ed") and len(word) > 3:
+        base = word[:-2]
+        candidates.append(base)
+        candidates.append(base + "e")
+        # -ied → -y: not currently needed but future-proof
+        if word.endswith("ied") and len(word) > 4:
+            candidates.append(word[:-3] + "y")
+        # Doubled final consonant: shipped→ship, mapped→map
+        if len(base) >= 3 and base[-1] == base[-2]:
+            candidates.append(base[:-1])
+
+    return candidates
+
+
+def _mask_targets(text: str) -> str:
+    """Replace file-like targets in text with placeholders.
+
+    Prevents false verb matches inside filenames/paths like
+    'tests/test_seed_gate.py' → 'test' or 'building.py' → 'build'.
+    """
+    masked = text
+    # Mask file paths first (most specific)
+    for m in sorted(FILE_RE.finditer(text), key=lambda m: m.start(), reverse=True):
+        if not _is_false_file_match(m.group()):
+            masked = masked[:m.start()] + "___" + masked[m.end():]
+    for m in sorted(PATH_RE.finditer(text), key=lambda m: m.start(), reverse=True):
+        masked = masked[:m.start()] + "___" + masked[m.end():]
+    return masked
+
+
+def _is_negated(words: list[str], idx: int) -> bool:
+    """Return True if the verb at words[idx] is preceded by a negation.
+
+    Handles: "not build", "never deploy", "don't build" (split as
+    ["don", "t", "build"]), "cannot deploy".
+
+    Exempts: "not only build" (the 'only' breaks the negation).
+    """
+    if idx <= 0:
+        return False
+    prev = words[idx - 1]
+    if prev in NEGATION_WORDS:
+        return True
+    # Contraction remnant: "don" "t" "build" or "can" "t" "deploy"
+    if prev == "t" and idx >= 2 and words[idx - 2] in NEGATION_WORDS:
+        return True
+    # Check for "not only ..." / "not just ..." exemptions
+    if idx >= 2 and words[idx - 1] in _NEGATION_EXEMPT_FOLLOWERS:
+        if words[idx - 2] in NEGATION_WORDS:
+            return False
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Uses target-masking to prevent false matches inside filenames,
+    verb normalization for -ing/-ed inflections, and negation
+    detection to skip negated verbs.
+    """
     search_text = text[:limit] if limit else text
-    words = re.findall(r"[a-zA-Z]+", search_text.lower())
+    masked = _mask_targets(search_text)
+    words = re.findall(r"[a-zA-Z]+", masked.lower())
     for i, word in enumerate(words):
+        if _is_negated(words, i):
+            continue
+        # Phrasal verb check (exact first word)
         if word in _PHRASAL_FIRST and i + 1 < len(words):
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
                 return _PHRASAL_FIRST[word][next_word]
+        # Phrasal with inflected first word: "setting up" → "set up"
+        for candidate in _verb_stem_candidates(word):
+            if candidate in _PHRASAL_FIRST and i + 1 < len(words):
+                next_word = words[i + 1]
+                if next_word in _PHRASAL_FIRST[candidate]:
+                    return _PHRASAL_FIRST[candidate][next_word]
+        # Exact match
         if word in ACTION_VERBS:
             return word
+        # Inflection normalization
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
-    words = re.findall(r"[a-zA-Z]+", text.lower())
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Uses target-masking, inflection normalization, and negation detection.
+    """
+    masked = _mask_targets(text)
+    words = re.findall(r"[a-zA-Z]+", masked.lower())
     seen: set[str] = set()
     result: list[str] = []
     skip_next = False
@@ -379,6 +529,9 @@ def find_all_verbs(text: str) -> list[str]:
         if skip_next:
             skip_next = False
             continue
+        if _is_negated(words, i):
+            continue
+        # Phrasal verb check (exact first word)
         if word in _PHRASAL_FIRST and i + 1 < len(words):
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
@@ -388,9 +541,32 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        # Phrasal with inflected first word
+        phrasal_found = False
+        for candidate in _verb_stem_candidates(word):
+            if candidate in _PHRASAL_FIRST and i + 1 < len(words):
+                next_word = words[i + 1]
+                if next_word in _PHRASAL_FIRST[candidate]:
+                    v = _PHRASAL_FIRST[candidate][next_word]
+                    if v not in seen:
+                        seen.add(v)
+                        result.append(v)
+                    skip_next = True
+                    phrasal_found = True
+                    break
+        if phrasal_found:
+            continue
+        # Exact match
+        if word in ACTION_VERBS:
+            if word not in seen:
+                seen.add(word)
+                result.append(word)
+            continue
+        # Inflection normalization
+        normalized = _normalize_verb(word)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
     return result
 
 
@@ -590,6 +766,7 @@ _is_soft_artifact = is_soft_artifact
 _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
+_normalize = _normalize_verb
 
 
 # ---------------------------------------------------------------------------
