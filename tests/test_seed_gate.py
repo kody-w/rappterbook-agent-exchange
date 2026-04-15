@@ -237,8 +237,13 @@ class TestJunkDetection:
     def test_too_short(self):
         assert _v("Build it")["junk"] is True
 
-    def test_starts_lowercase(self):
-        assert _v("build something really cool and interesting here now")["junk"] is True
+    def test_starts_lowercase_verb_allowed(self):
+        # Lowercase text starting with an action verb is NOT junk
+        assert _v("build something really cool and interesting here now")["junk"] is False
+
+    def test_starts_lowercase_fragment(self):
+        # Lowercase text NOT starting with a verb IS junk
+        assert _v("the thing we talked about doing sometime later")["junk"] is True
 
     def test_starts_backtick(self):
         assert _v("`code fragment` extracted from somewhere else")["junk"] is True
@@ -665,3 +670,337 @@ class TestProposeSeedContract:
 
     def test_junk_key(self):
         assert isinstance(_v("Build seed_gate.py validator")["junk"], bool)
+
+
+# ---- New tests for consolidated features (PRs #245/#246/#247) ----
+
+
+class TestFileReFalsePositives:
+    """FILE_RE should not match abbreviations like e.g., i.e., etc."""
+
+    def test_eg_not_a_file(self):
+        from seed_gate import find_target
+        t, k = find_target("Consider e.g. the deployment options for Mars")
+        assert t != "e.g", f"e.g matched as {k}"
+
+    def test_ie_not_a_file(self):
+        from seed_gate import find_target
+        t, k = find_target("The module i.e. the core system should be refactored")
+        assert t != "i.e", f"i.e matched as {k}"
+
+    def test_am_not_a_file(self):
+        from seed_gate import find_target
+        t, k = find_target("Deploy the system before 9 a.m. tomorrow morning")
+        assert t != "a.m", f"a.m matched as {k}"
+
+    def test_real_file_still_matches(self):
+        from seed_gate import find_target
+        t, k = find_target("Update the config.yaml for better settings")
+        assert t == "config.yaml" and k == "file"
+
+    def test_eg_in_sentence_with_real_file(self):
+        r = _v("Fix e.g. the water_mining.py thermal model bug")
+        assert r["target_found"] == "water_mining.py"
+
+    def test_validate_eg_only_no_file(self):
+        r = _v("Explore e.g. what would happen if agents debated")
+        assert r["target_found"] != "e.g"
+
+
+class TestSpecialFiles:
+    """Special files without extensions: Dockerfile, Makefile, README, etc."""
+
+    def test_dockerfile(self):
+        from seed_gate import find_target
+        t, k = find_target("Build the Dockerfile for the Mars colony")
+        assert t == "Dockerfile" and k == "file"
+
+    def test_makefile(self):
+        from seed_gate import find_target
+        t, k = find_target("Refactor the Makefile for cleaner builds")
+        assert t == "Makefile" and k == "file"
+
+    def test_readme(self):
+        from seed_gate import find_target
+        t, k = find_target("Update README with new architecture docs")
+        assert t == "README" and k == "file"
+
+    def test_constitution(self):
+        from seed_gate import find_target
+        t, k = find_target("Review CONSTITUTION for amendment proposals")
+        assert t == "CONSTITUTION" and k == "file"
+
+    def test_agents_md(self):
+        from seed_gate import find_target
+        t, k = find_target("Improve AGENTS documentation coverage")
+        assert t == "AGENTS" and k == "file"
+
+    def test_validate_with_special_file(self):
+        r = _v("Build the Dockerfile for Mars colony deployment")
+        assert r["passed"] is True
+        assert r["target_found"] == "Dockerfile"
+
+    def test_regular_file_takes_priority(self):
+        """A .py file should match FILE_RE before SPECIAL_FILE_RE."""
+        from seed_gate import find_target
+        t, k = find_target("Fix thermal_control.py and update README")
+        assert t == "thermal_control.py"
+
+
+class TestKnownTools:
+    """KNOWN_TOOLS: rappterbook-specific tools matched by precision regex."""
+
+    def test_state_io(self):
+        from seed_gate import find_target
+        t, k = find_target("Refactor state_io for better atomicity")
+        assert t == "state_io" and k == "tool"
+
+    def test_process_inbox(self):
+        from seed_gate import find_target
+        t, k = find_target("Debug process_inbox delta processing logic")
+        assert t == "process_inbox" and k == "tool"
+
+    def test_propose_seed(self):
+        from seed_gate import find_target
+        t, k = find_target("Improve propose_seed with better filtering")
+        assert t == "propose_seed" and k == "tool"
+
+    def test_seed_gate_as_tool(self):
+        from seed_gate import find_target
+        t, k = find_target("Validate seed_gate detects all patterns")
+        assert t == "seed_gate" and k == "tool"
+
+    def test_known_tool_before_generic(self):
+        """Known tools should match before generic TOOL_RE."""
+        from seed_gate import find_target, KNOWN_TOOLS
+        for tool in sorted(KNOWN_TOOLS)[:5]:
+            t, k = find_target(f"Refactor {tool} for clarity")
+            assert t == tool, f"Expected {tool}, got {t}"
+
+    def test_validate_with_known_tool(self):
+        r = _v("Build state_io with better error handling")
+        assert r["passed"] is True
+        assert r["target_found"] == "state_io"
+
+
+class TestQuestionStems:
+    """Question stems infer verbs for exempt-tag proposals."""
+
+    def test_what_if_maps_to_explore(self):
+        r = _v("What if agents could dream in parallel", tags=["philosophy"])
+        assert r["verb_found"] == "explore"
+        assert r["passed"] is True
+
+    def test_how_might_maps_to_design(self):
+        r = _v("How might we scale the colony to a million agents", tags=["exploration"])
+        assert r["verb_found"] == "design"
+        assert r["passed"] is True
+
+    def test_should_we_maps_to_evaluate(self):
+        r = _v("Should we abandon the water mining experiment", tags=["debate"])
+        assert r["verb_found"] == "evaluate"
+        assert r["passed"] is True
+
+    def test_why_not_maps_to_propose(self):
+        r = _v("Why not allow agents to govern themselves completely", tags=["philosophy"])
+        assert r["verb_found"] == "propose"
+
+    def test_no_stem_without_exempt_tag(self):
+        """Question stems should NOT fire without an exempt tag."""
+        r = _v("What if agents could dream in parallel")
+        assert r["verb_found"] is None
+        assert r["passed"] is False
+
+    def test_stem_with_real_verb_uses_real_verb(self):
+        """If text has a real verb, don't override with stem mapping."""
+        r = _v("What if we build a new thermal control system", tags=["philosophy"])
+        assert r["verb_found"] == "build"
+
+    def test_how_could_maps_to_design(self):
+        r = _v("How could the sim achieve true emergence behavior", tags=["exploration"])
+        assert r["verb_found"] == "design"
+
+    def test_case_insensitive(self):
+        r = _v("WHAT IF agents evolved beyond their archetypes", tags=["philosophy"])
+        assert r["verb_found"] == "explore"
+
+
+class TestBatchValidation:
+    """validate_batch() returns structured results with stats."""
+
+    def test_basic_batch(self):
+        from seed_gate import validate_batch
+        proposals = [
+            "Build seed_gate.py with verb detection",
+            "just vibes and stuff happening here",
+            "   ",
+            "Consider improving the thermal model design",
+        ]
+        br = validate_batch(proposals)
+        assert br.stats.total == 4
+        assert br.stats.passed + br.stats.failed + br.stats.junk == 4
+
+    def test_all_passed(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build seed_gate.py with better detection",
+            "Fix thermal_control.py for edge cases",
+        ])
+        assert br.stats.passed == 2
+        assert br.stats.junk == 0
+        assert br.stats.failed == 0
+
+    def test_all_junk(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["   ", "ab", "`fragment` from parser"])
+        assert br.stats.junk == 3
+        assert br.stats.passed == 0
+
+    def test_empty_batch(self):
+        from seed_gate import validate_batch
+        br = validate_batch([])
+        assert br.stats.total == 0
+        assert br.stats.pass_rate == 0.0
+
+    def test_junk_items_contain_text(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["   ", "Build seed_gate.py now"])
+        assert len(br.junk_items) >= 1
+        assert br.junk_items[0][0] == "   "
+
+    def test_passed_items_contain_result(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build seed_gate.py with better detection"])
+        assert len(br.passed_items) == 1
+        text, result = br.passed_items[0]
+        assert result["passed"] is True
+
+    def test_failed_items_not_junk(self):
+        """Failed items are vague-but-not-junk."""
+        from seed_gate import validate_batch
+        br = validate_batch(["Consider improving the thermal model design work"])
+        if br.stats.failed > 0:
+            text, result = br.failed_items[0]
+            assert result["junk"] is False
+            assert result["passed"] is False
+
+
+class TestBatchStats:
+    """BatchStats dataclass: pass_rate, junk_rate, merge."""
+
+    def test_pass_rate(self):
+        from seed_gate import BatchStats
+        s = BatchStats(total=10, passed=7, failed=2, junk=1)
+        assert abs(s.pass_rate - 0.7) < 0.001
+
+    def test_junk_rate(self):
+        from seed_gate import BatchStats
+        s = BatchStats(total=10, passed=7, failed=2, junk=1)
+        assert abs(s.junk_rate - 0.1) < 0.001
+
+    def test_empty_rates(self):
+        from seed_gate import BatchStats
+        s = BatchStats(total=0, passed=0, failed=0, junk=0)
+        assert s.pass_rate == 0.0
+        assert s.junk_rate == 0.0
+
+    def test_merge(self):
+        from seed_gate import BatchStats
+        s1 = BatchStats(total=3, passed=1, failed=1, junk=1)
+        s2 = BatchStats(total=5, passed=4, failed=1, junk=0)
+        merged = s1.merge(s2)
+        assert merged.total == 8
+        assert merged.passed == 5
+        assert merged.failed == 2
+        assert merged.junk == 1
+
+    def test_merge_identity(self):
+        from seed_gate import BatchStats
+        empty = BatchStats(total=0, passed=0, failed=0, junk=0)
+        s = BatchStats(total=3, passed=2, failed=1, junk=0)
+        assert s.merge(empty) == s
+
+
+class TestLowercaseImperative:
+    """Smart lowercase handling: verb-starting text passes, fragments fail."""
+
+    def test_build_verb_not_junk(self):
+        r = _v("build seed_gate.py with better verb detection")
+        assert r["junk"] is False
+        assert r["passed"] is True
+
+    def test_fix_verb_not_junk(self):
+        r = _v("fix the thermal_control.py temperature bounds bug")
+        assert r["junk"] is False
+
+    def test_create_verb_not_junk(self):
+        r = _v("create a new water_mining.py test suite here")
+        assert r["junk"] is False
+
+    def test_lowercase_fragment_is_junk(self):
+        r = _v("the thing we talked about doing sometime soon")
+        assert r["junk"] is True
+
+    def test_lowercase_no_verb_is_junk(self):
+        r = _v("some random fragment about the system that exists")
+        assert r["junk"] is True
+
+    def test_file_start_not_junk(self):
+        """Text starting with a filename is not lowercase-junk."""
+        from seed_gate import is_junk
+        reason = is_junk("seed_gate.py needs better verb detection logic")
+        assert reason == "", f"Unexpected junk reason: {reason}"
+
+
+class TestSubstringDedup:
+    """Substring-aware dedup in count_unique_targets()."""
+
+    def test_stem_and_extension(self):
+        """seed_gate and seed_gate.py should count as 1 unique target."""
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Refactor seed_gate and update seed_gate.py tests")
+        assert count == 1, f"Expected 1, got {count}"
+
+    def test_truly_different_targets(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Fix water_mining.py and thermal_control.py bugs")
+        assert count == 2
+
+    def test_path_and_bare_name(self):
+        """src/seed_gate.py and seed_gate should count as 1."""
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Update src/seed_gate.py and refactor seed_gate module")
+        assert count == 1
+
+    def test_three_unique(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("Fix water_mining.py, thermal_control.py, and seed_gate.py")
+        assert count == 3
+
+    def test_empty_text(self):
+        from seed_gate import count_unique_targets
+        assert count_unique_targets("No targets here at all in this text") == 0
+
+
+class TestCanonicalizeTarget:
+    """canonicalize_target() strips paths, extensions, quotes."""
+
+    def test_strip_extension(self):
+        from seed_gate import canonicalize_target
+        assert canonicalize_target("seed_gate.py") == "seed_gate"
+
+    def test_strip_src_prefix(self):
+        from seed_gate import canonicalize_target
+        assert canonicalize_target("src/seed_gate.py") == "seed_gate"
+
+    def test_strip_quotes(self):
+        from seed_gate import canonicalize_target
+        assert canonicalize_target('"seed_gate"') == "seed_gate"
+
+    def test_lowercase(self):
+        from seed_gate import canonicalize_target
+        assert canonicalize_target("README") == "readme"
+
+    def test_preserve_underscores(self):
+        from seed_gate import canonicalize_target
+        assert canonicalize_target("water_mining.py") == "water_mining"

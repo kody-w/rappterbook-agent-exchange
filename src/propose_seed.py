@@ -169,15 +169,23 @@ def withdraw(proposal_id, seeds_path=None):
 
 
 def purge_junk(seeds_path=None):
-    """Remove proposals that no longer pass the seed gate."""
-    from seed_gate import validate as validate_seed
+    """Remove proposals that are junk (garbage text), not merely vague.
+
+    Uses validate_batch() to separate true junk (parser artifacts, fragments)
+    from vague-but-salvageable proposals.  Only junk gets purged.
+    """
+    from seed_gate import validate_batch as _validate_batch
     seeds = load_seeds(seeds_path)
     proposals = seeds.get("proposals", [])
-    junk_ids = []
-    for p in proposals:
-        result = validate_seed(p.get("text", ""), p.get("tags", []))
-        if not result["passed"]:
-            junk_ids.append(p["id"])
+    if not proposals:
+        return 0
+    texts = [p.get("text", "") for p in proposals]
+    batch = _validate_batch(texts)
+    junk_texts = {text for text, _result in batch.junk_items}
+    junk_ids = [
+        p["id"] for p in proposals
+        if p.get("text", "") in junk_texts
+    ]
     if not junk_ids:
         return 0
     seeds["proposals"] = [p for p in proposals if p["id"] not in junk_ids]
