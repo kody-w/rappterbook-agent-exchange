@@ -39,6 +39,10 @@ Evolution log:
     This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb inflection (gerund/past/3rd-person/irregular),
+                  version-string false-file filter, confidence metric
+                  for extraction certainty.  Closed PRs #251, #252
+                  resurface here.
 """
 from __future__ import annotations
 
@@ -98,6 +102,78 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+# Version strings: v2.1.0, 3.11, 1.0.3-beta  (false FILE_RE matches)
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)*(?:-[\w.]+)?$")
+
+
+# ---------------------------------------------------------------------------
+# Verb inflection map — generated from ACTION_VERBS (PR #252 resurrected)
+# ---------------------------------------------------------------------------
+
+def _build_inflection_map(verbs: frozenset[str]) -> dict[str, str]:
+    """Generate inflected-form → base-form lookup from known verbs.
+
+    Handles -s/-es (3rd person), -ed (past), -ing (gerund), and
+    doubled consonants.  Irregular forms are overlaid manually.
+    """
+    # Single-vowel-single-consonant endings that double before -ed/-ing
+    _DOUBLE_FINALS = frozenset("bgdklmnprst")
+    _VOWELS = frozenset("aeiou")
+
+    forms: dict[str, str] = {}
+
+    for verb in verbs:
+        # --- third person -s / -es ---
+        if verb.endswith(("s", "x", "z", "ch", "sh")):
+            forms[verb + "es"] = verb
+        elif verb.endswith("y") and len(verb) > 1 and verb[-2] not in _VOWELS:
+            forms[verb[:-1] + "ies"] = verb
+        else:
+            forms[verb + "s"] = verb
+
+        # --- past tense -ed ---
+        if verb.endswith("e"):
+            forms[verb + "d"] = verb
+        elif (len(verb) >= 3
+              and verb[-1] in _DOUBLE_FINALS
+              and verb[-2] in _VOWELS
+              and verb[-3] not in _VOWELS):
+            forms[verb + verb[-1] + "ed"] = verb
+        else:
+            forms[verb + "ed"] = verb
+
+        # --- gerund -ing ---
+        if verb.endswith("e") and not verb.endswith("ee"):
+            forms[verb[:-1] + "ing"] = verb
+        elif (len(verb) >= 3
+              and verb[-1] in _DOUBLE_FINALS
+              and verb[-2] in _VOWELS
+              and verb[-3] not in _VOWELS):
+            forms[verb + verb[-1] + "ing"] = verb
+        else:
+            forms[verb + "ing"] = verb
+
+    return forms
+
+
+# Irregular past / past-participle forms
+_IRREGULAR_FORMS: dict[str, str] = {
+    "built": "build", "wrote": "write", "ran": "run",
+    "got": "generate", "made": "create", "set": "configure",
+    "sent": "deploy", "found": "investigate", "shown": "render",
+    "driven": "deploy", "begun": "launch", "chosen": "evaluate",
+    "drawn": "diagram", "broken": "debug", "taken": "extract",
+    "given": "integrate", "spoken": "discuss", "written": "write",
+    "known": "investigate", "gone": "migrate", "done": "execute",
+    "hidden": "archive", "proven": "validate", "risen": "upgrade",
+    "seen": "review", "fallen": "deprecate",
+}
+
+_INFLECTED_TO_BASE: dict[str, str] = {
+    **_build_inflection_map(ACTION_VERBS),
+    **_IRREGULAR_FORMS,
+}
 
 # ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
@@ -262,6 +338,7 @@ class SeedGateResult:
     target_found: object
     junk: bool
     advisory: str = ""
+    confidence: float = 0.0
     all_verbs: tuple = ()
     all_targets: tuple = ()
 
@@ -282,6 +359,7 @@ class SeedGateResult:
             "target_found": self.target_found,
             "junk": self.junk,
             "advisory": self.advisory,
+            "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -327,7 +405,12 @@ class BatchResult:
 
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    stripped = match_text.lower().rstrip(".")
+    if stripped in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -355,10 +438,20 @@ def _starts_with_file(text: str) -> bool:
 # Public composable helpers
 # ---------------------------------------------------------------------------
 
+def _normalize_verb(word: str) -> str | None:
+    """Return the base-form verb if *word* is an inflected action verb."""
+    return _INFLECTED_TO_BASE.get(word)
+
+
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Checks exact match first, then inflected forms (gerund, past,
+    3rd-person) via the inflection map.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
+    # Pass 1: exact match + phrasal (fast path)
     for i, word in enumerate(words):
         if word in _PHRASAL_FIRST and i + 1 < len(words):
             next_word = words[i + 1]
@@ -366,11 +459,19 @@ def find_verb(text: str, limit: int = 0) -> str | None:
                 return _PHRASAL_FIRST[word][next_word]
         if word in ACTION_VERBS:
             return word
+    # Pass 2: inflected forms (gerund -ing, past -ed, 3rd person -s)
+    for word in words:
+        base = _normalize_verb(word)
+        if base and base in ACTION_VERBS:
+            return base
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Checks exact matches first, then inflected forms.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -391,6 +492,11 @@ def find_all_verbs(text: str) -> list[str]:
         if word in ACTION_VERBS and word not in seen:
             seen.add(word)
             result.append(word)
+            continue
+        base = _normalize_verb(word)
+        if base and base in ACTION_VERBS and base not in seen:
+            seen.add(base)
+            result.append(base)
     return result
 
 
@@ -535,9 +641,13 @@ def count_unique_targets(text: str) -> int:
 
     Uses substring-aware dedup: if 'seed_gate' and 'seed_gate.py'
     both appear, they count as one (PR #246).
+    Filters version-string false positives from FILE_RE matches.
     """
     raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    for m in FILE_RE.finditer(text):
+        if not _is_false_file_match(m.group()):
+            raw_targets.append(m.group())
+    for pattern in (PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
     canonical: list[str] = []
@@ -592,6 +702,44 @@ _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
 
 
+def compute_confidence(
+    text: str,
+    verb: str | None,
+    target_kind: str,
+    *,
+    verb_was_inflected: bool = False,
+    verb_was_tag_implied: bool = False,
+) -> float:
+    """Compute extraction certainty 0.0-1.0.
+
+    Unlike *score* (which measures specificity/richness), confidence
+    measures how certain we are that the verb and target were correctly
+    extracted.  A direct verb match + file target = high confidence.
+    A tag-implied verb + quoted target = low confidence.
+    """
+    c = 0.0
+    # Verb certainty
+    if verb:
+        if verb_was_tag_implied:
+            c += 0.10
+        elif verb_was_inflected:
+            c += 0.25
+        else:
+            c += 0.40
+    # Target certainty (by kind)
+    kind_confidence = {
+        "file": 0.40, "path": 0.35, "func": 0.35, "module": 0.30,
+        "tool": 0.30, "const": 0.25, "cli": 0.25,
+        "discussion": 0.20, "channel": 0.20, "quoted": 0.10,
+    }
+    c += kind_confidence.get(target_kind, 0.0)
+    # Penalty for ambiguity: many competing targets reduces certainty
+    all_targets = _find_all_targets(text)
+    if len(all_targets) > 3:
+        c -= 0.05
+    return max(0.0, min(c, 1.0))
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -621,11 +769,22 @@ def validate_seed(
     verb = find_verb(text, limit=verb_limit)
     target, target_kind = find_target(text)
 
+    # -- Track how the verb was found (for confidence) ---
+    verb_was_inflected = False
+    verb_was_tag_implied = False
+
+    if verb:
+        # Check if verb came from inflection (not in raw text as exact match)
+        raw_words = set(re.findall(r"[a-zA-Z]+", text.lower()))
+        if verb not in raw_words:
+            verb_was_inflected = True
+
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
         for tag in tag_set:
             if tag in TAG_IMPLIED_VERBS:
                 verb = TAG_IMPLIED_VERBS[tag]
+                verb_was_tag_implied = True
                 break
 
     # -- Question stem inference (exempt tags only) ---
@@ -633,6 +792,7 @@ def validate_seed(
         m = _QUESTION_STEM_RE.match(text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
+            verb_was_tag_implied = True
 
     # -- Rich match info (#12521) ---
     all_verbs = tuple(find_all_verbs(text))
@@ -667,10 +827,18 @@ def validate_seed(
     elif verb and not target:
         advisory = "needs-specificity"
 
+    # -- Confidence (extraction certainty) ---
+    confidence = compute_confidence(
+        text, verb, target_kind,
+        verb_was_inflected=verb_was_inflected,
+        verb_was_tag_implied=verb_was_tag_implied,
+    )
+
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
-        advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        advisory=advisory, confidence=confidence,
+        all_verbs=all_verbs, all_targets=all_targets,
     )
 
 

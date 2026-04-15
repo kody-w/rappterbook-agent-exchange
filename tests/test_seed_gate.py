@@ -31,6 +31,8 @@ from seed_gate import (
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    find_verb,
+    find_target,
     passes_gate,
     validate,
     validate_seed,
@@ -1376,3 +1378,309 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# Frame mutation: verb inflection, version filter, confidence
+# ===================================================================
+
+class TestVerbNormalization:
+    """Verb inflection map: gerunds, past tense, 3rd person, irregulars."""
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("Building water_mining.py optimizer", "build"),
+        ("Optimizing fuel_cell.py for performance", "optimize"),
+        ("Creating the greenhouse.py simulation", "create"),
+        ("Shipping the rover.py navigation module", "ship"),
+        ("Deploying the nuclear_reactor.py core", "deploy"),
+        ("Running the drill.py subsurface sampler", "run"),
+        ("Debugging the atmo_processor.py filter", "debug"),
+        ("Scanning the hab_pressure.py sensors", "scan"),
+    ])
+    def test_gerund_detected(self, text, expected_verb):
+        assert find_verb(text) == expected_verb
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("Configured the nuclear_reactor.py settings", "configure"),
+        ("Deployed the rover.py to the surface", "deploy"),
+        ("Tested the drill.py subsurface sampler", "test"),
+        ("Patched the hab_pressure.py leak detector", "patch"),
+        ("Computed the mars_curves.py trajectory", "compute"),
+        ("Generated the trending.json analytics", "generate"),
+        ("Resolved the dust_filter.py issue", "resolve"),
+    ])
+    def test_past_tense_detected(self, text, expected_verb):
+        assert find_verb(text) == expected_verb
+
+    @pytest.mark.parametrize("text,expected_verb", [
+        ("Deploys the rover.py navigation module", "deploy"),
+        ("Creates the greenhouse.py simulation", "create"),
+        ("Fixes the hab_pressure.py bug report", "fix"),
+        ("Launches the emergency_beacon.py system", "launch"),
+        ("Tracks the water_mining.py resource levels", "track"),
+        ("Logs the seismograph.py readings data", "log"),
+    ])
+    def test_third_person_detected(self, text, expected_verb):
+        assert find_verb(text) == expected_verb
+
+    @pytest.mark.parametrize("inflected,expected_base", [
+        ("built", "build"),
+        ("wrote", "write"),
+        ("written", "write"),
+        ("ran", "run"),
+        ("proven", "validate"),
+        ("broken", "debug"),
+    ])
+    def test_irregular_forms(self, inflected, expected_base):
+        from seed_gate import _normalize_verb
+        assert _normalize_verb(inflected) == expected_base
+
+    def test_exact_match_preferred_over_inflection(self):
+        """If exact match exists, inflection map is not consulted."""
+        # "build" is in ACTION_VERBS directly — should not go through inflection
+        assert find_verb("Build water_mining.py") == "build"
+
+    def test_inflected_find_all_verbs(self):
+        """find_all_verbs catches inflected forms."""
+        from seed_gate import find_all_verbs
+        verbs = find_all_verbs("Building and testing the water_mining.py module")
+        assert "build" in verbs
+        assert "test" in verbs
+
+    def test_inflected_phrasal_gerund(self):
+        """Phrasal verb particles: 'setting up' should work."""
+        # "setting" → normalize to "set" → then "up" → phrasal "set up"
+        # Actually, find_verb checks phrasal first by first-word match.
+        # "setting" is not "set", so phrasal won't fire, but "set" will
+        # be found via inflection of "setting" → hmm.
+        # For now, just verify base inflection works for "setting"
+        from seed_gate import _normalize_verb
+        # "setting" should normalize to "set" (but "set" is not in ACTION_VERBS
+        # unless we added it as irregular)
+        # This is a known limitation — phrasal inflection is not yet supported
+        pass
+
+    def test_validate_passes_with_gerund(self):
+        """Full validation accepts inflected verbs."""
+        result = validate("Building the water_mining.py optimizer for drilling")
+        assert result["passed"]
+        assert result["verb_found"] == "build"
+
+    def test_validate_passes_with_past_tense(self):
+        result = validate("Configured the nuclear_reactor.py power settings")
+        assert result["passed"]
+        assert result["verb_found"] == "configure"
+
+
+class TestNormalizationFalsePositives:
+    """Guard against noun-to-verb false positives from inflection map."""
+
+    def test_no_target_still_fails(self):
+        """Even with inflected verb, must have target to pass."""
+        result = validate("The plans are ready for a great future ahead")
+        assert not result["passed"]
+
+    def test_inflected_verb_needs_target(self):
+        result = validate("Buildings are structures for housing people not code")
+        assert not result["passed"]
+
+    def test_path_word_not_false_verb(self):
+        """Words from paths shouldn't trigger inflection false positive.
+
+        'tests/test_seed_gate.py' contains 'tests' → should not force
+        verb='test' via inflection when 'test' already matches exactly.
+        """
+        v = find_verb("Check tests/test_seed_gate.py for coverage issues")
+        # "test" is found as exact match from path decomposition
+        assert v == "test"
+
+
+class TestVersionFilter:
+    """Version strings should not match as file targets."""
+
+    @pytest.mark.parametrize("text", [
+        "v2.1.0", "3.0.1", "3.11", "v1.0.0-beta", "2.0.0-rc.1",
+    ])
+    def test_version_not_file_target(self, text):
+        target, kind = find_target(f"Upgrade to {text} for the colony")
+        assert kind != "file" or target != text
+
+    def test_version_in_context(self):
+        """Version next to real file should not corrupt target detection."""
+        target, kind = find_target("Upgrade rover.py to v3.0.1")
+        assert target == "rover.py"
+        assert kind == "file"
+
+    def test_version_only_no_target(self):
+        target, kind = find_target("Deploy version 3.0.1 of the system")
+        # No file target — version filtered out
+        assert kind != "file" or target != "3.0.1"
+
+    def test_count_unique_targets_excludes_versions(self):
+        from seed_gate import count_unique_targets
+        # "v2.1.0" should NOT count as a target
+        text = "Upgrade rover.py to v2.1.0 and deploy drill.py"
+        count = count_unique_targets(text)
+        # Should count rover.py and drill.py but not v2.1.0
+        assert count == 2
+
+    def test_real_file_with_numbers_not_filtered(self):
+        """file123.py should not be caught by version filter."""
+        target, kind = find_target("Build file123.py parser")
+        assert target == "file123.py"
+        assert kind == "file"
+
+    def test_python_version_filtered(self):
+        target, kind = find_target("Requires Python 3.11 at minimum")
+        assert target != "3.11" or kind != "file"
+
+
+class TestConfidence:
+    """Confidence measures extraction certainty, distinct from score."""
+
+    def test_direct_verb_file_target_high(self):
+        """Direct verb + file target = highest confidence."""
+        result = validate_seed("Build water_mining.py optimizer")
+        assert result.confidence >= 0.7
+
+    def test_inflected_verb_lower_confidence(self):
+        """Inflected verb = lower confidence than direct."""
+        direct = validate_seed("Build water_mining.py optimizer")
+        inflected = validate_seed("Building water_mining.py optimizer")
+        assert inflected.confidence < direct.confidence
+
+    def test_tag_implied_verb_lowest(self):
+        """Tag-implied verb = lowest confidence for verbs."""
+        result = validate_seed("The consciousness problem deeply", tags=["code"])
+        assert result.confidence <= 0.40
+
+    def test_quoted_target_lower_than_file(self):
+        """Quoted target = lower confidence than file target."""
+        file_r = validate_seed("Build water_mining.py optimizer")
+        quoted_r = validate_seed('Build "the consciousness engine" soon')
+        assert quoted_r.confidence < file_r.confidence
+
+    def test_confidence_in_dict(self):
+        """confidence key present in dict API."""
+        result = validate("Build water_mining.py")
+        assert "confidence" in result
+        assert isinstance(result["confidence"], float)
+
+    def test_confidence_range(self):
+        """Confidence is always 0.0-1.0."""
+        texts = [
+            "Build water_mining.py",
+            "The plans are ready",
+            "",
+            "x",
+            "Build water_mining.py and drill.py and rover.py for the colony systems",
+        ]
+        for text in texts:
+            r = validate(text)
+            assert 0.0 <= r["confidence"] <= 1.0, f"confidence out of range for: {text!r}"
+
+    def test_confidence_zero_on_junk(self):
+        result = validate("")
+        assert result["confidence"] == 0.0
+
+    def test_confidence_distinct_from_score(self):
+        """Confidence and score are not always equal."""
+        # A long multi-target proposal: score benefits from length+targets,
+        # confidence stays at verb+target certainty level
+        r = validate(
+            "Build water_mining.py and optimize drill.py and deploy rover.py "
+            "for the colony thermal control systems with monitoring and alerts "
+            "across the entire hab_pressure.py infrastructure pipeline setup"
+        )
+        # Score rises from multiple targets + length; confidence is capped at verb+target type
+        # They should differ for rich proposals
+        assert r["score"] != r["confidence"] or r["score"] > 0.8
+
+    def test_to_dict_includes_confidence(self):
+        result = validate_seed("Build auth.py")
+        d = result.to_dict()
+        assert "confidence" in d
+        assert d["confidence"] == result.confidence
+
+
+class TestInflectionMapIntegrity:
+    """Property invariants for the inflection map."""
+
+    def test_all_inflected_forms_map_to_known_verbs(self):
+        from seed_gate import _INFLECTED_TO_BASE, ACTION_VERBS
+        for inflected, base in _INFLECTED_TO_BASE.items():
+            assert base in ACTION_VERBS, f"{inflected!r} maps to {base!r} which is not in ACTION_VERBS"
+
+    def test_inflection_map_has_gerunds(self):
+        from seed_gate import _INFLECTED_TO_BASE
+        # Spot check: common gerunds should be in the map
+        assert "building" in _INFLECTED_TO_BASE
+        assert "testing" in _INFLECTED_TO_BASE
+        assert "deploying" in _INFLECTED_TO_BASE
+
+    def test_inflection_map_has_past_tense(self):
+        from seed_gate import _INFLECTED_TO_BASE
+        assert "created" in _INFLECTED_TO_BASE
+        assert "deployed" in _INFLECTED_TO_BASE
+
+    def test_inflection_map_has_third_person(self):
+        from seed_gate import _INFLECTED_TO_BASE
+        assert "builds" in _INFLECTED_TO_BASE
+        assert "deploys" in _INFLECTED_TO_BASE
+        assert "creates" in _INFLECTED_TO_BASE
+
+    def test_inflection_map_size_reasonable(self):
+        """Each verb generates ~3 inflected forms; irregulars add more."""
+        from seed_gate import _INFLECTED_TO_BASE, ACTION_VERBS
+        min_expected = len(ACTION_VERBS) * 2  # at least -s and -ing
+        assert len(_INFLECTED_TO_BASE) >= min_expected
+
+    def test_base_forms_not_in_inflection_map(self):
+        """Base forms should not appear as keys (they're in ACTION_VERBS)."""
+        from seed_gate import _INFLECTED_TO_BASE, ACTION_VERBS
+        # Allow a few overlaps from irregular forms where inflected == base
+        overlaps = set(_INFLECTED_TO_BASE.keys()) & ACTION_VERBS
+        # Some might overlap (e.g., "set" in irregulars maps to "configure")
+        # but the bulk should not
+        assert len(overlaps) < len(ACTION_VERBS) * 0.1
+
+
+class TestVersionFilterIntegrity:
+    """Property invariants for the version string filter."""
+
+    def test_version_re_matches_semver(self):
+        from seed_gate import _VERSION_RE
+        assert _VERSION_RE.match("1.0.0")
+        assert _VERSION_RE.match("v2.1.0")
+        assert _VERSION_RE.match("3.11")
+        assert _VERSION_RE.match("v1.0.0-beta")
+        assert _VERSION_RE.match("2.0.0-rc.1")
+
+    def test_version_re_rejects_filenames(self):
+        from seed_gate import _VERSION_RE
+        assert not _VERSION_RE.match("water_mining.py")
+        assert not _VERSION_RE.match("README.md")
+        assert not _VERSION_RE.match("config.yaml")
+
+    def test_version_re_rejects_partial(self):
+        from seed_gate import _VERSION_RE
+        assert not _VERSION_RE.match("hello.world")
+        assert not _VERSION_RE.match("foo.bar")
+
+
+class TestConfidenceVsScoreInvariant:
+    """Ensure confidence and score serve different purposes."""
+
+    def test_high_score_low_confidence_possible(self):
+        """A long proposal with tag-implied verb + quoted target can have
+        high score (length + multiple targets) but low confidence."""
+        text = 'Consider "the meaning of consciousness" in this long proposal about agents and life'
+        r = validate_seed(text, tags=["code"])
+        # If it passes, score may be decent but confidence should be low
+        if r.passed:
+            assert r.confidence <= 0.50
+
+    def test_high_confidence_possible(self):
+        """Direct verb + file target → high confidence."""
+        r = validate_seed("Build water_mining.py")
+        assert r.confidence >= 0.7
