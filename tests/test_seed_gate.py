@@ -1652,3 +1652,497 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# PR #272: Diagnostics spine — new tests
+# ===================================================================
+
+
+class TestCommitPrefixStripping:
+    """_strip_commit_prefix() extracts body and implied verb."""
+
+    def test_feat_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat: Build water_mining.py optimizer")
+        assert body == "Build water_mining.py optimizer"
+        assert verb == "build"
+
+    def test_fix_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix: Repair seed_gate.py verb detection")
+        assert body == "Repair seed_gate.py verb detection"
+        assert verb == "fix"
+
+    def test_scoped_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("refactor(core): Simplify thermal.py loop")
+        assert body == "Simplify thermal.py loop"
+        assert verb == "refactor"
+
+    def test_breaking_change(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat!: Overhaul water_mining.py API")
+        assert body == "Overhaul water_mining.py API"
+        assert verb == "build"
+
+    def test_scoped_breaking(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix(api)!: Patch auth.py overflow")
+        assert body == "Patch auth.py overflow"
+        assert verb == "fix"
+
+    def test_no_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("Build water_mining.py optimizer")
+        assert body == "Build water_mining.py optimizer"
+        assert verb is None
+
+    def test_case_insensitive(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("FIX: Repair thermal.py bug")
+        assert body == "Repair thermal.py bug"
+        assert verb == "fix"
+
+    def test_empty_body_no_strip(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat:")
+        assert body == "feat:"
+        assert verb is None
+
+    def test_all_commit_types(self):
+        from seed_gate import _strip_commit_prefix, _COMMIT_TYPE_VERBS
+        for ctype in _COMMIT_TYPE_VERBS:
+            body, verb = _strip_commit_prefix(f"{ctype}: Do something with auth.py")
+            assert body == "Do something with auth.py", f"Failed for {ctype}"
+            assert verb == _COMMIT_TYPE_VERBS[ctype], f"Wrong verb for {ctype}"
+
+    def test_commit_prefix_passes_gate(self):
+        """'fix: Repair seed_gate.py' should pass (body has verb+target)."""
+        r = _v("fix: Repair seed_gate.py")
+        assert r["passed"]
+        assert r["verb_found"] == "repair"
+
+    def test_commit_prefix_implied_verb_fallback(self):
+        """'fix: seed_gate.py overflow' — no verb in body, but fix implies fix."""
+        r = _v("fix: seed_gate.py overflow issue detected")
+        assert r["passed"]
+        assert r["verb_found"] == "fix"
+
+    def test_commit_prefix_body_too_weak(self):
+        """'feat: something vague' should still fail (no target in body)."""
+        r = _v("feat: Something vague and unspecific here")
+        assert not r["passed"]
+
+
+class TestAbbrevRefFilter:
+    """_ABBREV_REF_RE filters abbreviated document references."""
+
+    def test_fig_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("fig.1")
+
+    def test_sec_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("sec.2")
+
+    def test_no_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("no.5")
+
+    def test_vol_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("vol.3")
+
+    def test_eq_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("eq.7")
+
+    def test_ch_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("ch.4")
+
+    def test_case_insensitive(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("Fig.1")
+        assert _is_false_file_match("SEC.3")
+
+    def test_real_file_still_passes(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("auth.py")
+        assert not _is_false_file_match("config.json")
+        assert not _is_false_file_match("api_v2.py")
+
+    def test_rfc_parser_still_file(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("rfc7231_parser.py")
+
+    def test_abbrev_ref_in_proposal(self):
+        """'Analyze fig.1 from the paper' should NOT detect fig.1 as file target."""
+        r = _v("Analyze fig.1 from the paper about thermal control")
+        # fig.1 is filtered, but there may be other targets
+        if r["target_found"]:
+            assert r["target_found"] != "fig.1"
+
+
+class TestVerbMatch:
+    """VerbMatch dataclass and find_verb_with_position()."""
+
+    def test_explicit_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("Build water_mining.py optimizer")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "explicit"
+
+    def test_inflected_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("Building water_mining.py optimizer")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "inflected"
+
+    def test_phrasal_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("Set up the thermal.py test harness")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.position == 0
+        assert vm.source == "phrasal"
+
+    def test_verb_not_at_start(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("We should build water_mining.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position > 0
+
+    def test_no_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("The thermal system is complex")
+        assert vm is None
+
+    def test_str_representation(self):
+        from seed_gate import VerbMatch
+        vm = VerbMatch(verb="build", position=0, source="explicit")
+        assert "build" in str(vm)
+        assert "pos=0" in str(vm)
+        assert "explicit" in str(vm)
+
+    def test_consistent_with_find_verb(self):
+        """find_verb_with_position must agree with find_verb on which verb is found."""
+        from seed_gate import find_verb, find_verb_with_position
+        cases = [
+            "Build water_mining.py optimizer",
+            "Building the thermal.py system from scratch",
+            "Set up the test harness for auth.py",
+            "We deployed rover.py to staging last week",
+            "Nothing happened here at all",
+        ]
+        for text in cases:
+            v = find_verb(text)
+            vm = find_verb_with_position(text)
+            if v is None:
+                assert vm is None, f"Drift on {text!r}: find_verb=None, find_verb_with_position={vm}"
+            else:
+                assert vm is not None and vm.verb == v, f"Drift on {text!r}: find_verb={v}, find_verb_with_position={vm}"
+
+    def test_limit_parameter(self):
+        from seed_gate import find_verb_with_position
+        text = "x" * 200 + " build water_mining.py"
+        assert find_verb_with_position(text, limit=50) is None
+        assert find_verb_with_position(text) is not None
+
+
+class TestScoreBreakdown:
+    """score_breakdown() returns structured decomposition."""
+
+    def test_full_proposal(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("Build water_mining.py optimizer with thermal_control.py integration")
+        assert bd.verb == 2.5
+        assert bd.target == 4.0
+        assert bd.target_kind == "file"
+        assert bd.imperative == 0.5
+        assert bd.raw > 0
+        assert 0.0 <= bd.normalized <= 1.0
+
+    def test_no_verb(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("The water_mining.py system is broken")
+        assert bd.verb == 0.0
+        assert bd.target > 0
+
+    def test_no_target(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("Build something great")
+        assert bd.verb == 2.5
+        assert bd.target == 0.0
+        assert bd.target_kind == ""
+
+    def test_multi_target_bonus(self):
+        from seed_gate import score_breakdown as sb
+        single = sb("Build water_mining.py")
+        multi = sb("Build water_mining.py and thermal_control.py")
+        assert multi.multi_target >= 1.0
+        assert multi.raw > single.raw
+
+    def test_imperative_bonus(self):
+        from seed_gate import score_breakdown as sb
+        imperative = sb("Build water_mining.py optimizer")
+        non_imperative = sb("We should build water_mining.py optimizer")
+        assert imperative.imperative == 0.5
+        assert non_imperative.imperative == 0.0
+
+    def test_length_bonus(self):
+        from seed_gate import score_breakdown as sb
+        short = sb("Build auth.py")
+        long_text = sb("Build a comprehensive test suite for auth.py covering all edge cases and boundary conditions")
+        assert long_text.length > short.length
+
+    def test_to_dict(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("Build water_mining.py")
+        d = bd.to_dict()
+        assert isinstance(d, dict)
+        assert "verb" in d
+        assert "target" in d
+        assert "target_kind" in d
+        assert "raw" in d
+        assert "normalized" in d
+
+    def test_consistent_with_compute_score(self):
+        """score_breakdown().normalized must equal compute_score()."""
+        from seed_gate import score_breakdown as sb, compute_score
+        cases = [
+            ("Build water_mining.py", "build", "water_mining.py", "file"),
+            ("Fix the $STATE_DIR path", "fix", "$STATE_DIR", "env"),
+            ("Something with no verb", None, "auth.py", "file"),
+        ]
+        for text, verb, target, kind in cases:
+            bd = sb(text, verb, target, kind)
+            cs = compute_score(text, verb, target, kind)
+            assert abs(bd.normalized - cs) < 0.001, f"Drift on {text!r}"
+
+    def test_breakdown_in_result(self):
+        """validate_seed() result should carry the breakdown."""
+        r = _vs("Build water_mining.py optimizer")
+        assert r.breakdown is not None
+        assert isinstance(r.breakdown, ScoreBreakdown)
+        assert r.breakdown.verb == 2.5
+
+    def test_breakdown_in_to_dict(self):
+        """to_dict() should include score_breakdown."""
+        r = _v("Build water_mining.py optimizer")
+        assert "score_breakdown" in r
+        assert r["score_breakdown"]["verb"] == 2.5
+
+
+class TestExplain:
+    """explain() returns human-readable step-by-step analysis."""
+
+    def test_passing_proposal(self):
+        from seed_gate import explain
+        out = explain("Build water_mining.py optimizer")
+        assert "Input:" in out
+        assert "Junk: no" in out
+        assert "Verb:" in out
+        assert "build" in out.lower()
+        assert "Target:" in out
+        assert "water_mining.py" in out
+        assert "Score:" in out
+        assert "PASSED" in out
+
+    def test_failing_no_verb(self):
+        from seed_gate import explain
+        out = explain("The water_mining.py system is broken")
+        assert "REJECTED" in out
+        assert "none found" in out.lower() or "No action verb" in out
+
+    def test_junk_proposal(self):
+        from seed_gate import explain
+        out = explain("- some junk fragment")
+        assert "Junk: YES" in out
+        assert "REJECTED" in out
+
+    def test_commit_prefix_shown(self):
+        from seed_gate import explain
+        out = explain("fix: Repair seed_gate.py verb detection")
+        assert "Commit prefix stripped" in out
+        assert "Repair" in out
+
+    def test_no_commit_prefix(self):
+        from seed_gate import explain
+        out = explain("Build water_mining.py optimizer")
+        assert "Commit prefix" not in out
+
+    def test_confidence_shown(self):
+        from seed_gate import explain
+        out = explain("Build water_mining.py optimizer")
+        assert "Confidence:" in out
+
+    def test_advisory_shown(self):
+        from seed_gate import explain
+        out = explain("Build something in the mars colony", ["exploration"])
+        # exempt tag + verb = passes, but no target = advisory
+        assert "PASSED" in out
+
+    def test_all_verbs_shown(self):
+        from seed_gate import explain
+        out = explain("Build water_mining.py and test thermal_control.py")
+        assert "All verbs:" in out
+
+    def test_all_targets_shown(self):
+        from seed_gate import explain
+        out = explain("Build water_mining.py and thermal_control.py")
+        assert "All targets:" in out
+
+    def test_score_breakdown_in_explain(self):
+        from seed_gate import explain
+        out = explain("Build water_mining.py optimizer")
+        assert "verb=" in out
+        assert "target(" in out
+
+    def test_explain_matches_validate(self):
+        """explain() must use same analysis path as validate_seed()."""
+        from seed_gate import explain
+        cases = [
+            "Build water_mining.py optimizer",
+            "- junk fragment here",
+            "fix: Repair seed_gate.py verb detection",
+            "The system is very complex and interesting",
+        ]
+        for text in cases:
+            r = _vs(text)
+            out = explain(text)
+            if r.passed:
+                assert "PASSED" in out, f"Mismatch on {text!r}"
+            else:
+                assert "REJECTED" in out, f"Mismatch on {text!r}"
+
+
+class TestCommitPrefixIntegration:
+    """End-to-end commit prefix behavior with validate/propose."""
+
+    def test_body_verb_takes_precedence(self):
+        """'refactor: Optimize thermal.py' — 'optimize' in body wins over 'refactor' implied."""
+        r = _v("refactor: Optimize thermal.py hot path")
+        assert r["passed"]
+        assert r["verb_found"] == "optimize"
+
+    def test_implied_verb_as_fallback(self):
+        """'test: seed_gate.py coverage gaps' — no verb in body, 'test' implied."""
+        r = _v("test: seed_gate.py coverage gaps need attention")
+        assert r["passed"]
+        assert r["verb_found"] == "test"
+
+    def test_junk_body_after_strip(self):
+        """'fix: - some junk' — body is junk after stripping prefix."""
+        r = _v("fix: - some junk fragment here")
+        assert not r["passed"]
+        assert r["junk"]
+
+
+class TestDiagnosticsInvariants:
+    """Property-based invariants for the diagnostics spine."""
+
+    def test_breakdown_components_non_negative(self):
+        from seed_gate import score_breakdown as sb
+        cases = [
+            "Build water_mining.py", "", "Something without verbs",
+            "fix: Repair auth.py", "Set up the thermal.py harness",
+        ]
+        for text in cases:
+            if not text:
+                continue
+            bd = sb(text)
+            assert bd.verb >= 0
+            assert bd.target >= 0
+            assert bd.length >= 0
+            assert bd.multi_target >= 0
+            assert bd.imperative >= 0
+            assert bd.raw >= 0
+            assert 0.0 <= bd.normalized <= 1.0
+
+    def test_breakdown_raw_is_sum(self):
+        from seed_gate import score_breakdown as sb
+        for text in [
+            "Build water_mining.py optimizer",
+            "Test thermal_control.py and rover.py",
+            "Deploy seed_gate.py to production",
+        ]:
+            bd = sb(text)
+            expected_sum = bd.verb + bd.target + bd.length + bd.multi_target + bd.imperative
+            assert abs(bd.raw - expected_sum) < 0.001, f"Sum mismatch on {text!r}"
+
+    def test_explain_always_has_verdict(self):
+        from seed_gate import explain
+        cases = [
+            "Build water_mining.py", "- junk", "Something vague",
+            "fix: auth.py", "What if we explored the unknown",
+        ]
+        for text in cases:
+            out = explain(text)
+            assert "Verdict:" in out, f"No verdict in explain({text!r})"
+
+    def test_verb_match_position_in_bounds(self):
+        from seed_gate import find_verb_with_position
+        import re
+        cases = [
+            "Build water_mining.py", "We should build auth.py",
+            "Setting up the thermal.py", "Created rover.py yesterday",
+        ]
+        for text in cases:
+            vm = find_verb_with_position(text)
+            if vm is not None:
+                words = re.findall(r"[a-zA-Z]+", text.lower())
+                assert 0 <= vm.position < len(words), f"Position out of bounds on {text!r}"
+
+    def test_commit_strip_idempotent(self):
+        """Stripping twice should not change the result."""
+        from seed_gate import _strip_commit_prefix
+        cases = [
+            "fix: Repair auth.py", "feat(core): Build thermal.py",
+            "Normal proposal text", "Build water_mining.py",
+        ]
+        for text in cases:
+            body1, _ = _strip_commit_prefix(text)
+            body2, _ = _strip_commit_prefix(body1)
+            assert body1 == body2, f"Not idempotent on {text!r}"
+
+
+class TestScoreBreakdownAPI:
+    """score_breakdown() as a standalone public API."""
+
+    def test_auto_detects_verb_and_target(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("Build water_mining.py")
+        assert bd.verb == 2.5
+        assert bd.target > 0
+
+    def test_explicit_params_override(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("Random text here", verb="build", target="auth.py", target_kind="file")
+        assert bd.verb == 2.5
+        assert bd.target == 4.0
+
+    def test_none_verb_explicit(self):
+        from seed_gate import score_breakdown as sb
+        bd = sb("Something without verbs", verb=None, target=None, target_kind="")
+        assert bd.verb == 0.0
+        assert bd.target == 0.0
+
+
+# ===================================================================
+# Imports for new test classes that reference new symbols
+# ===================================================================
+
+from seed_gate import (
+    ScoreBreakdown,
+    VerbMatch,
+    find_verb_with_position,
+    score_breakdown,
+    explain,
+)

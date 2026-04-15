@@ -23,9 +23,14 @@ Two public APIs -- pick whichever suits the call-site:
     br = validate_batch(proposals)      # -> BatchResult
     for item in br.junk_items: ...
 
+    # Diagnostics (new in PR #272)
+    breakdown = score_breakdown(text)   # -> ScoreBreakdown
+    explanation = explain(text, tags)   # -> str (human-readable)
+
     # Composable helpers
     verb   = find_verb(text)          # str | None
     target = find_target(text)        # (str, str) pair
+    vp     = find_verb_with_position(text)  # VerbMatch | None
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
@@ -45,6 +50,10 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- diagnostics spine: explain(), score_breakdown(),
+                  find_verb_with_position(), commit-prefix stripping,
+                  abbreviated-ref false-file filter, shared _analyze()
+                  path.  One analysis spine, multiple views.
 """
 from __future__ import annotations
 
@@ -58,7 +67,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 95 action verbs -- frozenset for O(1) lookup
+# 108 action verbs -- frozenset for O(1) lookup
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
@@ -198,6 +207,12 @@ _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
 # Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
 
+# Abbreviated references: fig.1, sec.2, no.5, vol.3, eq.7, ch.4, pt.2
+# These look like files to FILE_RE but are actually document references.
+_ABBREV_REF_RE = re.compile(
+    r"^(?:fig|sec|no|vol|eq|ch|pt|ex|app)\.\d+$", re.I
+)
+
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
 
@@ -281,6 +296,40 @@ _QUESTION_STEM_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Conventional commit prefix stripping (PR #272)
+# ---------------------------------------------------------------------------
+
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(feat|fix|chore|docs|test|refactor|style|ci|build|perf|revert)"
+    r"(?:\([^)]*\))?!?:\s*",
+    re.I,
+)
+
+_COMMIT_TYPE_VERBS: dict[str, str] = {
+    "feat": "build", "fix": "fix", "chore": "clean",
+    "docs": "document", "test": "test", "refactor": "refactor",
+    "style": "improve", "ci": "configure", "build": "build",
+    "perf": "optimize", "revert": "remove",
+}
+
+
+def _strip_commit_prefix(text: str) -> tuple[str, str | None]:
+    """Strip conventional commit prefix, return (body, implied_verb|None).
+
+    The implied verb is only used as a *fallback* when no explicit verb
+    is found in the body -- this avoids "fix: auth.py" passing on the
+    strength of the prefix alone when the body is too weak.
+    """
+    m = _COMMIT_PREFIX_RE.match(text)
+    if m:
+        commit_type = m.group(1).lower()
+        body = text[m.end():].strip()
+        if body:
+            return body, _COMMIT_TYPE_VERBS.get(commit_type)
+    return text, None
+
+
+# ---------------------------------------------------------------------------
 # Junk / artifact detection (#12507 + main repo consolidation)
 # ---------------------------------------------------------------------------
 
@@ -344,6 +393,35 @@ _KNOWN_MODULES_LOWER: frozenset[str] = frozenset(m.lower() for m in KNOWN_MODULE
 # ---------------------------------------------------------------------------
 
 @dataclasses.dataclass(frozen=True)
+class VerbMatch:
+    """A verb found in the text, with its position and source."""
+
+    verb: str
+    position: int
+    source: str  # "explicit", "inflected", "phrasal", "tag-implied", "question-stem", "commit-prefix"
+
+    def __str__(self) -> str:
+        return f"{self.verb} (pos={self.position}, {self.source})"
+
+
+@dataclasses.dataclass(frozen=True)
+class ScoreBreakdown:
+    """Decomposition of the specificity score into labeled components."""
+
+    verb: float
+    target: float
+    target_kind: str
+    length: float
+    multi_target: float
+    imperative: float
+    raw: float
+    normalized: float
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+
+@dataclasses.dataclass(frozen=True)
 class SeedGateResult:
     """Immutable result of seed-gate validation."""
 
@@ -356,6 +434,8 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    _score_breakdown: object = None
+    _commit_prefix_stripped: bool = False
 
     @property
     def verb(self) -> str:
@@ -376,8 +456,13 @@ class SeedGateResult:
             return "medium"
         return "low"
 
+    @property
+    def breakdown(self) -> ScoreBreakdown | None:
+        """Return the structured score breakdown, if available."""
+        return self._score_breakdown
+
     def to_dict(self) -> dict:
-        return {
+        d = {
             "passed": self.passed,
             "reasons": list(self.reasons),
             "score": self.score,
@@ -389,6 +474,9 @@ class SeedGateResult:
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
+        if self._score_breakdown is not None:
+            d["score_breakdown"] = self._score_breakdown.to_dict()
+        return d
 
 
 @dataclasses.dataclass(frozen=True)
@@ -432,12 +520,15 @@ class BatchResult:
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive.
 
-    Catches abbreviations (e.g., i.e.) and bare version strings (2.0.1).
+    Catches abbreviations (e.g., i.e.), bare version strings (2.0.1),
+    and abbreviated document references (fig.1, sec.2, no.5).
     """
     stripped = match_text.lower().rstrip(".")
     if stripped in _FALSE_FILE_MATCHES:
         return True
     if _VERSION_RE.match(match_text):
+        return True
+    if _ABBREV_REF_RE.match(match_text):
         return True
     return False
 
@@ -493,6 +584,40 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             return word
         if word in _INFLECTION_MAP:
             return _INFLECTION_MAP[word]
+    return None
+
+
+def find_verb_with_position(text: str, limit: int = 0) -> VerbMatch | None:
+    """Return the first verb as a VerbMatch (verb + position + source), or None.
+
+    Uses the same detection logic as find_verb() to prevent drift.
+    Position is the word index in the token list.
+    """
+    search_text = text[:limit] if limit else text
+    words = re.findall(r"[a-zA-Z]+", search_text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return VerbMatch(
+                    verb=_PHRASAL_FIRST[word][next_word],
+                    position=i,
+                    source="phrasal",
+                )
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return VerbMatch(
+                    verb=_PHRASAL_INFLECTED[word][next_word],
+                    position=i,
+                    source="phrasal",
+                )
+        if word in ACTION_VERBS:
+            return VerbMatch(verb=word, position=i, source="explicit")
+        if word in _INFLECTION_MAP:
+            return VerbMatch(
+                verb=_INFLECTION_MAP[word],
+                position=i,
+                source="inflected",
+            )
     return None
 
 
@@ -704,35 +829,69 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def score_breakdown(
+    text: str,
+    verb: str | None = None,
+    target: str | None = None,
+    target_kind: str = "",
+) -> ScoreBreakdown:
+    """Compute and return the structured score decomposition.
+
+    If verb/target are not provided, they are detected from *text*.
+    compute_score() delegates here so the math can never drift.
+    """
+    if verb is None:
+        verb = find_verb(text)
+    if target is None:
+        target, target_kind = find_target(text)
+
+    verb_score = 2.5 if verb else 0.0
+
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    target_score = kind_scores.get(target_kind, 1.5) if target else 0.0
+
+    words = text.split()
+    length_score = 0.0
+    if len(words) >= 8:
+        length_score += 0.5
+    if len(words) >= 15:
+        length_score += 1.0
+
+    unique = count_unique_targets(text)
+    multi_score = 1.0 if unique >= 2 else 0.0
+
+    imperative_score = 0.5 if (verb and _starts_with_verb(text)) else 0.0
+
+    raw = verb_score + target_score + length_score + multi_score + imperative_score
+    normalized = min(raw / 10.0, 1.0)
+
+    return ScoreBreakdown(
+        verb=verb_score,
+        target=target_score,
+        target_kind=target_kind or "",
+        length=length_score,
+        multi_target=multi_score,
+        imperative=imperative_score,
+        raw=raw,
+        normalized=normalized,
+    )
+
+
 def compute_score(
     text: str,
     verb: str | None,
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    """Compute a 0.0-1.0 specificity score.
+
+    Delegates to score_breakdown() so the math is defined in one place.
+    """
+    return score_breakdown(text, verb, target, target_kind).normalized
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -773,33 +932,43 @@ _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Shared analysis spine (PR #272)
 # ---------------------------------------------------------------------------
 
-def validate_seed(
+def _analyze(
     text: str,
-    tags: list = None,
-    *,
-    mode: str = "admission",
+    tags: list,
+    mode: str,
 ) -> SeedGateResult:
-    """Validate a seed proposal and return a *SeedGateResult*."""
-    tags = tags or []
+    """Single analysis path used by validate_seed() and explain().
+
+    All validation logic lives here; public APIs are views over this.
+    """
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
-    # -- Junk check (hard fail) ---
+    # -- Commit prefix stripping ---
+    body, commit_implied_verb = _strip_commit_prefix(text)
+    prefix_was_stripped = (body != text)
+
+    # -- Junk check (hard fail) -- run on body after prefix strip ---
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
+    junk_reason = is_junk(body, limit=junk_limit)
     if junk_reason:
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            _commit_prefix_stripped=prefix_was_stripped,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target (from body) ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb = find_verb(body, limit=verb_limit)
+    target, target_kind = find_target(body)
+
+    # -- Commit-prefix implied verb (fallback only) ---
+    if not verb and commit_implied_verb:
+        verb = commit_implied_verb
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
@@ -810,22 +979,26 @@ def validate_seed(
 
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
+        m = _QUESTION_STEM_RE.match(body.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
 
     # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
+    all_verbs = tuple(find_all_verbs(body))
+    all_targets = _find_all_targets(body)
 
     # -- Soft artifact check ---
-    if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+    if is_soft_artifact(body) and not (verb and target) and not is_exempt:
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            _commit_prefix_stripped=prefix_was_stripped,
         )
+
+    # -- Score breakdown ---
+    bd = score_breakdown(body, verb, target, target_kind)
 
     # -- Decision ---
     if mode == "purge":
@@ -833,7 +1006,7 @@ def validate_seed(
         specificity = 0.5
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        specificity = bd.normalized
 
     reasons: list[str] = []
     advisory = ""
@@ -851,7 +1024,23 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        _score_breakdown=bd,
+        _commit_prefix_stripped=prefix_was_stripped,
     )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def validate_seed(
+    text: str,
+    tags: list = None,
+    *,
+    mode: str = "admission",
+) -> SeedGateResult:
+    """Validate a seed proposal and return a *SeedGateResult*."""
+    return _analyze(text, tags or [], mode)
 
 
 def validate(text: str, tags: list = None, mode: str = "admission") -> dict:
@@ -902,6 +1091,83 @@ def validate_batch(
     )
 
 
+def explain(text: str, tags: list = None, *, mode: str = "admission") -> str:
+    """Return a human-readable step-by-step analysis of the validation.
+
+    Runs the same _analyze() path as validate_seed() to ensure consistency.
+    Output format is one line per step, suitable for CLI or debug logs.
+    """
+    tags = tags or []
+    result = _analyze(text, tags, mode)
+
+    lines: list[str] = []
+    display = text[:80] + ("..." if len(text) > 80 else "")
+    lines.append(f"Input: {display!r}")
+
+    if result._commit_prefix_stripped:
+        body, implied = _strip_commit_prefix(text)
+        lines.append(f"Commit prefix stripped → body: {body!r}, implied verb: {implied!r}")
+
+    if result.junk:
+        lines.append(f"Junk: YES — {result.reasons[0] if result.reasons else 'unknown'}")
+        lines.append(f"Verdict: REJECTED (junk)")
+        return "\n".join(lines)
+
+    lines.append(f"Junk: no")
+
+    vm = find_verb_with_position(text)
+    if vm:
+        lines.append(f"Verb: {vm.verb!r} (position={vm.position}, source={vm.source})")
+    elif result.verb_found:
+        lines.append(f"Verb: {result.verb_found!r} (inferred from tags/question/prefix)")
+    else:
+        lines.append("Verb: none found")
+
+    if result.all_verbs:
+        lines.append(f"All verbs: {list(result.all_verbs)}")
+
+    target, kind = find_target(text)
+    if target:
+        lines.append(f"Target: {target!r} (kind={kind})")
+    else:
+        lines.append("Target: none found")
+
+    if result.all_targets:
+        targets_str = ", ".join(f"{t}({k})" for t, k in result.all_targets)
+        lines.append(f"All targets: [{targets_str}]")
+
+    if result._score_breakdown:
+        bd = result._score_breakdown
+        parts = []
+        if bd.verb:
+            parts.append(f"verb={bd.verb}")
+        if bd.target:
+            parts.append(f"target({bd.target_kind})={bd.target}")
+        if bd.length:
+            parts.append(f"length={bd.length}")
+        if bd.multi_target:
+            parts.append(f"multi_target={bd.multi_target}")
+        if bd.imperative:
+            parts.append(f"imperative={bd.imperative}")
+        lines.append(f"Score: {bd.normalized:.2f} (raw={bd.raw:.1f}/10 — {', '.join(parts)})")
+    else:
+        lines.append(f"Score: {result.score:.2f}")
+
+    if result.confidence:
+        lines.append(f"Confidence: {result.confidence}")
+
+    if result.advisory:
+        lines.append(f"Advisory: {result.advisory}")
+
+    verdict = "PASSED" if result.passed else "REJECTED"
+    if result.reasons:
+        lines.append(f"Verdict: {verdict} — {'; '.join(result.reasons)}")
+    else:
+        lines.append(f"Verdict: {verdict}")
+
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # CLI entry-point
 # ---------------------------------------------------------------------------
@@ -909,7 +1175,18 @@ def validate_batch(
 def _cli() -> None:  # pragma: no cover
     if len(sys.argv) < 2:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --explain '<proposal text>' [tag1 tag2 ...]")
         sys.exit(1)
+
+    if sys.argv[1] == "--explain":
+        if len(sys.argv) < 3:
+            print("Usage: python -m seed_gate --explain '<proposal text>' [tag1 tag2 ...]")
+            sys.exit(1)
+        text = sys.argv[2]
+        tags = sys.argv[3:] if len(sys.argv) > 3 else []
+        print(explain(text, tags))
+        sys.exit(0)
+
     text = sys.argv[1]
     tags = sys.argv[2:] if len(sys.argv) > 2 else []
     import json as _json
