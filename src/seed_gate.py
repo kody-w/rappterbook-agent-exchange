@@ -1,9 +1,9 @@
 """seed_gate.py -- canonical specificity validator for seed proposals.
 
 Consolidates ideas from 6 independent implementations (#12503, #12505,
-#12507, #12511, #12521, #12530) and PRs #245, #246, #247 into one
-validator that checks for an *action verb* plus a *concrete target*
-(filename, tool name, path, or discussion reference).
+#12507, #12511, #12521, #12530) and PRs #245, #246, #247, #248, #253
+into one validator that checks for an *action verb* plus a *concrete
+target* (filename, tool name, path, or discussion reference).
 
 Two public APIs -- pick whichever suits the call-site:
 
@@ -36,9 +36,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- verb normalization (inflected forms), version-string
+                  false-file filter, count_unique_targets refactor via
+                  _find_all_targets, expanded KNOWN_TOOLS.
 """
 from __future__ import annotations
 
@@ -96,6 +99,18 @@ for _phrase, _canonical in PHRASAL_VERBS.items():
     _first, _second = _phrase.split()
     _PHRASAL_FIRST.setdefault(_first, {})[_second] = _canonical
 
+# Irregular verb forms that suffix stripping cannot handle
+_IRREGULAR_VERBS: dict[str, str] = {
+    "built": "build", "wrote": "write", "written": "write",
+    "ran": "run", "sent": "deploy",
+}
+
+# Version strings -- false positives for FILE_RE (PR #249, #250)
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[-+.]\w+)*$", re.IGNORECASE)
+
+# Numbered references: no.5, fig.1, vol.2, ch.3, pt.2
+_NUMBERED_REF_RE = re.compile(r"^(?:no|fig|vol|ch|pt)\.\d+$", re.IGNORECASE)
+
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
@@ -139,7 +154,7 @@ DISCUSSION_RE = re.compile(r"#(\d{3,})\b")
 CHANNEL_RE = re.compile(r"\b[rc]/[a-z][a-z0-9_-]+\b")
 
 # Quoted specifics: "some specific thing"
-QUOTED_RE = re.compile(r"""(?:"[^"]{3,60}"|'[^']{3,60}')""")
+QUOTED_RE = re.compile(r'''(?:"[^"]{3,60}"|'[^']{3,60}')''')
 
 # Context-sensitive module reference: `module`, import module, from module
 MODULE_CONTEXT_RE = re.compile(r"(?:`[\w_]+`|import\s+[\w_]+|from\s+[\w_]+)")
@@ -151,6 +166,8 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "content_loader", "content_engine", "feature_flags", "github_llm",
     "zion_autonomy", "heartbeat_audit", "pii_scan", "bundle",
     "compute_analytics", "reconcile_channels", "git_scrape_analytics",
+    "inject_seed", "tally_votes", "reconcile_state",
+    "run_proof", "run_python", "vlink",
 })
 
 _KNOWN_TOOL_RE = re.compile(
@@ -326,12 +343,81 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Checks abbreviations (e.g., i.e.), version strings (v2.0, 3.11),
+    and numbered references (no.5, fig.1).
+    """
+    lower = match_text.lower().rstrip(".")
+    if lower in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(match_text):
+        return True
+    if _NUMBERED_REF_RE.match(match_text):
+        return True
+    return False
+
+
+def _normalize_verb(word: str) -> str | None:
+    """Normalize an inflected verb form to its base form.
+
+    Returns the base form only if it is a member of ACTION_VERBS.
+    Handles gerunds (-ing), past tense (-ed), and third-person (-s/-es).
+    Conservative: unknown forms return None rather than guessing.
+    """
+    if word in ACTION_VERBS:
+        return word
+    if word in _IRREGULAR_VERBS:
+        base = _IRREGULAR_VERBS[word]
+        return base if base in ACTION_VERBS else None
+
+    # Gerund: -ing
+    if word.endswith("ing") and len(word) > 4:
+        stem = word[:-3]
+        # running -> run (doubled consonant)
+        if len(stem) >= 2 and stem[-1] == stem[-2] and stem[:-1] in ACTION_VERBS:
+            return stem[:-1]
+        # building -> build
+        if stem in ACTION_VERBS:
+            return stem
+        # creating -> create (stem + e)
+        if (stem + "e") in ACTION_VERBS:
+            return stem + "e"
+
+    # Past tense: -ed
+    if word.endswith("ed") and len(word) > 3:
+        stem = word[:-2]
+        # shipped -> ship (doubled consonant)
+        if len(stem) >= 2 and stem[-1] == stem[-2] and stem[:-1] in ACTION_VERBS:
+            return stem[:-1]
+        # deployed -> deploy
+        if stem in ACTION_VERBS:
+            return stem
+        # created -> create, resolved -> resolve, merged -> merge, etc.
+        if (stem + "e") in ACTION_VERBS:
+            return stem + "e"
+
+    # Third person: -s / -es
+    if word.endswith("es") and len(word) > 3:
+        stem = word[:-2]
+        if stem in ACTION_VERBS:
+            return stem
+        # resolves -> resolve
+        if (stem + "e") in ACTION_VERBS:
+            return stem + "e"
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+        stem = word[:-1]
+        if stem in ACTION_VERBS:
+            return stem
+
+    return None
 
 
 def _starts_with_verb(text: str) -> bool:
-    """Return True if text starts with an action verb (single or phrasal)."""
+    """Return True if text starts with an action verb (single or phrasal).
+
+    Uses normalization so inflected starts (building, deployed) pass.
+    """
     words = text.split()
     if not words:
         return False
@@ -340,7 +426,7 @@ def _starts_with_verb(text: str) -> bool:
         second = words[1].lower()
         if second in _PHRASAL_FIRST[first]:
             return True
-    return first in ACTION_VERBS
+    return _normalize_verb(first) is not None
 
 
 def _starts_with_file(text: str) -> bool:
@@ -356,7 +442,10 @@ def _starts_with_file(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None."""
+    """Return the first action verb found in *text*, or None.
+
+    Recognizes inflected forms: building->build, deployed->deploy, tests->test.
+    """
     search_text = text[:limit] if limit else text
     words = re.findall(r"[a-zA-Z]+", search_text.lower())
     for i, word in enumerate(words):
@@ -364,13 +453,17 @@ def find_verb(text: str, limit: int = 0) -> str | None:
             next_word = words[i + 1]
             if next_word in _PHRASAL_FIRST[word]:
                 return _PHRASAL_FIRST[word][next_word]
-        if word in ACTION_VERBS:
-            return word
+        normalized = _normalize_verb(word)
+        if normalized:
+            return normalized
     return None
 
 
 def find_all_verbs(text: str) -> list[str]:
-    """Return all action verbs in *text* (deduped, order-preserving)."""
+    """Return all action verbs in *text* (deduped, order-preserving).
+
+    Recognizes inflected forms and phrasal verbs.
+    """
     words = re.findall(r"[a-zA-Z]+", text.lower())
     seen: set[str] = set()
     result: list[str] = []
@@ -388,9 +481,10 @@ def find_all_verbs(text: str) -> list[str]:
                     result.append(v)
                 skip_next = True
                 continue
-        if word in ACTION_VERBS and word not in seen:
-            seen.add(word)
-            result.append(word)
+        normalized = _normalize_verb(word)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
     return result
 
 
@@ -399,6 +493,7 @@ def find_target(text: str) -> tuple[str, str]:
 
     Checks patterns in priority order -- most specific first.
     Rejects common abbreviations that FILE_RE would false-match.
+    Rejects version strings (v2.0, 3.11) and numbered refs (no.5).
     Module names only match in code-ish context (backticks, imports)
     to avoid false positives on generic nouns.
     """
@@ -477,7 +572,11 @@ def is_junk(text: str, limit: int = 0) -> str:
 
 
 def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
-    """Return all targets in *text* as ((target, kind), ...) (#12521)."""
+    """Return all targets in *text* as ((target, kind), ...) (#12521).
+
+    Single source of truth for target enumeration -- used by both
+    the rich match info and count_unique_targets().
+    """
     found: list[tuple[str, str]] = []
     seen_canonical: set[str] = set()
     def _add(t: str, k: str) -> None:
@@ -533,16 +632,15 @@ def canonicalize_target(target: str) -> str:
 def count_unique_targets(text: str) -> int:
     """Count distinct concrete targets in *text* after canonicalization.
 
+    Delegates to _find_all_targets() for consistency with find_target()
+    and rich match info -- single source of truth for target scanning.
     Uses substring-aware dedup: if 'seed_gate' and 'seed_gate.py'
     both appear, they count as one (PR #246).
     """
-    raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
-        for m in pattern.finditer(text):
-            raw_targets.append(m.group())
+    all_targets = _find_all_targets(text)
     canonical: list[str] = []
-    for t in raw_targets:
-        c = canonicalize_target(t)
+    for target_text, _kind in all_targets:
+        c = canonicalize_target(target_text)
         if c:
             canonical.append(c)
     # Substring dedup: remove shorter forms that are substrings of longer ones
