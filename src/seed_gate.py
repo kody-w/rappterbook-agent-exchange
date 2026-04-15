@@ -1,9 +1,9 @@
 """seed_gate.py -- canonical specificity validator for seed proposals.
 
 Consolidates ideas from 6 independent implementations (#12503, #12505,
-#12507, #12511, #12521, #12530) and PRs #245, #246, #247 into one
-validator that checks for an *action verb* plus a *concrete target*
-(filename, tool name, path, or discussion reference).
+#12507, #12511, #12521, #12530) and PRs #245, #246, #247, #248, #253
+into one validator that checks for an *action verb* plus a *concrete
+target* (filename, tool name, path, or discussion reference).
 
 Two public APIs -- pick whichever suits the call-site:
 
@@ -23,6 +23,9 @@ Two public APIs -- pick whichever suits the call-site:
     br = validate_batch(proposals)      # -> BatchResult
     for item in br.junk_items: ...
 
+    # Diagnostics API (debugging / agent tooling)
+    info = explain(text, tags)          # -> dict (full breakdown)
+
     # Composable helpers
     verb   = find_verb(text)          # str | None
     target = find_target(text)        # (str, str) pair
@@ -36,9 +39,12 @@ Evolution log:
     PR #248  -- consolidated #245/#246/#247: false-file filter, special
                   files, known tools, question stems, batch API, smart
                   lowercase, substring dedup.
-    This frame -- phrasal verbs, tag-implied verbs (#12530), advisory
+    PR #253  -- phrasal verbs, tag-implied verbs (#12530), advisory
                   labeling (#12507), rich match lists (#12521), case-
                   insensitive module matching, CONST_RE in find_target.
+    This frame -- false-file hardening (versions, numbered refs),
+                  ENV_VAR target detection, imperative-first scoring,
+                  explain() diagnostics, suggestion generation.
 """
 from __future__ import annotations
 
@@ -107,9 +113,19 @@ CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 
 # False positives that FILE_RE catches (abbreviations with periods)
+# Stored in canonical lowercase, trailing dot stripped.
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
-    "e.g", "i.e", "a.m", "p.m", "vs.",
+    "e.g", "i.e", "a.m", "p.m", "vs", "etc",
+    "ph.d", "u.s", "u.k", "u.n",
 })
+
+# Version-like strings: v1.2, v2.0, v1.2.3 -- NOT files
+_VERSION_RE = re.compile(r"^v\d+(?:\.\d+)+$", re.I)
+
+# Numbered references: fig.1, no.5, ch.3, vol.2, pt.1, sec.4, eq.3, ex.2, app.1
+_NUMBERED_REF_RE = re.compile(
+    r"^(?:fig|no|ch|vol|pt|sec|eq|ex|app)\.\d+$", re.I
+)
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -125,6 +141,9 @@ PATH_RE = re.compile(
 
 # Function call: validate(), compute_score()  (from main repo)
 FUNC_RE = re.compile(r"\b[\w_]+\(\)")
+
+# Environment variables: $STATE_DIR, ${GITHUB_TOKEN} (PR #249 idea)
+ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
 
 # Tool / module name: snake_case or kebab-case with 2+ segments
 TOOL_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+\b")
@@ -187,6 +206,14 @@ _QUESTION_STEM_RE = re.compile(
     r"^(?:" + "|".join(re.escape(s) for s in sorted(QUESTION_STEMS, key=len, reverse=True)) + r")\b",
     re.I,
 )
+
+# Words that precede verbs in non-imperative constructions
+_NON_IMPERATIVE_PREFIXES: frozenset[str] = frozenset({
+    "we", "i", "they", "you", "he", "she", "it",
+    "should", "could", "would", "might", "may", "can",
+    "let", "lets", "let's", "to", "please", "maybe",
+    "perhaps", "also", "then", "just", "probably",
+})
 
 # ---------------------------------------------------------------------------
 # Junk / artifact detection (#12507 + main repo consolidation)
@@ -264,6 +291,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    suggestions: tuple = ()
 
     @property
     def verb(self) -> str:
@@ -284,6 +312,7 @@ class SeedGateResult:
             "advisory": self.advisory,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "suggestions": list(self.suggestions),
         }
 
 
@@ -326,8 +355,19 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Catches abbreviations (e.g., i.e., Ph.D), version strings (v1.2),
+    and numbered references (fig.1, ch.3).
+    """
+    normalized = match_text.lower().rstrip(".")
+    if normalized in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.fullmatch(match_text):
+        return True
+    if _NUMBERED_REF_RE.fullmatch(match_text):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -349,6 +389,70 @@ def _starts_with_file(text: str) -> bool:
     if m:
         return not _is_false_file_match(m.group())
     return False
+
+
+def _is_imperative(text: str) -> bool:
+    """Return True if text starts with an action verb in imperative position.
+
+    Imperative = the very first word is an action verb (single or phrasal),
+    with no hedging prefix like 'we should' or 'maybe'.
+    """
+    words = text.strip().split()
+    if not words:
+        return False
+    first = words[0].lower()
+    # Phrasal verb as first two words: "Set up the CI pipeline"
+    if first in _PHRASAL_FIRST and len(words) > 1:
+        second = words[1].lower()
+        if second in _PHRASAL_FIRST[first]:
+            return True
+    return first in ACTION_VERBS
+
+
+def _canonicalize_env_var(var: str) -> str:
+    """Normalize $STATE_DIR and ${STATE_DIR} to STATE_DIR."""
+    return var.lstrip("$").strip("{}")
+
+
+def _generate_suggestions(
+    verb: str | None,
+    target: str | None,
+    is_exempt: bool,
+    junk_reason: str,
+) -> tuple[str, ...]:
+    """Generate actionable suggestions for failed proposals."""
+    suggestions: list[str] = []
+    if junk_reason:
+        if "too short" in junk_reason:
+            suggestions.append(
+                "Expand your proposal to at least 15 characters with a clear action."
+            )
+        elif "lowercase" in junk_reason:
+            suggestions.append(
+                "Start with a capitalized action verb like 'Build', 'Test', or 'Fix'."
+            )
+        elif "artifact" in junk_reason:
+            suggestions.append(
+                "This looks like a parsing artifact. Rewrite as a clear sentence."
+            )
+        else:
+            suggestions.append(
+                "Rewrite as a clear proposal starting with an action verb."
+            )
+        return tuple(suggestions)
+
+    if not verb:
+        suggestions.append(
+            "Start with an action verb: Build, Test, Fix, Refactor, Wire, Deploy, etc."
+        )
+    if not target and not is_exempt:
+        suggestions.append(
+            "Name a concrete target: a filename (seed_gate.py), tool (state_io), "
+            "path (src/), or reference (#1234)."
+        )
+    if not suggestions:
+        suggestions.append("Add more specificity to strengthen the proposal.")
+    return tuple(suggestions)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +524,10 @@ def find_target(text: str) -> tuple[str, str]:
     m = CHANNEL_RE.search(text)
     if m:
         return m.group(), "channel"
+    # Environment variables before constants (PR #249 idea)
+    m = ENV_VAR_RE.search(text)
+    if m:
+        return m.group(), "env"
     # SCREAMING_SNAKE_CASE constants
     m = CONST_RE.search(text)
     if m:
@@ -496,6 +604,8 @@ def _find_all_targets(text: str) -> tuple[tuple[str, str], ...]:
         _add(m.group(), "func")
     for m in CHANNEL_RE.finditer(text):
         _add(m.group(), "channel")
+    for m in ENV_VAR_RE.finditer(text):
+        _add(m.group(), "env")
     for m in CONST_RE.finditer(text):
         _add(m.group(), "const")
     for m in _KNOWN_TOOL_RE.finditer(text):
@@ -518,8 +628,14 @@ def is_soft_artifact(text: str) -> bool:
 
 
 def canonicalize_target(target: str) -> str:
-    """Normalize a target string for dedup: strip path prefix, extension, quotes."""
+    """Normalize a target string for dedup: strip path prefix, extension, quotes.
+
+    Also normalizes env vars: $STATE_DIR and ${STATE_DIR} -> state_dir.
+    """
     t = target.strip("\"' `")
+    # Env var normalization
+    if t.startswith("$"):
+        t = _canonicalize_env_var(t)
     for prefix in ("src/", "tests/", "engine/", "state/", "docs/", "scripts/"):
         if t.startswith(prefix):
             t = t[len(prefix):]
@@ -535,10 +651,14 @@ def count_unique_targets(text: str) -> int:
 
     Uses substring-aware dedup: if 'seed_gate' and 'seed_gate.py'
     both appear, they count as one (PR #246).
+    Env vars are canonicalized: $STATE_DIR == ${STATE_DIR} (one target).
     """
     raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    for pattern in (FILE_RE, PATH_RE, ENV_VAR_RE, CONST_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
         for m in pattern.finditer(text):
+            # Filter false file matches
+            if pattern is FILE_RE and _is_false_file_match(m.group()):
+                continue
             raw_targets.append(m.group())
     canonical: list[str] = []
     for t in raw_targets:
@@ -560,14 +680,18 @@ def compute_score(
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
+    """Compute a 0.0-1.0 specificity score.
+
+    Includes imperative bonus: proposals starting with an action verb
+    get a +0.5 bonus (PR #249 idea, refined per rubber-duck critique).
+    """
     raw = 0.0
     if verb:
         raw += 2.5
     if target:
         kind_scores = {
             "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "const": 2.5,
+            "tool": 3.0, "cli": 3.0, "env": 2.5, "const": 2.5,
             "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
         }
         raw += kind_scores.get(target_kind, 1.5)
@@ -579,6 +703,9 @@ def compute_score(
     unique = count_unique_targets(text)
     if unique >= 2:
         raw += 1.0
+    # Imperative bonus: verb as very first word (no hedging prefix)
+    if verb and _is_imperative(text):
+        raw += 0.5
     return min(raw / 10.0, 1.0)
 
 
@@ -593,6 +720,80 @@ _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind
 
 
 # ---------------------------------------------------------------------------
+# Core analysis (shared by validate_seed and explain)
+# ---------------------------------------------------------------------------
+
+def _analyze(
+    text: str,
+    tags: list | None = None,
+    mode: str = "admission",
+) -> dict:
+    """Internal analysis engine consumed by both validate_seed() and explain().
+
+    Returns a dict with all intermediate values so no work is duplicated.
+    """
+    tags = tags or []
+    tag_set = frozenset(t.lower().strip() for t in tags)
+    is_exempt = bool(tag_set & EXEMPT_TAGS)
+
+    # -- Junk check (hard fail) ---
+    junk_limit = 60 if mode == "purge" else 0
+    junk_reason = is_junk(text, limit=junk_limit)
+
+    # -- Verb + target ---
+    verb_limit = 200 if mode == "purge" else 0
+    verb = find_verb(text, limit=verb_limit)
+    target, target_kind = find_target(text)
+
+    # -- Tag-implied verb inference (#12530) ---
+    tag_implied = False
+    if not verb:
+        for tag in tag_set:
+            if tag in TAG_IMPLIED_VERBS:
+                verb = TAG_IMPLIED_VERBS[tag]
+                tag_implied = True
+                break
+
+    # -- Question stem inference (exempt tags only) ---
+    question_stem = False
+    if not verb and is_exempt:
+        m = _QUESTION_STEM_RE.match(text.strip())
+        if m:
+            verb = QUESTION_STEMS.get(m.group().lower())
+            question_stem = True
+
+    # -- Rich match info (#12521) ---
+    all_verbs = tuple(find_all_verbs(text))
+    all_targets = _find_all_targets(text)
+
+    # -- Soft artifact check ---
+    soft_artifact = is_soft_artifact(text)
+
+    # -- Imperative check ---
+    imperative = _is_imperative(text)
+
+    return {
+        "text": text,
+        "tags": tags,
+        "tag_set": tag_set,
+        "is_exempt": is_exempt,
+        "junk_reason": junk_reason,
+        "junk_limit": junk_limit,
+        "verb": verb,
+        "verb_limit": verb_limit,
+        "target": target,
+        "target_kind": target_kind,
+        "tag_implied": tag_implied,
+        "question_stem": question_stem,
+        "all_verbs": all_verbs,
+        "all_targets": all_targets,
+        "soft_artifact": soft_artifact,
+        "imperative": imperative,
+        "mode": mode,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -603,52 +804,35 @@ def validate_seed(
     mode: str = "admission",
 ) -> SeedGateResult:
     """Validate a seed proposal and return a *SeedGateResult*."""
-    tags = tags or []
-    tag_set = frozenset(t.lower().strip() for t in tags)
-    is_exempt = bool(tag_set & EXEMPT_TAGS)
+    a = _analyze(text, tags, mode)
 
-    # -- Junk check (hard fail) ---
-    junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
-    if junk_reason:
+    # -- Junk → immediate fail ---
+    if a["junk_reason"]:
+        suggestions = _generate_suggestions(None, None, a["is_exempt"], a["junk_reason"])
         return SeedGateResult(
-            passed=False, reasons=(junk_reason,), score=0.0,
+            passed=False, reasons=(a["junk_reason"],), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            suggestions=suggestions,
         )
 
-    # -- Verb + target ---
-    verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
-
-    # -- Tag-implied verb inference (#12530) ---
-    if not verb:
-        for tag in tag_set:
-            if tag in TAG_IMPLIED_VERBS:
-                verb = TAG_IMPLIED_VERBS[tag]
-                break
-
-    # -- Question stem inference (exempt tags only) ---
-    if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
-        if m:
-            verb = QUESTION_STEMS.get(m.group().lower())
-
-    # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
+    verb = a["verb"]
+    target = a["target"]
+    target_kind = a["target_kind"]
+    is_exempt = a["is_exempt"]
 
     # -- Soft artifact check ---
-    if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+    if a["soft_artifact"] and not (verb and target) and not is_exempt:
+        suggestions = _generate_suggestions(verb, target, is_exempt, "")
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
-            junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            junk=True, all_verbs=a["all_verbs"], all_targets=a["all_targets"],
+            suggestions=suggestions,
         )
 
     # -- Decision ---
-    if mode == "purge":
+    if a["mode"] == "purge":
         passed = True
         specificity = 0.5
     else:
@@ -667,10 +851,13 @@ def validate_seed(
     elif verb and not target:
         advisory = "needs-specificity"
 
+    suggestions = _generate_suggestions(verb, target, is_exempt, "") if not passed else ()
+
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
-        advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        advisory=advisory, all_verbs=a["all_verbs"], all_targets=a["all_targets"],
+        suggestions=suggestions,
     )
 
 
@@ -720,6 +907,37 @@ def validate_batch(
         failed_items=tuple(failed_items),
         junk_items=tuple(junk_items),
     )
+
+
+def explain(text: str, tags: list = None, mode: str = "admission") -> dict:
+    """Structured diagnostic breakdown of gate evaluation.
+
+    Uses the same _analyze() path as validate_seed() to avoid drift.
+    Returns a dict with all intermediate values + the final result.
+    """
+    a = _analyze(text, tags, mode)
+    result = validate(text, tags, mode=mode)
+
+    unique_targets = count_unique_targets(text)
+
+    return {
+        "text": text,
+        "tags": a["tags"],
+        "mode": mode,
+        "is_exempt": a["is_exempt"],
+        "verb": a["verb"],
+        "tag_implied_verb": a["tag_implied"],
+        "question_stem_verb": a["question_stem"],
+        "target": a["target"],
+        "target_kind": a["target_kind"],
+        "all_verbs": list(a["all_verbs"]),
+        "all_targets": [list(t) for t in a["all_targets"]],
+        "unique_target_count": unique_targets,
+        "junk_reason": a["junk_reason"],
+        "soft_artifact": a["soft_artifact"],
+        "imperative": a["imperative"],
+        "result": result,
+    }
 
 
 # ---------------------------------------------------------------------------

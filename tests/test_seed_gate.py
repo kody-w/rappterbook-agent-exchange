@@ -1,10 +1,12 @@
 """Tests for seed_gate.py -- canonical specificity validator.
 
 Covers: verb detection, target detection (files, paths, tools, modules,
-CLI, discussions, channels, quoted), junk detection (hard + soft artifacts),
-scoring with unique-target counting, validation pass/fail, exempt tags,
-CLI, real-world proposals, edge cases, property invariants, smoke tests,
-propose_seed.py contract, and regression tests for false rejects.
+CLI, discussions, channels, quoted, env vars), junk detection (hard + soft
+artifacts), scoring with unique-target counting and imperative bonus,
+validation pass/fail, exempt tags, CLI, real-world proposals, edge cases,
+property invariants, smoke tests, propose_seed.py contract, false-file
+hardening (versions, numbered refs), ENV_VAR targets, explain() diagnostics,
+suggestion generation, and regression tests for false rejects.
 """
 from __future__ import annotations
 
@@ -25,12 +27,16 @@ from seed_gate import (
     CHANNEL_RE,
     CLI_RE,
     DISCUSSION_RE,
+    ENV_VAR_RE,
     FILE_RE,
     MODULE_CONTEXT_RE,
     PATH_RE,
     QUOTED_RE,
     TOOL_RE,
     SeedGateResult,
+    explain,
+    find_target,
+    find_verb,
     passes_gate,
     validate,
     validate_seed,
@@ -1376,3 +1382,340 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# NEW TESTS — false-file hardening, ENV_VAR targets, imperative
+#              scoring, explain() diagnostics, suggestions
+# ===================================================================
+
+
+class TestVersionFalsePositives:
+    """v1.2, v2.0, v1.2.3 should NOT match as files (PR #249 idea)."""
+
+    @pytest.mark.parametrize("version", ["v1.2", "v2.0", "v1.2.3", "V3.0", "v10.20.30"])
+    def test_version_not_file_target(self, version):
+        """Version strings should not be detected as file targets."""
+        text = f"Build {version} compatible release for the colony"
+        t, kind = find_target(text)
+        if t == version:
+            assert False, f"{version} was misidentified as a {kind} target"
+
+    def test_version_in_context_still_passes_with_real_file(self):
+        """A sentence with both a version and a real file should find the file."""
+        text = "Upgrade v2.0 support in config.yaml for the habitat"
+        t, kind = find_target(text)
+        assert t == "config.yaml"
+        assert kind == "file"
+
+    def test_report_v1_py_still_matches_as_file(self):
+        """report_v1.py IS a real file, not a version — should still match."""
+        text = "Fix the bug in report_v1.py that crashes on startup"
+        t, kind = find_target(text)
+        assert t == "report_v1.py"
+        assert kind == "file"
+
+
+class TestNumberedRefFalsePositives:
+    """fig.1, no.5, ch.3 should NOT match as files (PR #249 idea)."""
+
+    @pytest.mark.parametrize("ref", ["fig.1", "no.5", "ch.3", "vol.2", "pt.1", "sec.4", "eq.3", "ex.2", "app.1"])
+    def test_numbered_ref_not_file(self, ref):
+        """Numbered references should not be detected as file targets."""
+        text = f"Review the data in {ref} and update the analysis pipeline"
+        t, kind = find_target(text)
+        assert t != ref, f"{ref} was misidentified as a {kind} target"
+
+    def test_fig_png_still_matches(self):
+        """fig.1.png IS a real file — should still match."""
+        text = "Update fig.1.png to use the new color scheme for habitat display"
+        t, kind = find_target(text)
+        assert "fig" in t and "png" in t
+        assert kind == "file"
+
+
+class TestExpandedAbbreviationFilter:
+    """Ph.D, U.S etc should NOT match as files."""
+
+    @pytest.mark.parametrize("abbr", ["Ph.D", "U.S", "U.K", "U.N"])
+    def test_abbreviation_not_file(self, abbr):
+        text = f"Analyze the {abbr} standards for Mars habitat certification compliance review"
+        t, kind = find_target(text)
+        if t:
+            assert t.lower() != abbr.lower(), f"{abbr} was misidentified as {kind}"
+
+
+class TestEnvVarTargets:
+    """$STATE_DIR, ${GITHUB_TOKEN} should be detected as 'env' targets."""
+
+    def test_dollar_var(self):
+        t, kind = find_target("Configure $STATE_DIR for the habitat modules")
+        assert t == "$STATE_DIR"
+        assert kind == "env"
+
+    def test_braced_var(self):
+        t, kind = find_target("Validate ${GITHUB_TOKEN} permissions for deployment")
+        assert t == "${GITHUB_TOKEN}"
+        assert kind == "env"
+
+    def test_env_before_const(self):
+        """$STATE_DIR should match as 'env', not just STATE_DIR as 'const'."""
+        t, kind = find_target("Fix the $STATE_DIR configuration for tests")
+        assert kind == "env"
+        assert t.startswith("$")
+
+    def test_env_var_canonical_dedup(self):
+        """$STATE_DIR and ${STATE_DIR} should count as one unique target."""
+        text = "Configure $STATE_DIR and ${STATE_DIR} and $DOCS_DIR for testing"
+        count = count_unique_targets(text)
+        # STATE_DIR appears twice in different forms -> should dedup to 1
+        # DOCS_DIR is separate -> total should be 2
+        assert count == 2
+
+    def test_env_in_all_targets(self):
+        """env vars should appear in all_targets."""
+        r = validate_seed("Build $STATE_DIR config for Mars habitat modules")
+        found_kinds = {k for _, k in r.all_targets}
+        assert "env" in found_kinds
+
+    def test_env_var_validates(self):
+        """A proposal mentioning $STATE_DIR should pass the gate."""
+        r = _v("Configure $STATE_DIR for the Mars colony habitat setup")
+        assert r["passed"]
+        assert r["target_found"] == "$STATE_DIR"
+
+    def test_env_var_re_pattern(self):
+        """ENV_VAR_RE should match standard env var patterns."""
+        import re
+        matches = ENV_VAR_RE.findall("Use $STATE_DIR and ${GITHUB_TOKEN} and $DOCS_DIR")
+        assert "$STATE_DIR" in matches
+        assert "${GITHUB_TOKEN}" in matches
+        assert "$DOCS_DIR" in matches
+
+
+class TestImperativeScoring:
+    """Proposals starting with an action verb get a score bonus."""
+
+    def test_imperative_higher_score(self):
+        """'Build seed_gate.py' should score higher than 'We should build seed_gate.py'."""
+        imperative = _v("Build seed_gate.py with comprehensive validation logic")
+        hedged = _v("We should build seed_gate.py with comprehensive validation")
+        assert imperative["score"] > hedged["score"]
+
+    def test_phrasal_imperative(self):
+        """'Set up the CI pipeline' is imperative."""
+        r = _v("Set up the pipeline.yml for the Mars colony deployment")
+        assert r["passed"]
+        # Score should reflect imperative bonus
+        assert r["score"] > 0
+
+    def test_hedged_no_bonus(self):
+        """'Maybe we should build seed_gate.py' should not get imperative bonus."""
+        from seed_gate import _is_imperative
+        assert not _is_imperative("Maybe we should build seed_gate.py")
+        assert not _is_imperative("We should build seed_gate.py")
+        assert not _is_imperative("Could we build seed_gate.py")
+        assert not _is_imperative("Perhaps build the module tomorrow")
+
+    def test_is_imperative_positive(self):
+        from seed_gate import _is_imperative
+        assert _is_imperative("Build seed_gate.py")
+        assert _is_imperative("Test the water_mining module")
+        assert _is_imperative("Fix the bug in rover.py")
+        assert _is_imperative("Set up the deployment pipeline.yml")
+
+    def test_both_pass_gate(self):
+        """Both imperative and hedged should pass — bonus is score only."""
+        assert _v("Build auth.py now for the colony")["passed"]
+        assert _v("We should build auth.py for the colony")["passed"]
+
+
+class TestExplainAPI:
+    """explain() returns a structured diagnostic dict."""
+
+    def test_explain_keys(self):
+        info = explain("Build seed_gate.py with validation logic")
+        required_keys = {
+            "text", "tags", "mode", "is_exempt", "verb",
+            "tag_implied_verb", "question_stem_verb",
+            "target", "target_kind", "all_verbs", "all_targets",
+            "unique_target_count", "junk_reason", "soft_artifact",
+            "imperative", "result",
+        }
+        assert required_keys.issubset(info.keys())
+
+    def test_explain_consistency(self):
+        """explain()['result'] must equal validate() for the same input."""
+        text = "Build seed_gate.py with phrasal verb support"
+        info = explain(text)
+        direct = _v(text)
+        assert info["result"] == direct
+
+    def test_explain_junk(self):
+        info = explain("x")
+        assert info["junk_reason"]
+        assert not info["result"]["passed"]
+
+    def test_explain_imperative_flag(self):
+        info = explain("Build seed_gate.py now for the colony")
+        assert info["imperative"] is True
+        info2 = explain("We should build seed_gate.py for the colony")
+        assert info2["imperative"] is False
+
+    def test_explain_env_var_target(self):
+        info = explain("Configure $STATE_DIR for the test environment")
+        assert info["target"] == "$STATE_DIR"
+        assert info["target_kind"] == "env"
+
+    def test_explain_tag_implied(self):
+        info = explain("The water_mining.py tests need coverage", ["test"])
+        assert info["verb"] == "test"
+        assert info["tag_implied_verb"] is True
+
+    def test_explain_exempt_tag(self):
+        info = explain("What if Mars had liquid water on the surface?", ["philosophy"])
+        assert info["is_exempt"] is True
+
+
+class TestSuggestions:
+    """Failed proposals should include actionable suggestions."""
+
+    def test_no_verb_suggestion(self):
+        r = _vs("Something about the water_mining.py module and stuff")
+        if not r.passed:
+            assert any("action verb" in s.lower() for s in r.suggestions)
+
+    def test_no_target_suggestion(self):
+        r = _vs("Build something great for the colony in the future")
+        if not r.passed:
+            assert any("target" in s.lower() for s in r.suggestions)
+
+    def test_junk_gets_suggestion(self):
+        r = _vs("x")
+        assert r.junk
+        assert len(r.suggestions) > 0
+
+    def test_passing_no_suggestions(self):
+        r = _vs("Build seed_gate.py with comprehensive tests")
+        assert r.passed
+        assert len(r.suggestions) == 0
+
+    def test_suggestions_in_dict(self):
+        d = _v("Something vague with no structure at all here for test")
+        assert "suggestions" in d
+        assert isinstance(d["suggestions"], list)
+
+    def test_lowercase_junk_suggestion(self):
+        r = _vs("something that starts lowercase and is not a verb")
+        assert r.junk
+        assert any("capitalize" in s.lower() or "action verb" in s.lower() for s in r.suggestions)
+
+
+class TestEnvTargetKindInScoring:
+    """The 'env' target kind should score between channel and tool."""
+
+    def test_env_kind_score(self):
+        from seed_gate import compute_score
+        env_score = compute_score(
+            "Configure $STATE_DIR for tests",
+            "configure", "$STATE_DIR", "env"
+        )
+        channel_score = compute_score(
+            "Build the r/mars-eng channel content",
+            "build", "r/mars-eng", "channel"
+        )
+        tool_score = compute_score(
+            "Build the state_io module integration",
+            "build", "state_io", "tool"
+        )
+        assert env_score >= channel_score
+        assert env_score <= tool_score or env_score == tool_score
+
+
+class TestFalseFileRegressions:
+    """Ensure real files still match after false-file hardening."""
+
+    @pytest.mark.parametrize("filename", [
+        "seed_gate.py", "config.yaml", "README.md",
+        "package.json", "mars_colony.py", "test_seed.py",
+        "habitat.rs", "deploy.sh",
+    ])
+    def test_real_files_still_match(self, filename):
+        text = f"Build the {filename} module for Mars colony integration tests"
+        t, kind = find_target(text)
+        assert t == filename
+        assert kind == "file"
+
+    def test_v1_py_with_version_prefix(self):
+        """v1.2 is false positive but report_v1.py is real file."""
+        text = "Upgrade report_v1.py to version v2.0 for Mars habitat data"
+        t, kind = find_target(text)
+        assert t == "report_v1.py"
+        assert kind == "file"
+
+
+class TestNewFeaturePropertyInvariants:
+    """Property-based invariants for all new features."""
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py with tests",
+        "We should build seed_gate.py",
+        "Configure $STATE_DIR for testing",
+        "Something vague here without structure at all",
+        "Test the water_mining.py module deeply",
+        "",
+        "x",
+    ])
+    def test_explain_result_matches_validate(self, text):
+        """explain()['result'] must always equal validate() output."""
+        if not text.strip():
+            return  # skip empty
+        info = explain(text)
+        direct = _v(text)
+        assert info["result"] == direct
+
+    @pytest.mark.parametrize("text", [
+        "Build seed_gate.py with tests",
+        "Configure $STATE_DIR for test environment setup",
+        "Fix the v2.0 compatibility in config.yaml for habitat",
+    ])
+    def test_suggestions_empty_when_passing(self, text):
+        r = _vs(text)
+        if r.passed:
+            assert len(r.suggestions) == 0
+
+    def test_score_bounded(self):
+        """Score must always be in [0.0, 1.0]."""
+        texts = [
+            "Build seed_gate.py with comprehensive test coverage and validation",
+            "x",
+            "Configure $STATE_DIR and ${GITHUB_TOKEN} and $DOCS_DIR",
+            "Set up the pipeline.yml for Mars colony deployment processes",
+        ]
+        for text in texts:
+            r = _v(text)
+            assert 0.0 <= r["score"] <= 1.0, f"Score {r['score']} out of bounds for: {text}"
+
+    def test_all_targets_includes_env(self):
+        """When env vars present, all_targets should include 'env' kind."""
+        r = validate_seed("Build $STATE_DIR config.yaml for testing")
+        kinds = {k for _, k in r.all_targets}
+        assert "env" in kinds
+        assert "file" in kinds
+
+
+class TestBackwardCompatSuggestions:
+    """Suggestions field must be present and not break old callers."""
+
+    def test_dict_has_suggestions_key(self):
+        r = _v("Build auth.py for the colony system")
+        assert "suggestions" in r
+
+    def test_suggestions_is_list(self):
+        r = _v("Build auth.py for the colony system")
+        assert isinstance(r["suggestions"], list)
+
+    def test_dataclass_has_suggestions(self):
+        r = _vs("Build auth.py for the colony system")
+        assert hasattr(r, "suggestions")
+        assert isinstance(r.suggestions, tuple)
