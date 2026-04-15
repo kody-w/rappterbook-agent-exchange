@@ -23,11 +23,17 @@ Two public APIs -- pick whichever suits the call-site:
     br = validate_batch(proposals)      # -> BatchResult
     for item in br.junk_items: ...
 
+    # Diagnostic APIs (new in PR #272)
+    explanation = explain(text, tags)   # human-readable string
+    breakdown = score_breakdown(text, tags)  # per-factor dict
+    verb, pos = find_verb_with_position(text)  # verb + word index
+
     # Composable helpers
     verb   = find_verb(text)          # str | None
     target = find_target(text)        # (str, str) pair
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
+    clean  = normalize_proposal(text) # strip commit prefixes
 
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
@@ -45,6 +51,10 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- commit-prefix normalization (fix: / feat: / etc.);
+                  is_imperative property; explain() diagnostic API;
+                  score_breakdown() transparency; find_verb_with_position();
+                  batch CLI (--batch, JSONL support); 550+ tests.
 """
 from __future__ import annotations
 
@@ -281,6 +291,39 @@ _QUESTION_STEM_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Conventional-commit prefix normalization (PR #272)
+# ---------------------------------------------------------------------------
+
+# Matches: "fix:", "feat(auth):", "refactor!:", "docs(readme)!:"
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:fix|feat|chore|docs|refactor|test|build|ci|perf|style|revert)"
+    r"(?:\([^)]*\))?"  # optional scope
+    r"!?"               # optional breaking-change marker
+    r":\s*",
+    re.I,
+)
+
+
+def normalize_proposal(text: str) -> str:
+    """Strip conventional-commit prefixes before analysis.
+
+    Handles: "fix: align seed_gate.py" -> "Align seed_gate.py"
+             "feat(auth): add OAuth" -> "Add OAuth"
+             "refactor!: rewrite parser" -> "Rewrite parser"
+
+    The stripped text gets its first letter capitalized to avoid
+    false lowercase-junk detection.
+    """
+    m = _COMMIT_PREFIX_RE.match(text)
+    if not m:
+        return text
+    remainder = text[m.end():]
+    if not remainder:
+        return text
+    return remainder[0].upper() + remainder[1:]
+
+
+# ---------------------------------------------------------------------------
 # Junk / artifact detection (#12507 + main repo consolidation)
 # ---------------------------------------------------------------------------
 
@@ -356,6 +399,7 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    _original_text: str = ""
 
     @property
     def verb(self) -> str:
@@ -376,6 +420,13 @@ class SeedGateResult:
             return "medium"
         return "low"
 
+    @property
+    def is_imperative(self) -> bool:
+        """True if the proposal starts with an action verb (imperative mood)."""
+        if not self._original_text or not self.verb_found:
+            return False
+        return _starts_with_verb(self._original_text)
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -386,6 +437,7 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "is_imperative": self.is_imperative,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
         }
@@ -536,6 +588,28 @@ def find_all_verbs(text: str) -> list[str]:
                 seen.add(base)
                 result.append(base)
     return result
+
+
+def find_verb_with_position(text: str) -> tuple[str | None, int]:
+    """Return (canonical_verb, word_index) or (None, -1).
+
+    *word_index* is the 0-based position in whitespace-split words
+    where the verb (or its first word for phrasals) was found.
+    Recognizes base, inflected, and phrasal forms.
+    """
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return _PHRASAL_FIRST[word][next_word], i
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return _PHRASAL_INFLECTED[word][next_word], i
+        if word in ACTION_VERBS:
+            return word, i
+        if word in _INFLECTION_MAP:
+            return _INFLECTION_MAP[word], i
+    return None, -1
 
 
 def find_target(text: str) -> tuple[str, str]:
@@ -704,6 +778,48 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+_TARGET_KIND_SCORES: dict[str, float] = {
+    "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+    "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+    "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+}
+
+
+def _compute_score_factors(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict:
+    """Internal: compute per-factor score contributions.
+
+    Returns a dict with individual factor scores, raw total, and
+    the normalized 0.0-1.0 score.  Single source of truth for both
+    compute_score() and score_breakdown().
+    """
+    factors: dict = {}
+    factors["verb"] = 2.5 if verb else 0.0
+    factors["target"] = _TARGET_KIND_SCORES.get(target_kind, 1.5) if target else 0.0
+    factors["target_kind"] = target_kind if target else ""
+    word_count = len(text.split())
+    length_bonus = 0.0
+    if word_count >= 8:
+        length_bonus += 0.5
+    if word_count >= 15:
+        length_bonus += 1.0
+    factors["length"] = length_bonus
+    factors["word_count"] = word_count
+    unique = count_unique_targets(text)
+    factors["multi_target"] = 1.0 if unique >= 2 else 0.0
+    factors["unique_targets"] = unique
+    imperative = bool(verb and _starts_with_verb(text))
+    factors["imperative"] = 0.5 if imperative else 0.0
+    raw = factors["verb"] + factors["target"] + factors["length"] + factors["multi_target"] + factors["imperative"]
+    factors["raw"] = raw
+    factors["normalized"] = min(raw / 10.0, 1.0)
+    return factors
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -711,28 +827,23 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    return _compute_score_factors(text, verb, target, target_kind)["normalized"]
+
+
+def score_breakdown(text: str, tags: list = None) -> dict:
+    """Return per-factor score breakdown for a proposal.
+
+    Runs the full validation pipeline, then returns the scoring
+    factors as a transparent dict.  Useful for debugging scores.
+
+    Keys: verb, target, target_kind, length, word_count,
+          multi_target, unique_targets, imperative, raw, normalized.
+    """
+    result = validate_seed(text, tags)
+    _, target_kind = find_target(normalize_proposal(text))
+    return _compute_score_factors(
+        normalize_proposal(text), result.verb_found, result.target_found, target_kind,
+    )
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -761,6 +872,52 @@ def suggest(text: str, tags: list = None) -> list[str]:
     return suggestions
 
 
+def explain(text: str, tags: list = None) -> str:
+    """Return a human-readable diagnostic for a seed proposal.
+
+    Intended for CLI debugging and agent feedback.  The format
+    is explicitly unstable -- do not parse it programmatically.
+    """
+    result = validate_seed(text, tags)
+    normalized = normalize_proposal(text)
+    was_normalized = normalized != text
+
+    lines: list[str] = []
+    status = "PASSED" if result.passed else "REJECTED"
+    if result.junk:
+        status = "JUNK"
+    score_str = "%.2f" % result.score
+    conf = result.confidence or "n/a"
+    lines.append("%s %s (score: %s, confidence: %s)" % (
+        "\u2713" if result.passed else "\u2717", status, score_str, conf))
+
+    if was_normalized:
+        lines.append("  Normalized: %r" % normalized)
+
+    verb_desc = repr(result.verb_found) if result.verb_found else "none"
+    if result.is_imperative:
+        verb_desc += " (imperative)"
+    lines.append("  Verb: %s" % verb_desc)
+
+    target_desc = repr(result.target_found) if result.target_found else "none"
+    if result.target_found:
+        _, kind = find_target(normalized)
+        target_desc += " (%s)" % kind
+    lines.append("  Target: %s" % target_desc)
+
+    if result.advisory:
+        lines.append("  Advisory: %s" % result.advisory)
+    if result.reasons:
+        lines.append("  Reasons: %s" % "; ".join(result.reasons))
+    if result.all_verbs:
+        lines.append("  All verbs: %s" % ", ".join(result.all_verbs))
+    if result.all_targets:
+        targets_str = ", ".join("%s (%s)" % (t, k) for t, k in result.all_targets)
+        lines.append("  All targets: %s" % targets_str)
+
+    return "\n".join(lines)
+
+
 # Backward-compat aliases
 _detect_verb = find_verb
 _detect_target = find_target
@@ -787,19 +944,23 @@ def validate_seed(
     tag_set = frozenset(t.lower().strip() for t in tags)
     is_exempt = bool(tag_set & EXEMPT_TAGS)
 
+    # -- Normalize (strip commit prefixes) ---
+    analysis_text = normalize_proposal(text)
+
     # -- Junk check (hard fail) ---
     junk_limit = 60 if mode == "purge" else 0
-    junk_reason = is_junk(text, limit=junk_limit)
+    junk_reason = is_junk(analysis_text, limit=junk_limit)
     if junk_reason:
         return SeedGateResult(
             passed=False, reasons=(junk_reason,), score=0.0,
             verb_found=None, target_found=None, junk=True,
+            _original_text=analysis_text,
         )
 
     # -- Verb + target ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
-    target, target_kind = find_target(text)
+    verb = find_verb(analysis_text, limit=verb_limit)
+    target, target_kind = find_target(analysis_text)
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
@@ -810,21 +971,22 @@ def validate_seed(
 
     # -- Question stem inference (exempt tags only) ---
     if not verb and is_exempt:
-        m = _QUESTION_STEM_RE.match(text.strip())
+        m = _QUESTION_STEM_RE.match(analysis_text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
 
     # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
-    all_targets = _find_all_targets(text)
+    all_verbs = tuple(find_all_verbs(analysis_text))
+    all_targets = _find_all_targets(analysis_text)
 
     # -- Soft artifact check ---
-    if is_soft_artifact(text) and not (verb and target) and not is_exempt:
+    if is_soft_artifact(analysis_text) and not (verb and target) and not is_exempt:
         return SeedGateResult(
             passed=False,
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            _original_text=analysis_text,
         )
 
     # -- Decision ---
@@ -833,7 +995,7 @@ def validate_seed(
         specificity = 0.5
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        specificity = compute_score(analysis_text, verb, target, target_kind)
 
     reasons: list[str] = []
     advisory = ""
@@ -851,6 +1013,7 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        _original_text=analysis_text,
     )
 
 
@@ -907,12 +1070,51 @@ def validate_batch(
 # ---------------------------------------------------------------------------
 
 def _cli() -> None:  # pragma: no cover
-    if len(sys.argv) < 2:
-        print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
-        sys.exit(1)
-    text = sys.argv[1]
-    tags = sys.argv[2:] if len(sys.argv) > 2 else []
+    """CLI entry-point with single and batch modes.
+
+    Single:  python -m seed_gate 'Build auth.py' code test
+    Batch:   cat proposals.txt | python -m seed_gate --batch
+    Explain: python -m seed_gate --explain 'Build auth.py'
+    """
     import json as _json
+
+    args = sys.argv[1:]
+    if not args:
+        print("Usage: python -m seed_gate '<proposal>' [tags...]")
+        print("       python -m seed_gate --batch [< proposals.txt]")
+        print("       python -m seed_gate --explain '<proposal>' [tags...]")
+        sys.exit(1)
+
+    if args[0] == "--batch":
+        # Batch mode: read from stdin, one per line.
+        # Supports plain text or JSONL {"text": ..., "tags": [...]}
+        results: list[dict] = []
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            tags: list[str] = []
+            text = line
+            if line.startswith("{"):
+                try:
+                    obj = _json.loads(line)
+                    text = obj.get("text", line)
+                    tags = obj.get("tags", [])
+                except _json.JSONDecodeError:
+                    pass
+            result = validate(text, tags)
+            results.append({"text": text, "result": result})
+        print(_json.dumps(results, indent=2))
+        sys.exit(0)
+
+    if args[0] == "--explain":
+        text = args[1] if len(args) > 1 else ""
+        tags = args[2:] if len(args) > 2 else []
+        print(explain(text, tags))
+        sys.exit(0)
+
+    text = args[0]
+    tags = args[1:] if len(args) > 1 else []
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)
