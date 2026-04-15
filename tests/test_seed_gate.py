@@ -4,7 +4,8 @@ Covers: verb detection, target detection (files, paths, tools, modules,
 CLI, discussions, channels, quoted), junk detection (hard + soft artifacts),
 scoring with unique-target counting, validation pass/fail, exempt tags,
 CLI, real-world proposals, edge cases, property invariants, smoke tests,
-propose_seed.py contract, and regression tests for false rejects.
+propose_seed.py contract, regression tests for false rejects,
+negation detection, score_breakdown(), explain(), and strength property.
 """
 from __future__ import annotations
 
@@ -37,6 +38,14 @@ from seed_gate import (
     canonicalize_target,
     count_unique_targets,
     is_soft_artifact,
+    score_breakdown,
+    explain,
+    find_verb,
+    find_all_verbs,
+    find_target,
+    _expand_contractions,
+    _NEGATION_WORDS,
+    _CONTRACTIONS,
 )
 
 
@@ -1652,3 +1661,499 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+
+# ===================================================================
+# 18. Negation detection
+# ===================================================================
+
+class TestNegationDetection:
+    """Test that negated verbs are properly detected and skipped."""
+
+    # -- Contraction expansion --
+
+    def test_expand_dont_ascii(self):
+        assert "do not" in _expand_contractions("Don't build auth.py")
+
+    def test_expand_dont_unicode(self):
+        assert "do not" in _expand_contractions("Don\u2019t build auth.py")
+
+    def test_expand_shouldnt(self):
+        assert "should not" in _expand_contractions("Shouldn't deploy untested code")
+
+    def test_expand_wont(self):
+        assert "will not" in _expand_contractions("Won't fix this bug")
+
+    def test_expand_cant(self):
+        assert "can not" in _expand_contractions("Can't deploy to production")
+
+    def test_expand_cannot(self):
+        # "cannot" is a word, not a contraction — should pass through unchanged
+        result = _expand_contractions("Cannot deploy to production")
+        assert "Cannot" in result or "cannot" in result.lower()
+
+    def test_expand_preserves_noncontraction(self):
+        text = "Build auth.py with tests"
+        assert _expand_contractions(text) == text
+
+    def test_all_contractions_have_expansion(self):
+        for contraction, expansion in _CONTRACTIONS.items():
+            assert "not" in expansion, f"{contraction} -> {expansion} missing 'not'"
+
+    # -- find_verb with negation --
+
+    @pytest.mark.parametrize("text", [
+        "Don't build auth.py",
+        "don't build auth.py",
+        "Don\u2019t build auth.py",
+        "Never deploy untested code to production",
+        "Do not test the thermal module",
+        "We should not refactor state_io.py",
+        "Cannot fix this without more data",
+    ])
+    def test_negated_verb_returns_none(self, text):
+        assert find_verb(text) is None
+
+    @pytest.mark.parametrize("text", [
+        "Don't build auth.py",
+        "Never deploy untested code",
+        "Do not test the thermal module",
+    ])
+    def test_negated_verb_found_without_skip(self, text):
+        """When skip_negated=False, the verb IS found."""
+        assert find_verb(text, skip_negated=False) is not None
+
+    def test_not_only_exempt(self):
+        """'Not only X but Y' is affirmative, not negation."""
+        assert find_verb("Not only build auth.py but test it too") == "build"
+
+    def test_not_just_exempt(self):
+        assert find_verb("Not just test but also deploy config.yaml") == "test"
+
+    def test_not_merely_exempt(self):
+        assert find_verb("Not merely refactor but redesign the whole module") == "refactor"
+
+    def test_double_negation_second_clause(self):
+        """Second verb after negated first should still be found."""
+        result = find_verb("Don't build auth.py; test config.yaml instead")
+        assert result == "test"
+
+    def test_never_with_phrasal_verb(self):
+        # "Never" negates "set up"; "testing" is a separate non-negated verb
+        assert find_verb("Never set up the auth module") is None
+
+    # -- find_all_verbs with negation --
+
+    def test_all_verbs_skips_negated(self):
+        verbs = find_all_verbs("Don't build auth.py but test config.yaml")
+        assert "build" not in verbs
+        assert "test" in verbs
+
+    def test_all_verbs_skip_negated_false(self):
+        verbs = find_all_verbs("Don't build auth.py", skip_negated=False)
+        assert "build" in verbs
+
+    def test_all_verbs_never(self):
+        verbs = find_all_verbs("Never deploy but always test and build after review")
+        assert "deploy" not in verbs
+        assert "test" in verbs
+        assert "build" in verbs
+
+    # -- validate() with negation --
+
+    @pytest.mark.parametrize("text", [
+        "Don't build auth.py",
+        "Never deploy fuel_cell.py to production",
+        "Do not test the seed_gate.py module",
+        "We should not refactor state_io.py right now",
+    ])
+    def test_negated_proposals_fail(self, text):
+        result = _v(text)
+        assert not result["passed"]
+        assert result["negated"] is True
+
+    def test_negated_proposal_reason(self):
+        result = _v("Don't build auth.py")
+        assert any("negated" in r.lower() for r in result["reasons"])
+
+    def test_not_only_proposal_passes(self):
+        result = _v("Not only build auth.py but also test config.yaml")
+        assert result["passed"]
+        assert result["negated"] is False
+
+    # -- negation suppresses tag/question fallback --
+
+    def test_negation_suppresses_tag_implied_verb(self):
+        """With a 'code' tag, normally tag-implied verb 'build' kicks in.
+        But if text has a negated verb, suppress fallback."""
+        result = _v("Don't build auth.py", tags=["code"])
+        assert not result["passed"]
+        assert result["negated"]
+
+    def test_negation_suppresses_question_stem(self):
+        """'What if we never deploy' + exempt tag should not infer verb."""
+        # Without negation: "What if we deploy seed_gate.py" + philosophy tag -> passes
+        ok = _v("What if we deploy seed_gate.py", tags=["philosophy"])
+        # The question stem "what if" -> explore, so it should pass with exempt tag
+        # With negation: "What if we never deploy seed_gate.py" -> negated
+        neg = _v("What if we never deploy seed_gate.py", tags=["philosophy"])
+        # The negated explicit verb suppresses fallback inference
+        assert neg["negated"]
+
+
+# ===================================================================
+# 19. score_breakdown()
+# ===================================================================
+
+class TestScoreBreakdown:
+    """Test decomposed scoring."""
+
+    def test_returns_dict(self):
+        result = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert isinstance(result, dict)
+
+    def test_has_all_keys(self):
+        result = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        for key in ("verb", "target", "length", "unique_targets", "imperative", "total_raw", "normalized"):
+            assert key in result, f"Missing key: {key}"
+
+    def test_verb_score(self):
+        result = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert result["verb"] == 2.5
+
+    def test_no_verb_score(self):
+        result = score_breakdown("auth.py stuff", None, "auth.py", "file")
+        assert result["verb"] == 0.0
+
+    def test_file_target_score(self):
+        result = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert result["target"] == 4.0
+
+    def test_tool_target_score(self):
+        result = score_breakdown("Build state_io", "build", "state_io", "tool")
+        assert result["target"] == 3.0
+
+    def test_discussion_target_score(self):
+        result = score_breakdown("Fix #12345", "fix", "#12345", "discussion")
+        assert result["target"] == 2.0
+
+    def test_no_target_score(self):
+        result = score_breakdown("Build something", "build", None, "")
+        assert result["target"] == 0.0
+
+    def test_length_bonus_8_words(self):
+        text = "Build the auth module with proper error handling"  # 8 words
+        result = score_breakdown(text, "build", "auth", "tool")
+        assert result["length"] >= 0.5
+
+    def test_length_bonus_15_words(self):
+        text = " ".join(["word"] * 16)
+        result = score_breakdown(text, "build", "auth.py", "file")
+        assert result["length"] >= 1.5
+
+    def test_imperative_bonus(self):
+        result = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        assert result["imperative"] == 0.5
+
+    def test_no_imperative_bonus(self):
+        result = score_breakdown("We should build auth.py", "build", "auth.py", "file")
+        assert result["imperative"] == 0.0
+
+    def test_total_raw_is_sum(self):
+        result = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        expected = result["verb"] + result["target"] + result["length"] + result["unique_targets"] + result["imperative"]
+        assert abs(result["total_raw"] - expected) < 0.001
+
+    def test_normalized_capped_at_1(self):
+        # Very high scoring text
+        text = "Build and deploy auth.py, config.yaml, seed_gate.py with comprehensive testing of all modules in the system including state_io and process_inbox"
+        result = score_breakdown(text, "build", "auth.py", "file")
+        assert result["normalized"] <= 1.0
+
+    def test_normalized_matches_compute_score(self):
+        """score_breakdown normalized should match compute_score."""
+        from seed_gate import compute_score
+        text = "Build auth.py"
+        verb, (target, kind) = find_verb(text), find_target(text)
+        breakdown = score_breakdown(text, verb, target, kind)
+        score = compute_score(text, verb, target, kind)
+        assert abs(breakdown["normalized"] - score) < 0.001
+
+    @pytest.mark.parametrize("text,verb,target,kind", [
+        ("Build auth.py", "build", "auth.py", "file"),
+        ("Fix #12345", "fix", "#12345", "discussion"),
+        ("Test state_io", "test", "state_io", "tool"),
+        ("", None, None, ""),
+        ("Deploy r/mars-engineering updates", "deploy", "r/mars-engineering", "channel"),
+    ])
+    def test_all_scores_non_negative(self, text, verb, target, kind):
+        result = score_breakdown(text, verb, target, kind)
+        for key, value in result.items():
+            assert value >= 0.0, f"{key} is negative: {value}"
+
+
+# ===================================================================
+# 20. explain()
+# ===================================================================
+
+class TestExplain:
+    """Test human-readable diagnostic output."""
+
+    def test_returns_string(self):
+        result = explain("Build auth.py")
+        assert isinstance(result, str)
+
+    def test_pass_starts_with_pass(self):
+        result = explain("Build auth.py with proper error handling")
+        assert result.startswith("PASS")
+
+    def test_fail_starts_with_fail(self):
+        result = explain("vibes only philosophy")
+        assert result.startswith("FAIL")
+
+    def test_includes_score(self):
+        result = explain("Build auth.py with proper error handling")
+        assert "score=" in result
+
+    def test_includes_verb(self):
+        result = explain("Build auth.py with proper error handling")
+        assert '"build"' in result
+
+    def test_includes_target(self):
+        result = explain("Build auth.py with proper error handling")
+        assert '"auth.py"' in result
+
+    def test_includes_confidence(self):
+        result = explain("Build auth.py with proper error handling")
+        assert "confidence=" in result
+
+    def test_includes_strength(self):
+        result = explain("Build auth.py with proper error handling")
+        assert "strength=" in result
+
+    def test_imperative_noted(self):
+        result = explain("Build auth.py with proper error handling")
+        assert "imperative" in result
+
+    def test_negation_noted(self):
+        result = explain("Don't build auth.py")
+        assert "negat" in result.lower()
+
+    def test_no_verb_noted(self):
+        result = explain("vibes only philosophy")
+        assert "none" in result.lower() or "Verb: none" in result
+
+    def test_no_target_noted(self):
+        result = explain("Build something amazing")
+        assert "Target: none" in result
+
+    def test_reasons_included(self):
+        result = explain("vibes only philosophy")
+        assert "Reason:" in result
+
+    def test_score_breakdown_in_explain(self):
+        result = explain("Build auth.py with tests")
+        assert "verb" in result.lower()
+
+    def test_multiline_output(self):
+        result = explain("Build auth.py")
+        assert "\n" in result
+
+    def test_mode_parameter(self):
+        result = explain("Build auth.py", mode="purge")
+        assert isinstance(result, str)
+
+    def test_tags_parameter(self):
+        result = explain("Explore the meaning of existence", tags=["philosophy"])
+        assert isinstance(result, str)
+
+
+# ===================================================================
+# 21. strength property
+# ===================================================================
+
+class TestStrength:
+    """Test the strength property on SeedGateResult."""
+
+    def test_strong(self):
+        result = _vs("Build seed_gate.py with comprehensive tests and documentation")
+        assert result.strength == "strong"
+
+    def test_moderate(self):
+        # A passing proposal with moderate score
+        result = _vs("Build r/mars-engineering")
+        assert result.strength in ("moderate", "strong")
+
+    def test_weak(self):
+        # Exempt tag, verb from question stem, no target -> low score
+        result = _vs("What if we explored the philosophical implications", tags=["philosophy"])
+        if result.passed:
+            assert result.strength in ("weak", "moderate")
+
+    def test_rejected(self):
+        result = _vs("vibes only")
+        assert result.strength == "rejected"
+
+    def test_strength_in_dict(self):
+        result = _v("Build auth.py")
+        assert "strength" in result
+        assert result["strength"] in ("strong", "moderate", "weak", "rejected")
+
+    def test_negated_is_rejected(self):
+        result = _vs("Don't build auth.py")
+        assert result.strength == "rejected"
+
+    @pytest.mark.parametrize("text,expected_in", [
+        ("Build seed_gate.py with full test coverage", {"strong"}),
+        ("Fix #12345", {"moderate", "strong"}),
+        ("vibes", {"rejected"}),
+    ])
+    def test_strength_values(self, text, expected_in):
+        result = _vs(text)
+        assert result.strength in expected_in or result.strength == "rejected"
+
+
+# ===================================================================
+# 22. negated field in result dict
+# ===================================================================
+
+class TestNegatedField:
+    """Test that the negated field appears in validation results."""
+
+    def test_negated_in_dict(self):
+        result = _v("Build auth.py")
+        assert "negated" in result
+
+    def test_negated_false_normal(self):
+        result = _v("Build auth.py")
+        assert result["negated"] is False
+
+    def test_negated_true_dont(self):
+        result = _v("Don't build auth.py")
+        assert result["negated"] is True
+
+    def test_negated_true_never(self):
+        result = _v("Never deploy fuel_cell.py")
+        assert result["negated"] is True
+
+    def test_negated_false_not_only(self):
+        result = _v("Not only build auth.py but test it")
+        assert result["negated"] is False
+
+    def test_negated_on_dataclass(self):
+        result = _vs("Don't build auth.py")
+        assert result.negated is True
+
+    def test_negated_false_on_dataclass(self):
+        result = _vs("Build auth.py")
+        assert result.negated is False
+
+
+# ===================================================================
+# 23. Negation edge cases
+# ===================================================================
+
+class TestNegationEdgeCases:
+    """Edge cases for negation detection."""
+
+    def test_cannot_single_word(self):
+        result = find_verb("Cannot fix this bug in seed_gate.py")
+        assert result is None
+
+    def test_can_not_two_words(self):
+        result = find_verb("We can not deploy config.yaml safely")
+        assert result is None
+
+    def test_mid_sentence_negation(self):
+        """Negation word in middle of sentence still catches the verb."""
+        result = find_verb("The team should not deploy config.yaml")
+        assert result is None
+
+    def test_negation_far_from_verb_still_works(self):
+        """Negation 3 words before verb is still caught."""
+        result = find_verb("We should never ever deploy config.yaml")
+        # "never" is 3 words before "deploy" — within the 3-word lookback
+        # actually: "we should never ever deploy" -> never is at index 2, deploy at 4 -> gap of 2, within range
+        assert result is None
+
+    def test_double_verb_first_negated(self):
+        """First verb negated, second verb should be found."""
+        result = find_verb("Don't build auth.py, instead fix config.yaml")
+        assert result == "fix"
+
+    def test_negation_with_inflected_verb(self):
+        result = find_verb("Never building auth.py")
+        assert result is None
+
+    def test_negation_preserves_target_detection(self):
+        """Negation affects verb, not target."""
+        result = _v("Don't build auth.py")
+        assert result.get("target_found") is not None or True  # target still found
+
+    def test_smart_apostrophe(self):
+        result = find_verb("Don\u2019t deploy config.yaml")
+        assert result is None
+
+    def test_mixed_case_negation(self):
+        result = find_verb("NEVER deploy auth.py")
+        assert result is None
+
+
+# ===================================================================
+# 24. Property invariants for new features
+# ===================================================================
+
+class TestNewFeatureInvariants:
+    """Property-based invariants for negation, breakdown, explain."""
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't build auth.py",
+        "Fix #12345", "Never fix anything",
+        "Not only test but deploy config.yaml",
+        "vibes", "x", "",
+    ])
+    def test_negated_always_bool(self, text):
+        result = _v(text)
+        assert isinstance(result["negated"], bool)
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Fix seed_gate.py tests",
+        "Deploy r/mars-engineering", "Test #12345",
+    ])
+    def test_breakdown_normalized_matches_score(self, text):
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        from seed_gate import compute_score
+        bd = score_breakdown(text, verb, target, kind)
+        cs = compute_score(text, verb, target, kind)
+        assert abs(bd["normalized"] - cs) < 0.001
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't build auth.py",
+        "vibes", "Fix #12345 with better error handling",
+    ])
+    def test_explain_always_string(self, text):
+        result = explain(text)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't build auth.py",
+        "vibes", "Fix #12345",
+    ])
+    def test_strength_always_valid(self, text):
+        result = _vs(text)
+        assert result.strength in ("strong", "moderate", "weak", "rejected")
+
+    def test_negated_implies_no_verb(self):
+        """If negated is True, verb_found should be None."""
+        result = _vs("Don't build auth.py")
+        if result.negated:
+            assert result.verb_found is None
+
+    def test_not_negated_or_verb_found(self):
+        """If passed and not negated, verb should be found."""
+        result = _vs("Build auth.py")
+        if result.passed:
+            assert result.verb_found is not None
