@@ -9,7 +9,7 @@ Two public APIs -- pick whichever suits the call-site:
 
     # Dict API (used by propose_seed.py)
     from seed_gate import validate
-    gate = validate(text, tags)         # -> dict
+    gate = validate(text, tags)
     if not gate["passed"]: ...
 
     # Dataclass API
@@ -29,13 +29,21 @@ Two public APIs -- pick whichever suits the call-site:
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
+    # Diagnostics
+    bd  = score_breakdown(text, verb, target, kind)  # dict
+    info = explain(text, tags)                        # dict
+    v, pos = find_verb_with_position(text)            # (str|None, int)
+
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
     PR #245  -- auto-discovered modules, two-tier artifacts, propose_seed wiring
-    This frame -- consolidated #245/#246/#247: false-file filter, special
-                  files, known tools, question stems, batch API, smart
-                  lowercase, substring dedup.
+    PR #248  -- consolidated #245/#246/#247: false-file filter, special
+                files, known tools, question stems, batch API, smart
+                lowercase, substring dedup.
+    This frame -- 11 DevOps verbs (81 total), version/abbrev false-file
+                  filters, env var + class targets, find_verb_with_position(),
+                  imperative bonus, score_breakdown(), explain() diagnostics.
 """
 from __future__ import annotations
 
@@ -49,7 +57,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# 70 action verbs -- frozenset for O(1) lookup  (from #12503 + main repo)
+# 81 action verbs -- frozenset for O(1) lookup  (from #12503 + main repo + DevOps)
 ACTION_VERBS: frozenset[str] = frozenset({
     "build", "create", "design", "develop", "implement", "write",
     "add", "integrate", "deploy", "launch", "ship", "release",
@@ -66,6 +74,9 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "consolidate", "decode", "establish", "execute", "extend",
     "instrument", "measure", "merge", "remove", "render",
     "review", "run", "score", "validate",
+    # DevOps / lifecycle verbs (this frame)
+    "configure", "scaffold", "bootstrap", "provision", "install",
+    "deprecate", "archive", "rollback", "revert", "containerize", "expose",
 })
 
 # ---------------------------------------------------------------------------
@@ -78,7 +89,14 @@ FILE_RE = re.compile(r"\b[\w./-]*\w+\.\w{1,8}\b")
 # False positives that FILE_RE catches (abbreviations with periods)
 _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
     "e.g", "i.e", "a.m", "p.m", "vs.",
+    "ph.d", "u.s",
 })
+
+# Version patterns that FILE_RE catches: v1.2, v0.1, v2.0
+_VERSION_RE = re.compile(r"^v\d+\.\d")
+
+# Numbered reference patterns: no.5, fig.1, vol.2, ch.3
+_NUMBERED_REF_RE = re.compile(r"^(?:no|fig|vol|ch|pt|sec)\.\d")
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -112,6 +130,18 @@ QUOTED_RE = re.compile(r"""(?:"[^"]{3,60}"|'[^']{3,60}')""")
 
 # Context-sensitive module reference: `module`, import module, from module
 MODULE_CONTEXT_RE = re.compile(r"(?:`[\w_]+`|import\s+[\w_]+|from\s+[\w_]+)")
+
+# Environment variable reference: $STATE_DIR, ${GITHUB_TOKEN}
+# Requires 3+ uppercase chars to avoid $X or matching dollar amounts
+ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]{2,}\}?")
+
+# Context-constrained PascalCase class: `SeedGateResult`, class MarsColony
+# Only matches in code context (backticks or class keyword) to avoid
+# false positives on normal capitalized words.
+CLASS_CONTEXT_RE = re.compile(
+    r"(?:`([A-Z][a-z]\w*(?:[A-Z][a-z]\w*)+)`"
+    r"|class\s+([A-Z][a-z]\w*(?:[A-Z][a-z]\w*)+))"
+)
 
 # Known rappterbook tools -- precision-matched before generic TOOL_RE (PR #246)
 KNOWN_TOOLS: frozenset[str] = frozenset({
@@ -259,7 +289,7 @@ class BatchStats:
     def junk_rate(self) -> float:
         return self.junk / self.total if self.total else 0.0
 
-    def merge(self, other: BatchStats) -> BatchStats:
+    def merge(self, other: "BatchStats") -> "BatchStats":
         return BatchStats(
             total=self.total + other.total,
             passed=self.passed + other.passed,
@@ -272,9 +302,9 @@ class BatchStats:
 class BatchResult:
     """Result of validate_batch() -- separates junk from merely-failed."""
     stats: BatchStats
-    passed_items: tuple[tuple[str, dict], ...]
-    failed_items: tuple[tuple[str, dict], ...]
-    junk_items: tuple[tuple[str, dict], ...]
+    passed_items: tuple
+    failed_items: tuple
+    junk_items: tuple
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +312,19 @@ class BatchResult:
 # ---------------------------------------------------------------------------
 
 def _is_false_file_match(match_text: str) -> bool:
-    """Return True if a FILE_RE match is actually a false positive."""
-    return match_text.lower().rstrip(".") in _FALSE_FILE_MATCHES
+    """Return True if a FILE_RE match is actually a false positive.
+
+    Catches abbreviations (e.g, i.e, Ph.D, U.S), version numbers (v1.2),
+    and numbered references (no.5, fig.1, vol.2, ch.3).
+    """
+    lower = match_text.lower().rstrip(".")
+    if lower in _FALSE_FILE_MATCHES:
+        return True
+    if _VERSION_RE.match(lower):
+        return True
+    if _NUMBERED_REF_RE.match(lower):
+        return True
+    return False
 
 
 def _starts_with_verb(text: str) -> bool:
@@ -314,7 +355,22 @@ def find_verb(text: str, limit: int = 0) -> str | None:
     return None
 
 
-def find_target(text: str) -> tuple[str, str]:
+def find_verb_with_position(text: str, limit: int = 0) -> tuple:
+    """Return (verb, word_position) or (None, -1).
+
+    Word position is 0-based index among whitespace-delimited words.
+    Verbs in position 0-2 are considered imperative (command form).
+    """
+    search_text = text[:limit] if limit else text
+    words = search_text.split()
+    for i, word in enumerate(words):
+        clean = re.sub(r"[^a-zA-Z]", "", word).lower()
+        if clean in ACTION_VERBS:
+            return clean, i
+    return None, -1
+
+
+def find_target(text: str) -> tuple:
     """Return (target_string, target_kind) or ('', '').
 
     Checks patterns in priority order -- most specific first.
@@ -347,9 +403,19 @@ def find_target(text: str) -> tuple[str, str]:
     m = TOOL_RE.search(text)
     if m:
         return m.group(), "tool"
+    # PascalCase class in code context -- before CLI so `SeedGateResult`
+    # matches as class, not as a generic backtick CLI snippet
+    m = CLASS_CONTEXT_RE.search(text)
+    if m:
+        cls_name = m.group(1) or m.group(2)
+        return cls_name, "class"
     m = CLI_RE.search(text)
     if m:
         return m.group(), "cli"
+    # Env vars after CLI: $STATE_DIR, ${GITHUB_TOKEN}
+    m = ENV_VAR_RE.search(text)
+    if m:
+        return m.group(), "env_var"
     m = DISCUSSION_RE.search(text)
     if m:
         return m.group(), "discussion"
@@ -365,6 +431,57 @@ def find_target(text: str) -> tuple[str, str]:
     if m:
         return m.group(), "quoted"
     return "", ""
+
+
+def find_all_targets(text: str) -> list:
+    """Return all concrete targets in *text* as a list of dicts.
+
+    Each dict has keys: target (str), kind (str).
+    Deduplicates by canonical form.
+    """
+    targets = []
+    seen_canonical = set()
+
+    def _add(match_text, kind):
+        c = canonicalize_target(match_text)
+        if c and c not in seen_canonical:
+            seen_canonical.add(c)
+            targets.append({"target": match_text, "kind": kind})
+
+    for m in FILE_RE.finditer(text):
+        if not _is_false_file_match(m.group()):
+            _add(m.group(), "file")
+    for m in SPECIAL_FILE_RE.finditer(text):
+        _add(m.group(), "file")
+    for m in PATH_RE.finditer(text):
+        _add(m.group(), "path")
+    for m in FUNC_RE.finditer(text):
+        _add(m.group(), "func")
+    for m in CHANNEL_RE.finditer(text):
+        _add(m.group(), "channel")
+    for m in _KNOWN_TOOL_RE.finditer(text):
+        _add(m.group(), "tool")
+    for m in TOOL_RE.finditer(text):
+        _add(m.group(), "tool")
+    for m in CLI_RE.finditer(text):
+        _add(m.group(), "cli")
+    for m in ENV_VAR_RE.finditer(text):
+        _add(m.group(), "env_var")
+    for m in DISCUSSION_RE.finditer(text):
+        _add(m.group(), "discussion")
+    if KNOWN_MODULES:
+        for m in MODULE_CONTEXT_RE.finditer(text):
+            bare = m.group().strip("`").replace("import ", "").replace("from ", "").strip()
+            if bare in KNOWN_MODULES:
+                _add(bare, "module")
+    for m in CLASS_CONTEXT_RE.finditer(text):
+        cls_name = m.group(1) or m.group(2)
+        if cls_name:
+            _add(cls_name, "class")
+    for m in QUOTED_RE.finditer(text):
+        _add(m.group(), "quoted")
+
+    return targets
 
 
 def is_junk(text: str, limit: int = 0) -> str:
@@ -400,7 +517,7 @@ def is_soft_artifact(text: str) -> bool:
 
 def canonicalize_target(target: str) -> str:
     """Normalize a target string for dedup: strip path prefix, extension, quotes."""
-    t = target.strip("\"' `")
+    t = target.strip("\"' `${}").rstrip(".")
     for prefix in ("src/", "tests/", "engine/", "state/", "docs/", "scripts/"):
         if t.startswith(prefix):
             t = t[len(prefix):]
@@ -417,18 +534,23 @@ def count_unique_targets(text: str) -> int:
     Uses substring-aware dedup: if 'seed_gate' and 'seed_gate.py'
     both appear, they count as one (PR #246).
     """
-    raw_targets: list[str] = []
-    for pattern in (FILE_RE, PATH_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE):
+    raw_targets = []
+    for pattern in (FILE_RE, PATH_RE, TOOL_RE, CLI_RE, DISCUSSION_RE, CHANNEL_RE, ENV_VAR_RE):
         for m in pattern.finditer(text):
             raw_targets.append(m.group())
-    canonical: list[str] = []
+    # Also count class targets from context regex
+    for m in CLASS_CONTEXT_RE.finditer(text):
+        cls_name = m.group(1) or m.group(2)
+        if cls_name:
+            raw_targets.append(cls_name)
+    canonical = []
     for t in raw_targets:
         c = canonicalize_target(t)
         if c:
             canonical.append(c)
     # Substring dedup: remove shorter forms that are substrings of longer ones
     canonical_sorted = sorted(set(canonical), key=len, reverse=True)
-    unique: list[str] = []
+    unique = []
     for c in canonical_sorted:
         if not any(c in u for u in unique):
             unique.append(c)
@@ -441,26 +563,65 @@ def compute_score(
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
+    """Compute a 0.0-1.0 specificity score.
+
+    Includes an imperative bonus for verbs in the first 3 words.
+    """
+    bd = score_breakdown(text, verb, target, target_kind)
+    return bd["final_score"]
+
+
+def score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict:
+    """Return a decomposed scoring showing each component's contribution.
+
+    Keys: verb_pts, target_pts, target_kind, length_pts, multi_target_pts,
+    unique_targets, imperative_pts, raw_total, final_score.
+    """
+    verb_pts = 2.5 if verb else 0.0
+
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "class": 2.5, "env_var": 2.0,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    target_pts = kind_scores.get(target_kind, 1.5) if target else 0.0
+
     words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
+    length_pts = 0.0
     if len(words) >= 15:
-        raw += 1.0
+        length_pts = 1.5
+    elif len(words) >= 8:
+        length_pts = 0.5
+
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    return min(raw / 10.0, 1.0)
+    multi_target_pts = 1.0 if unique >= 2 else 0.0
+
+    # Imperative bonus: verb in the first 3 words
+    imperative_pts = 0.0
+    if verb:
+        _, pos = find_verb_with_position(text)
+        if 0 <= pos <= 2:
+            imperative_pts = 0.5
+
+    raw_total = verb_pts + target_pts + length_pts + multi_target_pts + imperative_pts
+    final_score = min(raw_total / 10.0, 1.0)
+
+    return {
+        "verb_pts": verb_pts,
+        "target_pts": target_pts,
+        "target_kind": target_kind or "",
+        "length_pts": length_pts,
+        "multi_target_pts": multi_target_pts,
+        "imperative_pts": imperative_pts,
+        "unique_targets": unique,
+        "raw_total": raw_total,
+        "final_score": final_score,
+    }
 
 
 # Backward-compat aliases
@@ -525,7 +686,7 @@ def validate_seed(
         passed = bool(verb) and (bool(target) or is_exempt)
         specificity = compute_score(text, verb, target, target_kind)
 
-    reasons: list[str] = []
+    reasons = []
     if not passed:
         if not verb:
             reasons.append("No action verb found")
@@ -548,8 +709,74 @@ def passes_gate(text: str, tags: list = None, mode: str = "admission") -> bool:
     return validate_seed(text, tags, mode=mode).passed
 
 
+def explain(text: str, tags: list = None) -> dict:
+    """Return a structured diagnostic dict for *text*.
+
+    Includes everything from validate() plus: verb_position,
+    verb_imperative, primary_target, primary_target_kind, all_targets,
+    unique_target_count, exempt_tags, stem_verb, word_count, soft_artifact,
+    and the full score_breakdown.
+
+    Always consistent with validate() -- calls it internally.
+    """
+    tags = tags or []
+    result = validate_seed(text, tags)
+    tag_set = frozenset(t.lower().strip() for t in tags)
+
+    # Junk short-circuit
+    junk_reason = is_junk(text) or None
+    if result.junk:
+        return {
+            "passed": False,
+            "verb": None,
+            "verb_position": -1,
+            "verb_imperative": False,
+            "primary_target": None,
+            "primary_target_kind": "",
+            "all_targets": [],
+            "score": 0.0,
+            "junk_reason": junk_reason,
+            "unique_target_count": 0,
+            "exempt_tags": sorted(tag_set & EXEMPT_TAGS),
+            "stem_verb": None,
+            "word_count": len(text.split()),
+            "soft_artifact": is_soft_artifact(text),
+        }
+
+    verb, verb_pos = find_verb_with_position(text)
+    target, target_kind = find_target(text)
+    all_targets = find_all_targets(text)
+
+    # Question stem inference
+    stem_verb = None
+    if not verb and (tag_set & EXEMPT_TAGS):
+        m = _QUESTION_STEM_RE.match(text.strip())
+        if m:
+            stem_verb = QUESTION_STEMS.get(m.group().lower())
+
+    # Use the stem verb if no direct verb found
+    effective_verb = verb or stem_verb
+
+    return {
+        "passed": result.passed,
+        "verb": effective_verb,
+        "verb_position": verb_pos,
+        "verb_imperative": 0 <= verb_pos <= 2,
+        "primary_target": target or None,
+        "primary_target_kind": target_kind,
+        "all_targets": all_targets,
+        "score": result.score,
+        "junk_reason": junk_reason,
+        "unique_target_count": count_unique_targets(text),
+        "exempt_tags": sorted(tag_set & EXEMPT_TAGS),
+        "stem_verb": stem_verb,
+        "word_count": len(text.split()),
+        "soft_artifact": is_soft_artifact(text),
+    }
+
+
 def validate_batch(
-    proposals: list[str],
+    proposals: list,
     tags: list = None,
     mode: str = "admission",
 ) -> BatchResult:
@@ -559,9 +786,9 @@ def validate_batch(
     (like propose_seed.purge_junk) can treat junk and vague-but-salvageable
     proposals differently.
     """
-    passed_items: list[tuple[str, dict]] = []
-    failed_items: list[tuple[str, dict]] = []
-    junk_items: list[tuple[str, dict]] = []
+    passed_items = []
+    failed_items = []
+    junk_items = []
 
     for text in proposals:
         result = validate(text, tags, mode=mode)

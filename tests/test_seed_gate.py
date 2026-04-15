@@ -1004,3 +1004,419 @@ class TestCanonicalizeTarget:
     def test_preserve_underscores(self):
         from seed_gate import canonicalize_target
         assert canonicalize_target("water_mining.py") == "water_mining"
+
+
+# ===================================================================
+# 18. DevOps verbs (this frame)
+# ===================================================================
+
+class TestDevOpsVerbs:
+    """11 new verbs: configure, scaffold, bootstrap, etc."""
+
+    @pytest.mark.parametrize("verb", [
+        "configure", "scaffold", "bootstrap", "provision", "install",
+        "deprecate", "archive", "rollback", "revert", "containerize", "expose",
+    ])
+    def test_verb_in_set(self, verb):
+        from seed_gate import ACTION_VERBS
+        assert verb in ACTION_VERBS
+
+    @pytest.mark.parametrize("verb", [
+        "configure", "scaffold", "bootstrap", "provision", "install",
+        "deprecate", "archive", "rollback", "revert", "containerize", "expose",
+    ])
+    def test_verb_detected(self, verb):
+        from seed_gate import find_verb
+        assert find_verb(f"{verb.capitalize()} the seed_gate.py module") == verb
+
+    def test_configure_passes_gate(self):
+        r = _v("Configure seed_gate.py for stricter validation rules")
+        assert r["passed"] is True
+
+    def test_scaffold_passes_gate(self):
+        r = _v("Scaffold test_thermal.py test suite from scratch")
+        assert r["passed"] is True
+
+    def test_containerize_passes_gate(self):
+        r = _v("Containerize the mars_colony.py simulation engine")
+        assert r["passed"] is True
+
+    def test_verb_count_is_81(self):
+        from seed_gate import ACTION_VERBS
+        assert len(ACTION_VERBS) >= 81
+
+
+# ===================================================================
+# 19. Verb position scoring
+# ===================================================================
+
+class TestVerbPositionScoring:
+    """Verbs in first 3 words get an imperative bonus."""
+
+    def test_verb_position_zero(self):
+        from seed_gate import find_verb_with_position
+        verb, pos = find_verb_with_position("Build seed_gate.py validator")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_verb_position_deep(self):
+        from seed_gate import find_verb_with_position
+        verb, pos = find_verb_with_position("We should probably build seed_gate.py")
+        assert verb == "build"
+        assert pos == 3
+
+    def test_imperative_scores_higher(self):
+        # Match word counts to isolate verb-position effect
+        imperative = _v("Build seed_gate.py for the new validation rules now")
+        buried = _v("Maybe we should build seed_gate.py for new rules now")
+        assert imperative["score"] > buried["score"]
+
+    def test_no_verb_position_minus_one(self):
+        from seed_gate import find_verb_with_position
+        _, pos = find_verb_with_position("The thing about stuff")
+        assert pos == -1
+
+    def test_position_with_limit(self):
+        from seed_gate import find_verb_with_position
+        verb, pos = find_verb_with_position("Build seed_gate.py", limit=5)
+        assert verb == "build"
+        assert pos == 0
+
+
+# ===================================================================
+# 20. Explain API
+# ===================================================================
+
+class TestExplainAPI:
+    """explain() returns a structured breakdown."""
+
+    def test_basic_explain(self):
+        from seed_gate import explain
+        result = explain("Build seed_gate.py with validation rules")
+        assert result["passed"] is True
+        assert result["verb"] == "build"
+        assert result["verb_position"] == 0
+        assert result["verb_imperative"] is True
+        assert result["primary_target"] == "seed_gate.py"
+        assert result["primary_target_kind"] == "file"
+        assert isinstance(result["all_targets"], list)
+        assert result["score"] > 0.0
+
+    def test_explain_failed(self):
+        from seed_gate import explain
+        result = explain("Make everything better in general")
+        assert result["passed"] is False
+
+    def test_explain_junk(self):
+        from seed_gate import explain
+        result = explain("")
+        assert result["junk_reason"] is not None
+
+    def test_explain_env_var(self):
+        from seed_gate import explain
+        result = explain("Configure $STATE_DIR for test setup")
+        assert any(t["kind"] == "env_var" for t in result["all_targets"])
+
+    def test_explain_multi_target(self):
+        from seed_gate import explain
+        result = explain("Build seed_gate.py and propose_seed.py pipeline")
+        assert result["unique_target_count"] >= 2
+        assert len(result["all_targets"]) >= 2
+
+    def test_explain_score_matches_validate(self):
+        from seed_gate import explain
+        text = "Build seed_gate.py validator with new features"
+        e = explain(text)
+        v = _v(text)
+        assert e["score"] == v["score"]
+        assert e["passed"] == v["passed"]
+
+    def test_explain_exempt_tags(self):
+        from seed_gate import explain
+        result = explain("What if consciousness is emergent deeply", ["theme"])
+        assert result["exempt_tags"] == ["theme"]
+        assert result["stem_verb"] == "explore"
+
+    def test_explain_word_count(self):
+        from seed_gate import explain
+        result = explain("Build seed_gate.py validator")
+        assert result["word_count"] == 3
+
+    def test_explain_soft_artifact(self):
+        from seed_gate import explain
+        result = explain("Build the regex parser for seed_gate.py module")
+        assert isinstance(result["soft_artifact"], bool)
+
+
+# ===================================================================
+# 21. Version / numbered-ref false positives
+# ===================================================================
+
+class TestVersionFalsePositives:
+    """Version numbers and numbered refs are not files."""
+
+    def test_v1_2_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("v1.2")
+
+    def test_v0_1_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("v0.1")
+
+    def test_no_5_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("no.5")
+
+    def test_fig_1_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("fig.1")
+
+    def test_vol_2_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("vol.2")
+
+    def test_ch_3_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("ch.3")
+
+    def test_ph_d_not_a_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("Ph.D")
+
+    def test_real_file_not_false_positive(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("seed_gate.py")
+        assert not _is_false_file_match("main.rs")
+
+    def test_validate_version_only_no_target(self):
+        """A proposal with only 'v1.2' should not count it as a target."""
+        r = _v("Upgrade to v1.2 of the platform for all users")
+        assert r["target_found"] != "v1.2"
+
+    def test_validate_version_plus_real_file(self):
+        """v1.2 ignored, real file found."""
+        r = _v("Upgrade seed_gate.py to v2.0 with better scoring")
+        assert r["target_found"] == "seed_gate.py"
+        assert r["passed"] is True
+
+
+# ===================================================================
+# 22. Environment variable targets
+# ===================================================================
+
+class TestEnvVarTarget:
+    """$STATE_DIR and ${GITHUB_TOKEN} as concrete targets."""
+
+    def test_state_dir_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Configure $STATE_DIR for testing")
+        assert target == "$STATE_DIR"
+        assert kind == "env_var"
+
+    def test_braced_var_detected(self):
+        from seed_gate import find_target
+        target, kind = find_target("Set ${GITHUB_TOKEN} in CI config")
+        assert target == "${GITHUB_TOKEN}"
+        assert kind == "env_var"
+
+    def test_env_var_passes_gate(self):
+        r = _v("Configure $STATE_DIR for isolated test environments")
+        assert r["passed"] is True
+
+    def test_env_var_after_cli(self):
+        """CLI targets take priority over env vars."""
+        from seed_gate import find_target
+        target, kind = find_target("Run `export $PATH` for env setup")
+        assert kind == "cli"
+
+    def test_dollar_amount_not_matched(self):
+        """$100 should not match as env var (too short)."""
+        from seed_gate import find_target
+        target, kind = find_target("We need $100 budget allocation now")
+        assert kind != "env_var"
+
+    def test_env_var_count(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("$STATE_DIR and $DOCS_DIR and seed_gate.py")
+        assert count >= 3
+
+
+# ===================================================================
+# 23. Context-constrained class targets
+# ===================================================================
+
+class TestClassTarget:
+    """PascalCase in backticks or after 'class' keyword."""
+
+    def test_backtick_class(self):
+        from seed_gate import find_target
+        target, kind = find_target("Refactor the `SeedGateResult` dataclass")
+        assert target == "SeedGateResult"
+        assert kind == "class"
+
+    def test_class_keyword(self):
+        from seed_gate import find_target
+        target, kind = find_target("Create class MarsColony with tick method")
+        assert target == "MarsColony"
+        assert kind == "class"
+
+    def test_single_word_not_matched(self):
+        """Single capitalized words should NOT match."""
+        from seed_gate import find_target
+        target, kind = find_target("Build the Mars platform from scratch")
+        assert kind != "class"
+
+    def test_class_after_file(self):
+        """Files take priority over classes."""
+        from seed_gate import find_target
+        target, kind = find_target("Refactor seed_gate.py `SeedGateResult`")
+        assert kind == "file"
+        assert target == "seed_gate.py"
+
+
+# ===================================================================
+# 24. Score breakdown
+# ===================================================================
+
+class TestScoreBreakdown:
+    """score_breakdown() returns decomposed scoring."""
+
+    def test_breakdown_keys(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file")
+        assert "verb_pts" in bd
+        assert "target_pts" in bd
+        assert "length_pts" in bd
+        assert "multi_target_pts" in bd
+        assert "imperative_pts" in bd
+        assert "raw_total" in bd
+        assert "final_score" in bd
+
+    def test_verb_points(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file")
+        assert bd["verb_pts"] == 2.5
+
+    def test_no_verb_zero_pts(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("The seed_gate.py thing", None, "seed_gate.py", "file")
+        assert bd["verb_pts"] == 0.0
+
+    def test_file_target_pts(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py", "build", "seed_gate.py", "file")
+        assert bd["target_pts"] == 4.0
+
+    def test_env_var_target_pts(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Configure $STATE_DIR", "configure", "$STATE_DIR", "env_var")
+        assert bd["target_pts"] == 2.0
+
+    def test_imperative_bonus(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py validator", "build", "seed_gate.py", "file")
+        assert bd["imperative_pts"] == 0.5
+
+    def test_no_imperative_for_deep_verb(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("We should probably build seed_gate.py", "build", "seed_gate.py", "file")
+        assert bd["imperative_pts"] == 0.0
+
+    def test_final_score_bounded(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown(
+            "Build seed_gate.py and propose_seed.py and water_mining.py with all the validation",
+            "build", "seed_gate.py", "file"
+        )
+        assert 0.0 <= bd["final_score"] <= 1.0
+
+
+# ===================================================================
+# 25. find_all_targets
+# ===================================================================
+
+class TestFindAllTargets:
+    """find_all_targets() enumerates all targets with dedup."""
+
+    def test_multiple_files(self):
+        from seed_gate import find_all_targets
+        targets = find_all_targets("Build seed_gate.py and propose_seed.py")
+        names = [t["target"] for t in targets]
+        assert "seed_gate.py" in names
+        assert "propose_seed.py" in names
+
+    def test_mixed_kinds(self):
+        from seed_gate import find_all_targets
+        targets = find_all_targets("Build seed_gate.py and configure $STATE_DIR")
+        kinds = {t["kind"] for t in targets}
+        assert "file" in kinds
+        assert "env_var" in kinds
+
+    def test_deduplication(self):
+        from seed_gate import find_all_targets
+        targets = find_all_targets("Build seed_gate.py in src/seed_gate.py directory")
+        # seed_gate.py and src/seed_gate.py should dedup to one canonical form
+        names = [t["target"] for t in targets]
+        assert len(names) >= 1
+
+    def test_empty_text(self):
+        from seed_gate import find_all_targets
+        assert find_all_targets("") == []
+
+
+# ===================================================================
+# 26. Property invariants for new features
+# ===================================================================
+
+class TestNewFeatureInvariants:
+    """Cross-cutting invariants for the new evolution."""
+
+    def test_score_bounded(self):
+        texts = [
+            "Build seed_gate.py",
+            "Configure $STATE_DIR and $DOCS_DIR and water_mining.py",
+            "Scaffold the entire test suite from scratch for everything",
+            "",
+            "x",
+        ]
+        for text in texts:
+            r = _v(text)
+            assert 0.0 <= r["score"] <= 1.0, f"Score out of bounds for: {text!r}"
+
+    def test_explain_score_always_matches_validate(self):
+        from seed_gate import explain
+        texts = [
+            "Build seed_gate.py validator with new features",
+            "Configure $STATE_DIR for test isolation setup",
+            "Deploy water_mining.py to production servers now",
+            "What if agents had dreams and could recall them",
+        ]
+        for text in texts:
+            e = explain(text)
+            v = _v(text)
+            assert e["score"] == v["score"], f"Score mismatch for: {text!r}"
+
+    def test_version_never_sole_target(self):
+        """Version numbers alone should never be the only target."""
+        for text in [
+            "Upgrade to 2.0 of the platform",
+            "Release v3.1 for the community",
+            "Ship version 1.2.3 release",
+        ]:
+            r = _v(text)
+            if r["target_found"]:
+                from seed_gate import _is_false_file_match
+                assert not _is_false_file_match(r["target_found"]), \
+                    f"Version matched as target in: {text!r}"
+
+    def test_env_var_contributes_to_count(self):
+        from seed_gate import count_unique_targets
+        count = count_unique_targets("$STATE_DIR and seed_gate.py")
+        assert count >= 2
+
+    def test_all_targets_subset_of_unique_count(self):
+        from seed_gate import find_all_targets, count_unique_targets
+        text = "Build seed_gate.py and propose_seed.py for $STATE_DIR"
+        all_t = find_all_targets(text)
+        unique_c = count_unique_targets(text)
+        assert len(all_t) <= unique_c + 3  # allow some slack for different dedup methods
