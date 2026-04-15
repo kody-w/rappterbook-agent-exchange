@@ -1376,3 +1376,463 @@ class TestBackwardCompatNewFields:
     def test_passes_gate_unaffected(self):
         assert passes_gate("Build the authentication module in auth.py")
         assert not passes_gate("random stuff here with nothing concrete at all")
+
+
+# ===================================================================
+# Frame evolution: verb normalization, version filter, confidence,
+# suggest(), expanded KNOWN_TOOLS, batch CLI (#12503, #12507, #12521)
+# ===================================================================
+
+from seed_gate import (
+    _normalize_verb,
+    _VERSION_RE,
+    _DOUBLE_CONSONANT_STEMS,
+    _IRREGULAR_VERBS,
+    _CONFIDENCE_HIGH,
+    _CONFIDENCE_MEDIUM,
+    _score_to_confidence,
+    find_verb,
+    find_all_verbs,
+    find_target,
+    suggest,
+    KNOWN_TOOLS,
+    validate_batch,
+)
+
+
+class TestNormalizeVerb:
+    """_normalize_verb: inflection stripping with membership gating."""
+
+    def test_base_form_passthrough(self):
+        assert _normalize_verb("build") == "build"
+        assert _normalize_verb("test") == "test"
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("building", "build"),
+        ("testing", "test"),
+        ("optimizing", "optimize"),
+        ("creating", "create"),
+        ("deploying", "deploy"),
+        ("running", "run"),
+        ("debugging", "debug"),
+        ("scanning", "scan"),
+        ("shipping", "ship"),
+        ("wiring", "wire"),
+        ("configuring", "configure"),
+        ("monitoring", "monitor"),
+        ("parsing", "parse"),
+        ("generating", "generate"),
+        ("logging", "log"),
+        ("mapping", "map"),
+        ("wrapping", "wrap"),
+        ("mocking", "mock"),
+        ("stubbing", "stub"),
+        ("planning", "plan"),
+    ])
+    def test_gerund_to_base(self, inflected, expected):
+        assert _normalize_verb(inflected) == expected
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("deployed", "deploy"),
+        ("tested", "test"),
+        ("patched", "patch"),
+        ("computed", "compute"),
+        ("generated", "generate"),
+        ("resolved", "resolve"),
+        ("configured", "configure"),
+        ("optimized", "optimize"),
+        ("created", "create"),
+        ("shipped", "ship"),
+        ("logged", "log"),
+        ("scanned", "scan"),
+        ("planned", "plan"),
+        ("debugged", "debug"),
+        ("wrapped", "wrap"),
+        ("mocked", "mock"),
+    ])
+    def test_past_tense_to_base(self, inflected, expected):
+        assert _normalize_verb(inflected) == expected
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("builds", "build"),
+        ("deploys", "deploy"),
+        ("creates", "create"),
+        ("fixes", "fix"),
+        ("launches", "launch"),
+        ("tracks", "track"),
+        ("logs", "log"),
+        ("patches", "patch"),
+        ("compiles", "compile"),
+    ])
+    def test_third_person_to_base(self, inflected, expected):
+        assert _normalize_verb(inflected) == expected
+
+    @pytest.mark.parametrize("inflected,expected", [
+        ("built", "build"),
+        ("wrote", "write"),
+        ("written", "write"),
+        ("ran", "run"),
+    ])
+    def test_irregular_forms(self, inflected, expected):
+        assert _normalize_verb(inflected) == expected
+
+    def test_unknown_word_returns_none(self):
+        assert _normalize_verb("xyzzy") is None
+        assert _normalize_verb("the") is None
+        assert _normalize_verb("quickly") is None
+
+    def test_noun_tion_not_normalized(self):
+        """configuration should NOT normalize to configure."""
+        assert _normalize_verb("configuration") is None
+
+    def test_noun_ment_not_normalized(self):
+        """deployment should NOT normalize to deploy."""
+        assert _normalize_verb("deployment") is None
+
+    def test_membership_gated(self):
+        """Only returns when base form is in ACTION_VERBS."""
+        assert _normalize_verb("swimming") is None
+
+
+class TestNormalizeVerbInContext:
+    """Normalization integrated into find_verb and find_all_verbs."""
+
+    def test_gerund_detected_in_text(self):
+        assert find_verb("Building water_mining.py optimizer") == "build"
+
+    def test_past_tense_in_text(self):
+        assert find_verb("Deployed the rover.py to Mars") == "deploy"
+
+    def test_third_person_in_text(self):
+        assert find_verb("Creates the greenhouse.py simulation") == "create"
+
+    def test_exact_match_preferred(self):
+        """Direct match beats normalization fallback."""
+        assert find_verb("Build water_mining.py") == "build"
+
+    def test_find_all_verbs_includes_inflected(self):
+        verbs = find_all_verbs("Building and testing water_mining.py")
+        assert "build" in verbs
+        assert "test" in verbs
+
+    def test_find_all_verbs_dedup_across_forms(self):
+        """'building' and 'build' in same text should not produce duplicate."""
+        verbs = find_all_verbs("Building something then build again")
+        assert verbs.count("build") == 1
+
+    def test_inflected_makes_proposal_pass(self):
+        """Inflected verb + file target should pass the gate."""
+        r = validate("Deploying the rover.py navigation module")
+        assert r["passed"] is True
+        assert r["verb_found"] == "deploy"
+
+
+class TestVersionFilter:
+    """Version strings should not match as file targets."""
+
+    @pytest.mark.parametrize("version", [
+        "3.11", "v2.0", "1.0.0", "v1.2.3",
+    ])
+    def test_version_string_not_file(self, version):
+        target, kind = find_target(f"Upgrade to {version} for the colony")
+        assert target != version or kind != "file"
+
+    def test_real_file_not_filtered(self):
+        target, kind = find_target("Build rover.py optimizer")
+        assert target == "rover.py"
+        assert kind == "file"
+
+    def test_version_next_to_real_file(self):
+        target, kind = find_target("Upgrade rover.py to v3.0.1")
+        assert target == "rover.py"
+        assert kind == "file"
+
+    def test_python_version_not_file(self):
+        target, kind = find_target("Requires Python 3.11 at minimum")
+        assert target != "3.11" or kind != "file"
+
+    def test_file_with_numbers_passes(self):
+        target, kind = find_target("Build test123.py parser")
+        assert target == "test123.py"
+        assert kind == "file"
+
+
+class TestVersionRePattern:
+    """_VERSION_RE regex matches version-like strings."""
+
+    def test_matches_semver(self):
+        assert _VERSION_RE.match("1.0.0")
+        assert _VERSION_RE.match("v2.1.0")
+        assert _VERSION_RE.match("3.11")
+
+    def test_rejects_filenames(self):
+        assert not _VERSION_RE.match("water_mining.py")
+        assert not _VERSION_RE.match("README.md")
+
+    def test_rejects_words(self):
+        assert not _VERSION_RE.match("hello.world")
+        assert not _VERSION_RE.match("foo.bar")
+
+
+class TestConfidence:
+    """Confidence labels: high/medium/low/none."""
+
+    def test_high_confidence(self):
+        r = validate_seed("Build water_mining.py and fix drill.py for the colony thermal control")
+        assert r.confidence == "high"
+
+    def test_none_confidence_on_junk(self):
+        r = validate_seed("")
+        assert r.confidence == "none"
+
+    def test_confidence_in_dict(self):
+        d = validate("Build water_mining.py")
+        assert "confidence" in d
+        assert d["confidence"] in ("high", "medium", "low", "none")
+
+    def test_to_dict_has_confidence(self):
+        r = validate_seed("Build auth.py")
+        d = r.to_dict()
+        assert "confidence" in d
+        assert d["confidence"] == r.confidence
+
+    def test_confidence_valid_values_always(self):
+        texts = [
+            "Build water_mining.py", "", "The plans",
+            "Explore #12345 for insights",
+            'Fix "the broken system"',
+        ]
+        for text in texts:
+            r = validate_seed(text)
+            assert r.confidence in ("high", "medium", "low", "none")
+
+
+class TestScoreToConfidence:
+    """_score_to_confidence threshold mapping."""
+
+    def test_high_threshold(self):
+        assert _score_to_confidence(0.7) == "high"
+        assert _score_to_confidence(0.9) == "high"
+        assert _score_to_confidence(1.0) == "high"
+
+    def test_medium_threshold(self):
+        assert _score_to_confidence(0.4) == "medium"
+        assert _score_to_confidence(0.5) == "medium"
+        assert _score_to_confidence(0.69) == "medium"
+
+    def test_low_threshold(self):
+        assert _score_to_confidence(0.1) == "low"
+        assert _score_to_confidence(0.01) == "low"
+        assert _score_to_confidence(0.39) == "low"
+
+    def test_none_threshold(self):
+        assert _score_to_confidence(0.0) == "none"
+
+
+class TestSuggest:
+    """suggest() returns actionable improvement hints."""
+
+    def test_no_verb_hint(self):
+        hints = suggest("The water mining needs work")
+        assert any("action verb" in h.lower() for h in hints)
+
+    def test_no_target_hint(self):
+        hints = suggest("Build something awesome for the base")
+        assert any("target" in h.lower() or "file" in h.lower() for h in hints)
+
+    def test_short_text_hint(self):
+        hints = suggest("Fix the bug in the module")
+        assert any("detail" in h.lower() or "char" in h.lower() for h in hints)
+
+    def test_empty_text(self):
+        hints = suggest("")
+        assert len(hints) >= 1
+
+    def test_passing_proposal_no_verb_hint(self):
+        hints = suggest("Build water_mining.py optimizer for Mars thermal control")
+        assert not any("action verb" in h.lower() for h in hints)
+
+    def test_exempt_tag_no_hard_target_demand(self):
+        hints = suggest("Explore the deep nature of consciousness", tags=["philosophy"])
+        assert not any("Name a specific target" in h for h in hints)
+
+    def test_suggests_in_validate_result(self):
+        r = validate("The water mining needs work")
+        assert "suggestions" in r
+        assert isinstance(r["suggestions"], list)
+
+    def test_suggestions_empty_when_passed(self):
+        r = validate("Build water_mining.py optimizer for the thermal system")
+        assert r["suggestions"] == []
+
+    def test_suggestions_populated_when_failed(self):
+        r = validate("The water mining needs work")
+        assert len(r["suggestions"]) > 0
+
+    def test_suggest_returns_list_of_strings(self):
+        for hint in suggest("The plans"):
+            assert isinstance(hint, str)
+
+
+class TestExpandedKnownTools:
+    """Expanded KNOWN_TOOLS includes new tools from PR #251."""
+
+    @pytest.mark.parametrize("tool", [
+        "inject_seed", "tally_votes", "steer", "vlink",
+        "build_seed_tracker", "seed_marketplace", "seed_ledger",
+        "seed_discussions",
+    ])
+    def test_new_tool_in_set(self, tool):
+        assert tool in KNOWN_TOOLS
+
+    def test_new_tool_detected_as_target(self):
+        target, kind = find_target("Fix the inject_seed pipeline")
+        assert target == "inject_seed"
+        assert kind == "tool"
+
+    def test_tool_count_growth(self):
+        assert len(KNOWN_TOOLS) >= 27
+
+
+class TestBatchCLI:
+    """Batch CLI mode via --batch flag."""
+
+    def test_batch_mode_json_output(self):
+        import json as _json
+        proposals = _json.dumps([
+            "Build water_mining.py optimizer",
+            "The plans are ready",
+            "",
+        ])
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input=proposals, capture_output=True, text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0
+        output = _json.loads(result.stdout)
+        assert "stats" in output
+        assert output["stats"]["total"] == 3
+        assert output["stats"]["passed"] >= 1
+        assert output["stats"]["junk"] >= 1
+        assert "passed" in output
+        assert "failed" in output
+        assert "junk" in output
+
+    def test_batch_empty_array(self):
+        import json as _json
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"), "--batch"],
+            input="[]", capture_output=True, text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0
+        output = _json.loads(result.stdout)
+        assert output["stats"]["total"] == 0
+
+
+class TestNormalizationInvariants:
+    """Property invariants for verb normalization."""
+
+    def test_all_irregular_map_to_known_verbs(self):
+        for inflected, base in _IRREGULAR_VERBS.items():
+            assert base in ACTION_VERBS, (
+                f"irregular {inflected!r}->{base!r} not in ACTION_VERBS"
+            )
+
+    def test_normalize_never_returns_non_verb(self):
+        test_words = [
+            "building", "tested", "deploys", "ships", "writing",
+            "configured", "optimized", "refactoring", "xyzzy",
+        ]
+        for word in test_words:
+            result = _normalize_verb(word)
+            if result is not None:
+                assert result in ACTION_VERBS
+
+    def test_normalization_idempotent(self):
+        for verb in list(ACTION_VERBS)[:20]:
+            assert _normalize_verb(verb) == verb
+
+
+class TestConfidenceInvariants:
+    """Confidence label invariants."""
+
+    def test_junk_always_none_confidence(self):
+        junk_texts = ["", "   ", "x", "`broken fragment"]
+        for text in junk_texts:
+            r = validate_seed(text)
+            if r.junk:
+                assert r.confidence == "none"
+
+    def test_passed_never_none_confidence(self):
+        passing = [
+            "Build water_mining.py optimizer",
+            "Test the drill.py subsurface sampler module",
+            "Fix hab_pressure.py leak detection pipeline",
+        ]
+        for text in passing:
+            r = validate_seed(text)
+            assert r.passed
+            assert r.confidence != "none"
+
+
+class TestSuggestInvariants:
+    """suggest() property invariants."""
+
+    def test_always_returns_list(self):
+        assert isinstance(suggest("anything"), list)
+
+    def test_strings_only(self):
+        for hint in suggest("The plans"):
+            assert isinstance(hint, str)
+
+    def test_empty_input_has_at_least_one_hint(self):
+        assert len(suggest("")) >= 1
+
+    def test_tag_aware(self):
+        hints_no_tag = suggest("Explore the deep nature of consciousness")
+        hints_with_tag = suggest("Explore the deep nature of consciousness", tags=["philosophy"])
+        hard_demand_no = [h for h in hints_no_tag if "Name a specific target" in h]
+        hard_demand_tag = [h for h in hints_with_tag if "Name a specific target" in h]
+        assert len(hard_demand_tag) <= len(hard_demand_no)
+
+
+class TestBackwardCompatEvolution:
+    """New fields don't break existing dict contract."""
+
+    def test_old_keys_still_present(self):
+        d = validate("Build water_mining.py")
+        for key in ("passed", "score", "reasons", "verb_found",
+                     "target_found", "junk", "advisory",
+                     "all_verbs", "all_targets"):
+            assert key in d
+
+    def test_new_keys_present(self):
+        d = validate("Build water_mining.py")
+        assert "confidence" in d
+        assert "suggestions" in d
+
+    def test_propose_seed_contract_intact(self):
+        d = validate("Build water_mining.py optimizer")
+        assert isinstance(d["passed"], bool)
+        assert isinstance(d["score"], float)
+        assert d["passed"] is True
+        assert 0.0 <= d["score"] <= 1.0
+
+
+class TestInflectedProposalSmoke:
+    """Smoke: inflected verbs in full proposals pass the gate."""
+
+    @pytest.mark.parametrize("text", [
+        "Deploying the rover.py navigation module to Mars orbit",
+        "Optimizing fuel_cell.py for peak power output efficiency",
+        "Configuring the greenhouse.py water recycling system settings",
+        "Shipping the emergency_beacon.py distress signal module",
+        "Debugging the hab_pressure.py atmospheric leak sensor array",
+    ])
+    def test_inflected_proposal_passes(self, text):
+        r = validate(text)
+        assert r["passed"], f"Should pass: {text}"
+        assert r["verb_found"] is not None
+        assert r["target_found"] is not None
