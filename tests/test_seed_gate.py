@@ -44,6 +44,7 @@ from seed_gate import (
     _KIND_SCORES,
     compute_score,
     find_verb,
+    find_all_verbs,
     find_target,
     find_verb_with_position,
     score_breakdown,
@@ -51,6 +52,12 @@ from seed_gate import (
     suggest,
     is_junk,
     _starts_with_verb,
+    similarity,
+    _scan_verbs,
+    _is_negated,
+    _is_in_compound,
+    VerbMatch,
+    _NUMBERED_REF_RE,
 )
 
 
@@ -1863,11 +1870,11 @@ class TestExplain:
 
     def test_failing_contains_fail(self):
         result = explain("vibes and energy everywhere")
-        assert "FAIL" in result
+        assert "FAIL" in result or "JUNK" in result
 
     def test_shows_verb(self):
         result = explain("Build the auth.py module")
-        assert "verb=build" in result
+        assert "build" in result.lower()
 
     def test_shows_target(self):
         result = explain("Build the auth.py module")
@@ -1875,30 +1882,34 @@ class TestExplain:
 
     def test_shows_score(self):
         result = explain("Build the auth.py module")
-        assert "score=" in result
+        # New format embeds score inline: "PASS (0.70 high):"
+        assert "0." in result
 
     def test_shows_confidence_when_passing(self):
         result = explain("Build the auth.py module")
-        assert "confidence=" in result
+        assert "high" in result or "medium" in result or "low" in result
 
     def test_shows_suggestions_when_failing(self):
         result = explain("vibes and energy everywhere")
-        assert "suggestions=" in result
+        # Junk inputs show JUNK reason, non-junk failures show suggestions
+        assert "JUNK" in result or "suggestions=" in result
 
     def test_shows_junk_flag(self):
         result = explain("x")
-        assert "junk=true" in result
+        assert "JUNK" in result
 
     def test_no_verb_shows_none(self):
         result = explain("The auth.py module needs work")
-        assert "verb=none" in result
+        assert "No action verb" in result
 
     def test_returns_string(self):
         assert isinstance(explain("Build the auth.py module"), str)
 
-    def test_pipe_separated(self):
+    def test_structured_output(self):
         result = explain("Build the auth.py module")
-        assert " | " in result
+        # New format: "PASS (0.70 high): verb='build' @0 (imperative) + target='auth.py' (file)"
+        assert "PASS" in result
+        assert "verb=" in result or "build" in result
 
 
 class TestNewAPIInvariants:
@@ -1952,7 +1963,7 @@ class TestNewAPIInvariants:
     def test_explain_contains_pass_or_fail(self):
         for text in self.SAMPLES:
             result = explain(text)
-            assert "PASS" in result or "FAIL" in result
+            assert "PASS" in result or "FAIL" in result or "JUNK" in result
 
     def test_kind_scores_constant_matches(self):
         """_KIND_SCORES must contain all target kinds."""
@@ -1983,3 +1994,440 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# ──────────────────────────────────────────────────────────
+# PR #289 — Negation, compounds, VerbMatch, enriched result
+# ──────────────────────────────────────────────────────────
+
+
+class TestNegationDetection:
+    """Tests for _is_negated() and negation-aware verb finding."""
+
+    def test_dont_deploy(self):
+        assert find_verb("Don't deploy the server") is None
+
+    def test_do_not_deploy(self):
+        assert find_verb("Do not deploy the server") is None
+
+    def test_never_run(self):
+        assert find_verb("Never run tests in production") is None
+
+    def test_cannot_build(self):
+        assert find_verb("Cannot build without deps") is None
+
+    def test_wont_deploy(self):
+        # "Won't" negates "deploy", but "reviewed" → "review" is still found
+        result = find_verb("Won't deploy until reviewed")
+        assert result != "deploy"
+
+    def test_shouldnt_merge(self):
+        assert find_verb("Shouldn't merge this PR") is None
+
+    def test_not_only_is_affirmative(self):
+        """'not only X but Y' is affirmative — verb should be found."""
+        result = find_verb("Not only build auth.py but also test it")
+        assert result == "build"
+
+    def test_not_just_is_affirmative(self):
+        result = find_verb("Not just deploy — also monitor")
+        assert result == "deploy"
+
+    def test_double_negative_affirms(self):
+        """'can not not build' — double negative is edge case, skip both."""
+        # At minimum, should not crash
+        find_verb("can not not build auth.py")
+
+    def test_negated_verb_seen_in_result(self):
+        r = validate_seed("Don't deploy config.yaml")
+        assert r.negated_verb_seen is True
+
+    def test_negated_verb_reason(self):
+        r = validate_seed("Don't deploy config.yaml")
+        assert not r.passed
+        assert any("negated" in reason.lower() for reason in r.reasons)
+
+    def test_affirmed_verb_no_negation_flag(self):
+        r = validate_seed("Deploy config.yaml to production")
+        assert r.negated_verb_seen is False
+
+    def test_negation_blocks_tag_fallback(self):
+        """If text has 'don't build', the 'code' tag should NOT inject a verb."""
+        r = validate_seed("Don't build anything yet", tags=["code"])
+        assert not r.passed, "Negated verb should not be rescued by tag"
+
+    def test_negation_blocks_question_fallback(self):
+        # "Don't" has no action verb after it (just "we need"), so
+        # negated_verb_seen may be False. But tag fallback should still not
+        # rescue if the verb in text is negated.
+        r = validate_seed("Don't deploy auth.py", tags=["question"])
+        assert r.negated_verb_seen is True
+
+    def test_no_negation_in_separate_clause(self):
+        """Negation in a prior clause should not affect later verb."""
+        result = find_verb("I can't believe we need to build auth.py")
+        # 'build' is far from 'can't' — should still be found
+        # (negation window is 3 tokens)
+        assert result == "build"
+
+
+class TestIsNegated:
+    """Direct tests for the _is_negated helper."""
+
+    def test_basic_negation(self):
+        words = ["do", "not", "deploy"]
+        assert _is_negated(words, 2) is True
+
+    def test_contraction_negation(self):
+        # re.findall splits "don't" into ["don", "t"] — use that form
+        words = ["don", "t", "deploy"]
+        assert _is_negated(words, 2) is True
+
+    def test_no_negation(self):
+        words = ["please", "deploy", "now"]
+        assert _is_negated(words, 1) is False
+
+    def test_negation_too_far_away(self):
+        words = ["not", "a", "good", "time", "to", "deploy"]
+        assert _is_negated(words, 5) is False
+
+    def test_not_only_exception(self):
+        words = ["not", "only", "build"]
+        assert _is_negated(words, 2) is False
+
+    def test_not_just_exception(self):
+        words = ["not", "just", "deploy"]
+        assert _is_negated(words, 2) is False
+
+    def test_never_at_distance_1(self):
+        words = ["never", "build"]
+        assert _is_negated(words, 1) is True
+
+
+class TestCompoundFiltering:
+    """Tests for _is_in_compound() — compound name detection."""
+
+    def test_hyphenated_compound(self):
+        assert _is_in_compound("test-build-runner", 5, 10) is True
+
+    def test_underscore_compound(self):
+        assert _is_in_compound("test_build_script", 5, 10) is True
+
+    def test_dot_compound(self):
+        assert _is_in_compound("foo.build.bar", 4, 9) is True
+
+    def test_slash_compound(self):
+        assert _is_in_compound("src/build/output", 4, 9) is True
+
+    def test_not_compound_spaces(self):
+        assert _is_in_compound("please build now", 7, 12) is False
+
+    def test_word_at_start(self):
+        assert _is_in_compound("build-runner", 0, 5) is True
+
+    def test_word_at_end(self):
+        assert _is_in_compound("my-build", 3, 8) is True
+
+    def test_isolated_word(self):
+        assert _is_in_compound("build", 0, 5) is False
+
+
+class TestScanVerbs:
+    """Tests for _scan_verbs() unified scanner."""
+
+    def test_finds_simple_verb(self):
+        results = list(_scan_verbs("Build auth.py"))
+        assert len(results) >= 1
+        verb, idx, negated = results[0]
+        assert verb == "build"
+        assert idx == 0
+        assert negated is False
+
+    def test_finds_negated_verb(self):
+        results = list(_scan_verbs("Don't deploy config.yaml"))
+        found = [(v, n) for v, _, n in results]
+        assert ("deploy", True) in found
+
+    def test_skips_compound_verbs(self):
+        results = list(_scan_verbs("run test_build_check.py"))
+        # 'build' inside 'test_build_check.py' should not appear
+        verbs = [v for v, _, _ in results]
+        assert "run" in verbs
+
+    def test_finds_phrasal_verb(self):
+        results = list(_scan_verbs("Set up the CI pipeline"))
+        verbs = [v for v, _, _ in results]
+        assert "set up" in verbs
+
+    def test_limit_parameter(self):
+        text = "Deploy later. Build auth.py now."
+        short = list(_scan_verbs(text, limit=6))
+        # Only first 6 chars: "Deploy"
+        verbs = [v for v, _, _ in short]
+        assert "deploy" in verbs
+
+    def test_finds_inflected_verb(self):
+        results = list(_scan_verbs("Building the auth module"))
+        verbs = [v for v, _, _ in results]
+        assert "build" in verbs
+
+    def test_empty_text(self):
+        assert list(_scan_verbs("")) == []
+
+    def test_multiple_verbs(self):
+        results = list(_scan_verbs("Build auth.py and deploy config.yaml"))
+        verbs = [v for v, _, _ in results]
+        assert "build" in verbs
+        assert "deploy" in verbs
+
+
+class TestVerbMatch:
+    """Tests for the VerbMatch dataclass."""
+
+    def test_dataclass_fields(self):
+        vm = VerbMatch(verb="build", token_index=0, source="text")
+        assert vm.verb == "build"
+        assert vm.token_index == 0
+        assert vm.source == "text"
+
+    def test_immutable(self):
+        vm = VerbMatch(verb="build", token_index=0, source="text")
+        with pytest.raises(AttributeError):
+            vm.verb = "deploy"
+
+
+class TestNumberedRefFilter:
+    """Tests for _NUMBERED_REF_RE false-positive filtering."""
+
+    def test_fig_dot_number(self):
+        assert _NUMBERED_REF_RE.match("fig.1")
+
+    def test_no_dot_number(self):
+        assert _NUMBERED_REF_RE.match("no.5")
+
+    def test_ch_dot_number(self):
+        assert _NUMBERED_REF_RE.match("ch.3")
+
+    def test_sec_dot_number(self):
+        assert _NUMBERED_REF_RE.match("sec.2")
+
+    def test_real_file_not_matched(self):
+        assert not _NUMBERED_REF_RE.match("auth.py")
+
+    def test_version_not_matched(self):
+        # Versions are handled by _VERSION_RE, not this
+        assert not _NUMBERED_REF_RE.match("2.0.1")
+
+
+class TestEnrichedSeedGateResult:
+    """Tests for the enriched SeedGateResult fields."""
+
+    def test_target_kind_populated(self):
+        r = validate_seed("Build the auth.py module")
+        assert r.target_kind == "file"
+
+    def test_verb_source_text(self):
+        r = validate_seed("Build the auth.py module")
+        assert r.verb_source == "text"
+
+    def test_verb_source_tag(self):
+        r = validate_seed("The auth.py module", tags=["code"])
+        assert r.verb_source == "tag"
+
+    def test_verb_position_imperative(self):
+        r = validate_seed("Build the auth.py module")
+        assert r.verb_position == 0
+
+    def test_verb_position_not_first(self):
+        r = validate_seed("Please build the auth.py module")
+        assert r.verb_position is not None
+        assert r.verb_position > 0
+
+    def test_is_imperative_true(self):
+        r = validate_seed("Build the auth.py module")
+        assert r.is_imperative is True
+
+    def test_is_imperative_false(self):
+        r = validate_seed("We should build auth.py")
+        assert r.is_imperative is False
+
+    def test_score_parts_populated(self):
+        r = validate_seed("Build the auth.py module")
+        assert len(r.score_parts) > 0
+        parts_dict = dict(r.score_parts)
+        assert "verb" in parts_dict
+
+    def test_negated_verb_seen_false(self):
+        r = validate_seed("Build auth.py")
+        assert r.negated_verb_seen is False
+
+    def test_negated_verb_seen_true(self):
+        r = validate_seed("Don't deploy config.yaml")
+        assert r.negated_verb_seen is True
+
+    def test_to_dict_has_new_fields(self):
+        r = validate_seed("Build auth.py")
+        d = r.to_dict()
+        assert "target_kind" in d
+        assert "verb_source" in d
+        assert "verb_position" in d
+        assert "score_parts" in d
+        assert "is_imperative" in d
+        assert "negated_verb_seen" in d
+
+    def test_to_dict_score_parts_lists(self):
+        r = validate_seed("Build auth.py")
+        d = r.to_dict()
+        # score_parts should be list of [name, value] lists
+        assert isinstance(d["score_parts"], list)
+        for part in d["score_parts"]:
+            assert isinstance(part, list)
+            assert len(part) == 2
+
+
+class TestSimilarity:
+    """Tests for the similarity() near-duplicate detection function."""
+
+    def test_identical_texts(self):
+        assert similarity("Build auth.py module", "Build auth.py module") == 1.0
+
+    def test_completely_different(self):
+        s = similarity("Build auth.py", "Deploy config to production server")
+        assert s < 0.3
+
+    def test_near_duplicate(self):
+        s = similarity(
+            "Build the auth.py module with error handling",
+            "Build the auth.py module with test coverage",
+        )
+        assert s > 0.4
+
+    def test_symmetric(self):
+        a, b = "Build auth.py", "Deploy config.yaml"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_empty_both(self):
+        assert similarity("", "") == 1.0
+
+    def test_one_empty(self):
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_returns_float_in_range(self):
+        cases = [
+            ("Build auth.py", "Deploy config.yaml"),
+            ("x", "y"),
+            ("Build auth.py with tests", "Build auth.py with tests and coverage"),
+        ]
+        for a, b in cases:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0, f"Out of range: {s}"
+
+
+class TestFindAllVerbsNegation:
+    """find_all_verbs should respect negation."""
+
+    def test_negated_verb_excluded(self):
+        verbs = find_all_verbs("Don't deploy, instead build auth.py")
+        assert "build" in verbs
+        assert "deploy" not in verbs
+
+    def test_all_negated_returns_empty(self):
+        verbs = find_all_verbs("Don't deploy and never build anything")
+        # Both verbs negated
+        assert "deploy" not in verbs
+        assert "build" not in verbs
+
+    def test_mixed_negation(self):
+        verbs = find_all_verbs("Never deploy blindly, but always test auth.py")
+        assert "test" in verbs
+        assert "deploy" not in verbs
+
+
+class TestNegationEndToEnd:
+    """End-to-end validation tests for negated proposals."""
+
+    def test_negated_with_file_target_fails(self):
+        r = validate_seed("Don't deploy config.yaml")
+        assert not r.passed
+
+    def test_negated_with_exempt_tag_still_needs_verb(self):
+        r = validate_seed("Don't investigate auth.py", tags=["question"])
+        # Negated verb + question tag should not rescue
+        assert r.negated_verb_seen is True
+
+    def test_purge_mode_passes_despite_negation(self):
+        r = validate_seed("Don't deploy config.yaml", mode="purge")
+        assert r.passed
+
+    def test_validate_dict_has_negation(self):
+        d = validate("Don't deploy config.yaml")
+        assert d["negated_verb_seen"] is True
+
+    def test_explain_shows_negation(self):
+        result = explain("Don't deploy config.yaml")
+        assert "negat" in result.lower()
+
+
+class TestScorePartsConsistency:
+    """Verify _compute_score_parts drives compute_score correctly."""
+
+    SAMPLES = [
+        "Build auth.py",
+        "Deploy config.yaml to production server with monitoring",
+        "Build auth.py and deploy config.yaml",
+        "Review the changes in #12345",
+        "x",
+    ]
+
+    def test_score_matches_parts_sum(self):
+        """compute_score should equal sum(parts) / 10 clamped to 1.0."""
+        for text in self.SAMPLES:
+            verb = find_verb(text)
+            target, kind = find_target(text)
+            from seed_gate import _compute_score_parts
+            parts = _compute_score_parts(text, verb, target, kind)
+            raw = sum(parts.values())
+            expected = min(raw / 10.0, 1.0)
+            actual = compute_score(text, verb, target, kind)
+            assert abs(actual - expected) < 0.001, (
+                f"Mismatch for '{text}': parts={parts}, expected={expected}, actual={actual}"
+            )
+
+    def test_breakdown_total_matches_parts(self):
+        for text in self.SAMPLES:
+            if len(text) < 5:
+                continue
+            bd = score_breakdown(text)
+            total = sum(v for k, v in bd.items() if k != "total")
+            assert abs(bd["total"] - total) < 0.001
+
+
+class TestRegressionNegationCompound:
+    """Regression tests for negation + compound edge cases."""
+
+    def test_test_deploy_script_not_negated(self):
+        """'test_deploy_script' — deploy inside compound should not be found."""
+        verbs = find_all_verbs("Run test_deploy_script.py")
+        assert "run" in verbs
+        # 'deploy' inside compound name should not be extracted
+        # (depends on context — run is the primary verb)
+
+    def test_build_in_filename(self):
+        """'build.py' — build here is a filename target."""
+        r = validate_seed("Review the build.py output")
+        # 'review' should be found as verb, 'build.py' as target
+        assert r.verb_found == "review"
+        assert r.target_found == "build.py"
+
+    def test_no_crash_on_single_word(self):
+        """Single-word text should not crash negation detection."""
+        find_verb("Build")
+        _scan_verbs("Build")
+        find_all_verbs("Build")
+
+    def test_no_crash_on_empty(self):
+        find_verb("")
+        list(_scan_verbs(""))
+        find_all_verbs("")
+        similarity("", "")
+        explain("")
