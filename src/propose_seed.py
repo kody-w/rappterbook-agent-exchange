@@ -86,7 +86,12 @@ def make_proposal_id(text):
 
 
 def propose(text, author, context="", tags=None, seeds_path=None):
-    """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
+    """Create a new seed proposal.  Returns proposal dict or {} on rejection.
+
+    Near-duplicate proposals (similarity > 0.7) auto-vote the existing
+    proposal instead of creating a new one.  The returned dict will have
+    a ``similar_to`` key indicating the original proposal text.
+    """
     text = text.strip()
     tags = tags or []
 
@@ -99,10 +104,23 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
             return p
+
+    # Near-duplicate detection (similarity > 0.7 coalesces)
+    from seed_gate import similarity as _similarity
+    for p in seeds.get("proposals", []):
+        if _similarity(text, p.get("text", "")) > 0.7:
+            # Auto-vote the existing proposal on behalf of this author
+            if author not in p.get("votes", []):
+                p.setdefault("votes", []).append(author)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
+            result = dict(p)
+            result["similar_to"] = p.get("text", "")
+            return result
 
     proposal = {
         "id": prop_id,

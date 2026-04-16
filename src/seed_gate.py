@@ -58,6 +58,10 @@ Evolution log:
                   enriched SeedGateResult (target_kind, verb_source,
                   verb_position, score_parts, is_imperative, negated,
                   advisories, strength); explain_dict() structured API.
+    PR #304  -- graduated multi-target scoring (2→+1.0, 3→+1.5,
+                  4+→+2.0); DRY find_verb_match() via _scan_verbs();
+                  similarity() API for near-duplicate detection;
+                  _jaccard() helper.
 """
 from __future__ import annotations
 
@@ -734,43 +738,31 @@ def find_verb_match(text: str, limit: int = 0) -> VerbMatch | None:
 
     This is the structured alternative to find_verb().
     Source field indicates how the verb was found: 'direct', 'inflected', 'phrasal'.
+    Delegates to _scan_verbs() for compound-aware, negation-aware detection.
     """
     search_text = text[:limit] if limit else text
-    if not search_text:
+    scanned = _scan_verbs(search_text)
+    if not scanned:
         return None
+    verb, tok_idx, _negated = scanned[0]
+    # Classify source from the original token at the matched position
     lower = search_text.lower()
     tokens = re.findall(r"[a-zA-Z]+", lower)
-    if not tokens:
-        return None
-
-    positions: list[tuple[int, int]] = []
-    for m in re.finditer(r"[a-zA-Z]+", lower):
-        positions.append((m.start(), m.end()))
-
-    skip_next = False
-    for i, word in enumerate(tokens):
-        if skip_next:
-            skip_next = False
-            continue
-
-        if i < len(positions):
-            cs, ce = positions[i]
-            if _is_in_compound(lower, cs, ce):
-                continue
-
-        if i + 1 < len(tokens):
-            nxt = tokens[i + 1]
-            if word in _PHRASAL_FIRST and nxt in _PHRASAL_FIRST[word]:
-                return VerbMatch(_PHRASAL_FIRST[word][nxt], i, "phrasal")
-            if word in _PHRASAL_INFLECTED and nxt in _PHRASAL_INFLECTED[word]:
-                return VerbMatch(_PHRASAL_INFLECTED[word][nxt], i, "phrasal")
-
-        if word in ACTION_VERBS:
-            return VerbMatch(word, i, "direct")
-        if word in _INFLECTION_MAP:
-            return VerbMatch(_INFLECTION_MAP[word], i, "inflected")
-
-    return None
+    if tok_idx >= len(tokens):
+        return VerbMatch(verb, tok_idx, "direct")
+    word = tokens[tok_idx]
+    # Phrasal: head word + particle matched
+    if tok_idx + 1 < len(tokens):
+        nxt = tokens[tok_idx + 1]
+        if word in _PHRASAL_FIRST and nxt in _PHRASAL_FIRST[word]:
+            return VerbMatch(verb, tok_idx, "phrasal")
+        if word in _PHRASAL_INFLECTED and nxt in _PHRASAL_INFLECTED[word]:
+            return VerbMatch(verb, tok_idx, "phrasal")
+    if word in ACTION_VERBS:
+        return VerbMatch(verb, tok_idx, "direct")
+    if word in _INFLECTION_MAP:
+        return VerbMatch(verb, tok_idx, "inflected")
+    return VerbMatch(verb, tok_idx, "direct")
 
 
 def find_target(text: str) -> tuple[str, str]:
@@ -962,7 +954,11 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        raw += 2.0
+    elif unique >= 3:
+        raw += 1.5
+    elif unique >= 2:
         raw += 1.0
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
@@ -994,6 +990,36 @@ def suggest(text: str, tags: list = None) -> list[str]:
             "Rewrite as a complete sentence starting with a capital letter"
         )
     return suggestions
+
+
+def _jaccard(a: set, b: set) -> float:
+    """Jaccard similarity coefficient for two sets. 0.0 if both empty."""
+    if not a and not b:
+        return 0.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute 0.0-1.0 similarity between two seed proposals.
+
+    Weighted: 0.7 * target overlap + 0.3 * verb overlap.
+    Target overlap dominates because proposals targeting the same
+    artifacts are near-duplicates even with different verbs.
+
+    Uses canonical targets (path-stripped, extension-stripped, lowered)
+    and base-form verbs for comparison.
+    """
+    targets_a = {canonicalize_target(t) for t, _ in _find_all_targets(a)}
+    targets_b = {canonicalize_target(t) for t, _ in _find_all_targets(b)}
+    targets_a.discard("")
+    targets_b.discard("")
+    verbs_a = set(find_all_verbs(a))
+    verbs_b = set(find_all_verbs(b))
+    target_sim = _jaccard(targets_a, targets_b)
+    verb_sim = _jaccard(verbs_a, verbs_b)
+    return 0.7 * target_sim + 0.3 * verb_sim
 
 
 # Backward-compat aliases
@@ -1073,7 +1099,11 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        components["multi_target"] = 2.0
+    elif unique >= 3:
+        components["multi_target"] = 1.5
+    elif unique >= 2:
         components["multi_target"] = 1.0
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5

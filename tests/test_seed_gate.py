@@ -2520,3 +2520,321 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #304 — graduated multi-target scoring, DRY find_verb_match, similarity
+# ===================================================================
+
+from seed_gate import (
+    find_verb_match,
+    VerbMatch,
+    find_all_verbs,
+    validate_batch,
+    explain_dict,
+    detect_negation,
+    similarity,
+    _jaccard,
+    _find_all_targets,
+    _scan_verbs,
+    NEGATION_WORDS,
+)
+
+
+class TestGraduatedMultiTargetScoring:
+    """Graduated scoring: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_two_targets_gives_1_0(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets_gives_1_5(self):
+        bd = score_breakdown(
+            "Build auth.py and deploy config.yaml and update README"
+        )
+        assert bd["multi_target"] == 1.5
+
+    def test_four_targets_gives_2_0(self):
+        bd = score_breakdown(
+            "Build auth.py and deploy config.yaml and update rover.py and fix drill.py"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_five_targets_capped_at_2_0(self):
+        bd = score_breakdown(
+            "Build auth.py config.yaml rover.py drill.py and fuel_cell.py now"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_single_target_no_bonus(self):
+        bd = score_breakdown("Build auth.py module")
+        assert bd["multi_target"] == 0.0
+
+    def test_graduated_score_ordering(self):
+        s1 = _vs("Build auth.py module for testing very carefully")
+        s2 = _vs("Build auth.py and deploy config.yaml for production now")
+        s3 = _vs("Build auth.py and deploy config.yaml and update rover.py for system")
+        s4 = _vs("Build auth.py and deploy config.yaml and update rover.py and fix drill.py")
+        assert s1.score <= s2.score <= s3.score <= s4.score
+
+    def test_compute_score_graduated_vs_flat(self):
+        """3+ targets should score higher than the old flat +1.0."""
+        text_3 = "Build auth.py and config.yaml and update README for system"
+        score = compute_score(text_3, "build", "auth.py", "file")
+        # With graduated: verb(2.5) + target(4.0) + multi(1.5) + length(0.5) = 8.5 / 10 = 0.85
+        # Old flat: verb(2.5) + target(4.0) + multi(1.0) + length(0.5) = 8.0 / 10 = 0.80
+        assert score > 0.80
+
+    def test_score_parts_match_compute_score(self):
+        """score_parts and compute_score should agree on multi_target."""
+        text = "Build auth.py and config.yaml and README and tests/test_auth.py"
+        bd = score_breakdown(text)
+        r = _vs(text)
+        assert bd["multi_target"] == dict(r.score_parts).get("multi_target", 0.0)
+
+
+class TestDRYFindVerbMatch:
+    """find_verb_match() now delegates to _scan_verbs() internally."""
+
+    def test_direct_verb(self):
+        vm = find_verb_match("Build auth.py module")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.source == "direct"
+        assert vm.token_index == 0
+
+    def test_inflected_verb(self):
+        vm = find_verb_match("Building auth.py module")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.source == "inflected"
+
+    def test_phrasal_verb(self):
+        vm = find_verb_match("Set up auth.py module")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.source == "phrasal"
+
+    def test_inflected_phrasal(self):
+        vm = find_verb_match("Setting up auth.py module")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.source == "phrasal"
+
+    def test_compound_skipped(self):
+        vm = find_verb_match("The test_seed_gate module needs review")
+        assert vm is not None
+        assert vm.verb == "review"
+
+    def test_none_for_no_verb(self):
+        vm = find_verb_match("some random text without action words here")
+        assert vm is None
+
+    def test_limit_parameter(self):
+        vm = find_verb_match("xxxxxxxx build auth.py", limit=5)
+        assert vm is None
+
+    def test_consistent_with_find_verb(self):
+        """find_verb_match and find_verb should agree on which verb is found."""
+        texts = [
+            "Build auth.py module",
+            "Setting up the config.yaml",
+            "Deployed the new version already",
+            "No verb here whatsoever today",
+            "The test_seed_gate.py is tested",
+        ]
+        for text in texts:
+            vm = find_verb_match(text)
+            fv = find_verb(text)
+            if vm is None:
+                assert fv is None, f"Mismatch for {text!r}: vm=None, fv={fv}"
+            else:
+                assert vm.verb == fv, f"Mismatch for {text!r}: vm.verb={vm.verb}, fv={fv}"
+
+    def test_tuple_unpacking(self):
+        vm = find_verb_match("Build auth.py module")
+        verb, idx, source = vm
+        assert verb == "build"
+        assert idx == 0
+        assert source == "direct"
+
+    def test_bool_truthy(self):
+        vm = find_verb_match("Build auth.py")
+        assert bool(vm) is True
+
+    def test_repr(self):
+        vm = find_verb_match("Build auth.py")
+        assert "VerbMatch" in repr(vm)
+
+
+class TestSimilarity:
+    """Tests for similarity() — near-duplicate detection API."""
+
+    def test_identical_proposals(self):
+        assert similarity(
+            "Build water_mining.py optimizer",
+            "Build water_mining.py optimizer",
+        ) == 1.0
+
+    def test_same_target_different_verb(self):
+        """Same file target, different verb → high similarity (>0.5)."""
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Optimize water_mining.py for drilling",
+        )
+        assert s > 0.5
+
+    def test_completely_different(self):
+        s = similarity(
+            "Build auth.py login system",
+            "Deploy config.yaml to production",
+        )
+        assert s < 0.3
+
+    def test_same_verb_different_target(self):
+        s = similarity(
+            "Build auth.py module",
+            "Build config.yaml template",
+        )
+        assert s < 0.5
+
+    def test_multiple_shared_targets(self):
+        s = similarity(
+            "Build auth.py and config.yaml deployment",
+            "Fix auth.py and config.yaml for production",
+        )
+        assert s > 0.6
+
+    def test_empty_proposals(self):
+        assert similarity("", "") == 0.0
+
+    def test_no_targets_no_verbs(self):
+        assert similarity(
+            "Make everything better and amazing",
+            "Improve all the things across board",
+        ) == 0.0  # "improve" is a verb but no targets
+
+    def test_symmetric(self):
+        a = "Build auth.py module for testing"
+        b = "Test auth.py module for building"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_range_zero_to_one(self):
+        pairs = [
+            ("Build auth.py", "Build auth.py"),
+            ("Build auth.py", "Deploy config.yaml"),
+            ("", "Build auth.py"),
+            ("Build auth.py and config.yaml", "Fix auth.py and config.yaml"),
+        ]
+        for a, b in pairs:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0, f"Out of range: {s} for ({a!r}, {b!r})"
+
+    def test_target_overlap_dominates(self):
+        """Same targets different verbs should score higher than
+        same verbs different targets."""
+        same_target = similarity(
+            "Build water_mining.py optimizer",
+            "Fix water_mining.py bugs",
+        )
+        same_verb = similarity(
+            "Build water_mining.py optimizer",
+            "Build thermal_control.py module",
+        )
+        assert same_target > same_verb
+
+
+class TestJaccard:
+    """Tests for _jaccard() helper."""
+
+    def test_identical_sets(self):
+        assert _jaccard({"a", "b"}, {"a", "b"}) == 1.0
+
+    def test_disjoint_sets(self):
+        assert _jaccard({"a"}, {"b"}) == 0.0
+
+    def test_partial_overlap(self):
+        assert _jaccard({"a", "b"}, {"b", "c"}) == pytest.approx(1 / 3)
+
+    def test_both_empty(self):
+        assert _jaccard(set(), set()) == 0.0
+
+    def test_one_empty(self):
+        assert _jaccard({"a"}, set()) == 0.0
+
+
+class TestGraduatedScoringInvariants:
+    """Property-based invariants for the graduated scoring system."""
+
+    def test_more_targets_never_lower_score(self):
+        """Adding targets should never decrease multi_target component."""
+        texts = [
+            "Build auth.py module for testing",  # 1 target
+            "Build auth.py and config.yaml for prod",  # 2 targets
+            "Build auth.py and config.yaml and README for system",  # 3 targets
+            "Build auth.py config.yaml README tests/test_auth.py",  # 4 targets
+        ]
+        scores = [score_breakdown(t)["multi_target"] for t in texts]
+        for i in range(len(scores) - 1):
+            assert scores[i] <= scores[i + 1], (
+                f"Score decreased: {scores[i]} > {scores[i + 1]} "
+                f"at position {i}"
+            )
+
+    def test_multi_target_values_exact(self):
+        """Verify the exact graduated values for 0, 2, 3, 4+ targets."""
+        assert score_breakdown("Build auth.py module")["multi_target"] == 0.0
+        assert score_breakdown("Build auth.py and config.yaml")["multi_target"] == 1.0
+        assert score_breakdown("Build auth.py and config.yaml and README")["multi_target"] == 1.5
+        bd4 = score_breakdown(
+            "Build auth.py config.yaml rover.py drill.py"
+        )
+        assert bd4["multi_target"] == 2.0
+
+    def test_score_parts_sum_equals_total(self):
+        """The sum of non-total parts should equal the total."""
+        texts = [
+            "Build auth.py module for testing",
+            "Build auth.py and config.yaml and README for system",
+            "Build auth.py config.yaml README tests/test_auth.py for everything",
+        ]
+        for text in texts:
+            bd = score_breakdown(text)
+            expected = sum(v for k, v in bd.items() if k != "total")
+            assert abs(bd["total"] - expected) < 0.01, (
+                f"Sum mismatch for {text!r}: {bd}"
+            )
+
+
+class TestBackwardCompatPR304:
+    """Ensure PR #304 doesn't break existing contracts."""
+
+    def test_validate_dict_still_has_all_keys(self):
+        d = _v("Build auth.py module system")
+        for key in ("passed", "reasons", "score", "verb_found", "target_found",
+                     "junk", "advisory", "confidence", "all_verbs", "all_targets",
+                     "target_kind", "verb_source", "verb_position", "score_parts",
+                     "is_imperative", "negated", "advisories", "strength"):
+            assert key in d, f"Missing key: {key}"
+
+    def test_find_verb_match_still_returns_verbmatch(self):
+        vm = find_verb_match("Build auth.py")
+        assert isinstance(vm, VerbMatch)
+        assert isinstance(vm, tuple)
+
+    def test_similarity_is_importable(self):
+        from seed_gate import similarity as s
+        assert callable(s)
+
+    def test_old_two_target_score_unchanged(self):
+        """Two targets should still get exactly +1.0 multi_target bonus."""
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd["multi_target"] == 1.0
+
+    def test_passes_gate_unchanged_pr304(self):
+        assert passes_gate("Build auth.py module for testing")
+        assert not passes_gate("vibes and energy everywhere today")
+
+    def test_validate_batch_unchanged_pr304(self):
+        br = validate_batch(["Build auth.py", "vibes only here"])
+        assert br.stats.total == 2

@@ -189,3 +189,40 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+class TestNearDuplicateDetection:
+    """Tests for near-duplicate proposal coalescing."""
+
+    def test_similar_proposal_auto_votes(self, sp):
+        """Similar proposals should auto-vote the existing proposal."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        assert p1["id"].startswith("prop-")
+
+        # Similar proposal with same verb AND target (similarity > 0.7)
+        p2 = propose("Build water_mining.py enhanced drilling system", author="a2", seeds_path=sp)
+        assert "similar_to" in p2
+        assert p2["id"] == p1["id"]  # Same proposal
+        assert "a2" in p2["votes"]   # Auto-voted
+
+    def test_similar_proposal_idempotent_vote(self, sp):
+        """Same author proposing similar should not double-vote."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Build water_mining.py enhanced drilling module", author="a1", seeds_path=sp)
+        assert p2.get("vote_count", 0) == 1  # Still just 1 vote from a1
+
+    def test_dissimilar_creates_new(self, sp):
+        """Dissimilar proposals should create separate entries."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Deploy solar_array.py controller to production", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+        assert "similar_to" not in p2
+
+    def test_similar_persists_vote(self, sp):
+        """Auto-vote from similarity should persist to disk."""
+        propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        propose("Build water_mining.py enhanced drilling system", author="a2", seeds_path=sp)
+        seeds = load_seeds(sp)
+        p = seeds["proposals"][0]
+        assert "a2" in p["votes"]
+        assert p["vote_count"] == 2
