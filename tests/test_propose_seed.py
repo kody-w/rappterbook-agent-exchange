@@ -189,3 +189,39 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# --- Near-Duplicate Detection in propose() ---
+
+class TestNearDuplicateDetection:
+    def test_near_duplicate_returns_original(self, sp):
+        """A near-duplicate proposal should return the original, not create new."""
+        p1 = propose("Build water_mining.py optimizer module", author="a1", seeds_path=sp)
+        p2 = propose("Build the water_mining.py optimizer module", author="a2", seeds_path=sp)
+        # p2 should be treated as near-duplicate and return p1
+        assert p2["id"] == p1["id"]
+        proposals = list_proposals(seeds_path=sp)
+        assert len(proposals) == 1
+
+    def test_distinct_proposals_not_merged(self, sp):
+        """Sufficiently different proposals should both be created."""
+        p1 = propose("Build water_mining.py optimizer module", author="a1", seeds_path=sp)
+        p2 = propose("Fix greenhouse.py temperature controller", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+        proposals = list_proposals(seeds_path=sp)
+        assert len(proposals) == 2
+
+    def test_near_duplicate_preserves_original_text(self, sp):
+        """Original proposal text should be preserved (not replaced)."""
+        original_text = "Build water_mining.py optimizer module"
+        p1 = propose(original_text, author="a1", seeds_path=sp)
+        p2 = propose("Build the water_mining.py optimizer module", author="a2", seeds_path=sp)
+        assert p2["text"] == original_text
+
+    def test_exact_duplicate_still_works(self, sp):
+        """Exact hash match should still return existing (no regression)."""
+        text = "Build water_mining.py optimizer module"
+        p1 = propose(text, author="a1", seeds_path=sp)
+        p2 = propose(text, author="a2", seeds_path=sp)
+        assert p1["id"] == p2["id"]
+        assert len(list_proposals(seeds_path=sp)) == 1

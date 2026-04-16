@@ -2520,3 +2520,351 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #304 -- New Features: graduated scoring, similarity, negation fallback
+# ===================================================================
+
+from seed_gate import (
+    similarity,
+    _trigram_shingles,
+    _normalize_for_similarity,
+    _multi_target_bonus,
+    detect_negation,
+    NEGATION_WORDS,
+    validate_batch,
+    find_verb_match,
+    VerbMatch,
+    _is_negated,
+    _is_in_compound,
+    _scan_verbs,
+    explain_dict,
+)
+
+
+# --- Trigram Shingles ---
+
+class TestTrigramShingles:
+    def test_basic(self):
+        s = _trigram_shingles("hello")
+        assert "hel" in s
+        assert "ell" in s
+        assert "llo" in s
+        assert len(s) == 3
+
+    def test_empty(self):
+        assert _trigram_shingles("") == set()
+
+    def test_single_char(self):
+        # "a" is an article, stripped by normalization
+        assert _trigram_shingles("a") == {"a"}  # standalone "a" preserved
+
+    def test_non_article_single_word(self):
+        s = _trigram_shingles("xyz")
+        assert s == {"xyz"}
+
+    def test_two_chars(self):
+        s = _trigram_shingles("ab")
+        assert s == {"ab"}
+
+    def test_normalization_strips_articles(self):
+        # "the parser" normalizes to "parser"
+        s1 = _trigram_shingles("the parser")
+        s2 = _trigram_shingles("parser")
+        assert s1 == s2
+
+    def test_normalization_strips_commit_prefix(self):
+        s1 = _trigram_shingles("fix: Build auth.py")
+        s2 = _trigram_shingles("Build auth.py")
+        assert s1 == s2
+
+
+# --- Similarity Function ---
+
+class TestSimilarityFunction:
+    """Tests for similarity() trigram Jaccard function."""
+
+    def test_identical(self):
+        assert similarity("Build auth.py", "Build auth.py") == 1.0
+
+    def test_empty_both(self):
+        assert similarity("", "") == 1.0
+
+    def test_empty_one(self):
+        assert similarity("", "Build auth.py") == 0.0
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_completely_different(self):
+        s = similarity("Build auth.py", "ZZZZZZZZZZZ QQQQQQQQQQ")
+        assert s < 0.2
+
+    def test_similar_proposals(self):
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Build water_mining.py optimiser",  # British spelling
+        )
+        assert s > 0.7
+
+    def test_rephrased(self):
+        s = similarity(
+            "Build the water_mining.py optimizer module",
+            "Build water_mining.py optimization system",
+        )
+        assert s > 0.5  # normalization strips articles for better matching
+
+    def test_very_different_topics(self):
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Fix greenhouse.py temperature controller",
+        )
+        assert s < 0.5
+
+    def test_case_insensitive(self):
+        assert similarity("BUILD AUTH.PY", "build auth.py") == 1.0
+
+    def test_returns_float(self):
+        result = similarity("Build auth.py", "Fix config.yaml")
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0
+
+    def test_short_strings(self):
+        s = similarity("ab", "ab")
+        assert s == 1.0
+
+    def test_symmetry(self):
+        a, b = "Build water_mining.py", "Fix solar_array.py"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_article_normalization(self):
+        """Articles (the/a/an) should not affect similarity."""
+        assert similarity("Build the auth.py module", "Build auth.py module") == 1.0
+        assert similarity("Fix a broken parser", "Fix broken parser") == 1.0
+        assert similarity("Test an API endpoint", "Test API endpoint") == 1.0
+
+    def test_commit_prefix_normalization(self):
+        """Commit prefixes should not affect similarity."""
+        s = similarity(
+            "fix: Build water_mining.py optimizer",
+            "Build water_mining.py optimizer",
+        )
+        assert s == 1.0
+
+    def test_whitespace_normalization(self):
+        """Extra whitespace should not affect similarity."""
+        assert similarity("Build  auth.py  module", "Build auth.py module") == 1.0
+
+    def test_reordered_words_lower(self):
+        """Reordered words should have lower similarity (not 1.0)."""
+        s = similarity(
+            "Build water_mining.py optimizer module",
+            "optimizer module Build water_mining.py",
+        )
+        assert 0.5 < s < 1.0
+
+
+# --- Normalize For Similarity ---
+
+class TestNormalizeForSimilarity:
+    def test_lowercase(self):
+        assert _normalize_for_similarity("BUILD AUTH.PY") == "build auth.py"
+
+    def test_strips_articles(self):
+        assert _normalize_for_similarity("Build the auth.py module") == "build auth.py module"
+
+    def test_strips_commit_prefix(self):
+        assert _normalize_for_similarity("fix: Build auth.py") == "build auth.py"
+
+    def test_collapses_whitespace(self):
+        assert _normalize_for_similarity("Build  auth.py   module") == "build auth.py module"
+
+    def test_preserves_filenames(self):
+        result = _normalize_for_similarity("water_mining.py")
+        assert "water_mining.py" in result
+
+    def test_standalone_article_word(self):
+        # "a" alone should survive (no trailing word to strip)
+        result = _normalize_for_similarity("a")
+        assert result == "a"
+
+
+# --- Multi-Target Bonus ---
+
+class TestMultiTargetBonus:
+    def test_zero_targets(self):
+        assert _multi_target_bonus(0) == 0.0
+
+    def test_one_target(self):
+        assert _multi_target_bonus(1) == 0.0
+
+    def test_two_targets(self):
+        assert _multi_target_bonus(2) == 1.0
+
+    def test_three_targets(self):
+        assert _multi_target_bonus(3) == 1.5
+
+    def test_four_targets(self):
+        assert _multi_target_bonus(4) == 2.0
+
+    def test_five_targets(self):
+        assert _multi_target_bonus(5) == 2.0
+
+
+# --- Graduated Multi-Target Scoring ---
+
+class TestGraduatedMultiTargetScoring:
+    def test_two_targets(self):
+        text = "Build water_mining.py and solar_array.py pipe"
+        bd = score_breakdown(text)
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets(self):
+        text = "Build water_mining.py, solar_array.py, and fuel_cell.py"
+        bd = score_breakdown(text)
+        assert bd["multi_target"] == 1.5
+
+    def test_three_targets_higher_score_than_two(self):
+        two = "Build water_mining.py and solar_array.py pipe"
+        three = "Build water_mining.py, solar_array.py, and fuel_cell.py"
+        bd2 = score_breakdown(two)
+        bd3 = score_breakdown(three)
+        assert bd3["multi_target"] > bd2["multi_target"]
+
+    def test_four_targets(self):
+        text = "Build water_mining.py, solar_array.py, fuel_cell.py, and rover.py"
+        bd = score_breakdown(text)
+        assert bd["multi_target"] == 2.0
+
+    def test_four_targets_higher_score_than_three(self):
+        three = "Build water_mining.py, solar_array.py, and fuel_cell.py"
+        four = "Build water_mining.py, solar_array.py, fuel_cell.py, and rover.py"
+        bd3 = score_breakdown(three)
+        bd4 = score_breakdown(four)
+        assert bd4["multi_target"] > bd3["multi_target"]
+
+
+# --- Negation-Aware Fallback ---
+
+class TestNegationAwareFallback:
+    def test_negated_verb_blocks_tag_implied(self):
+        """Tag-implied verb should NOT fire when negation words present."""
+        r = _v("Never touch the reactor or anything else today", tags=["code"])
+        assert r["verb_found"] is None  # "never" blocks tag inference
+
+    def test_nonnegated_still_uses_tag(self):
+        """Without negation, tag-implied verb should still work."""
+        r = _v("Something about the reactor core system", tags=["code"])
+        assert r["verb_found"] == "build"
+
+    def test_why_not_question_still_works(self):
+        """'Why not' is a proposal, not negation — question stem should fire."""
+        r = _v("Why not allow agents to govern themselves completely", tags=["philosophy"])
+        assert r["verb_found"] == "propose"
+
+    def test_not_only_affirmative_exception(self):
+        """'not only' is affirmative — should not block inference."""
+        r = _v("Not only the reactor but also the whole system", tags=["code"])
+        assert r["verb_found"] == "build"
+
+    def test_dont_blocks_tag_inference(self):
+        """Contraction negation should block tag inference."""
+        r = _v("Maybe don't mess with anything", tags=["code"])
+        # "don't" contains negation; even though no action verb, the
+        # broader lexical negation check should block tag inference
+        assert r["verb_found"] is None
+
+    def test_negated_in_result(self):
+        """Negation should be flagged in the result."""
+        r = _v("Never touch the reactor.py module today")
+        assert r["negated"] is True
+
+    def test_negation_advisory(self):
+        r = validate_seed("Never build auth.py module system")
+        assert "negated-intent" in r.advisories
+
+
+# --- BatchResult Summary ---
+
+class TestBatchResultSummary:
+    def test_summary_format(self):
+        br = validate_batch(["Build auth.py", "vibes only here", "lol no"])
+        s = br.summary()
+        assert "3 proposals:" in s
+        assert "pass rate" in s
+
+    def test_summary_with_empty_batch(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 proposals:" in s
+        assert "N/A" in s
+
+    def test_summary_all_pass(self):
+        br = validate_batch(["Build auth.py module", "Fix config.yaml parser"])
+        s = br.summary()
+        assert "2 passed" in s
+        assert "0 failed" in s
+
+
+# --- Similarity Property Invariants ---
+
+class TestSimilarityInvariants:
+    def test_always_in_range(self):
+        """Similarity should always be in [0.0, 1.0]."""
+        cases = [
+            ("", ""), ("a", "b"), ("Build auth.py", "Fix config.yaml"),
+            ("x" * 1000, "y" * 1000), ("Build auth.py", "Build auth.py"),
+        ]
+        for a, b in cases:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0, f"similarity({a!r}, {b!r}) = {s}"
+
+    def test_symmetry_multiple(self):
+        """similarity(a, b) == similarity(b, a) for all pairs."""
+        cases = [
+            ("Build auth.py", "Fix config.yaml"),
+            ("Test water_mining.py", "Test water_mining.py optimizer"),
+            ("Hello world", "World hello"),
+        ]
+        for a, b in cases:
+            assert similarity(a, b) == similarity(b, a)
+
+    def test_self_similarity_is_one(self):
+        """similarity(x, x) == 1.0 for any non-empty text."""
+        texts = [
+            "Build auth.py module",
+            "Fix the greenhouse.py temperature system",
+            "Deploy rover.py to production",
+        ]
+        for t in texts:
+            assert similarity(t, t) == 1.0
+
+
+# --- Graduated Scoring Backward Compat ---
+
+class TestGraduatedScoringBackwardCompat:
+    """Ensure graduated scoring doesn't break existing score expectations."""
+
+    def test_single_target_score_unchanged(self):
+        """Single-target proposals should score the same as before."""
+        text = "Build water_mining.py optimizer"
+        result = _v(text)
+        assert result["passed"]
+        # verb(2.5) + file(4.0) + imperative(0.5) = 7.0/10 = 0.7
+        assert abs(result["score"] - 0.7) < 0.01
+
+    def test_two_target_score_unchanged(self):
+        """Two-target proposals still get +1.0 (same as before)."""
+        text = "Build water_mining.py and solar_array.py pipe"
+        bd = score_breakdown(text)
+        assert bd["multi_target"] == 1.0
+
+    def test_explain_still_works(self):
+        """explain() should not crash with graduated scoring."""
+        result = explain("Build water_mining.py, solar_array.py, and fuel_cell.py")
+        assert "PASS" in result
+
+    def test_explain_dict_still_works(self):
+        """explain_dict() should not crash with graduated scoring."""
+        result = explain_dict("Build water_mining.py, solar_array.py, fuel_cell.py, and rover.py")
+        assert result["decision"]["passed"]
+        assert "multi_target" in result["score_breakdown"]
