@@ -42,6 +42,7 @@ from seed_gate import (
     _strip_commit_prefix,
     _COMMIT_PREFIX_RE,
     _KIND_SCORES,
+    _score_parts,
     compute_score,
     find_verb,
     find_target,
@@ -50,6 +51,8 @@ from seed_gate import (
     explain,
     suggest,
     is_junk,
+    similarity,
+    validate_batch,
     _starts_with_verb,
 )
 
@@ -2520,3 +2523,145 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ── Graduated multi-target scoring ──────────────────────────────────
+
+class TestGraduatedMultiTarget:
+    """Tests for the graduated multi-target scoring (2→+1.0, 3→+1.5, 4+→+2.0)."""
+
+    @staticmethod
+    def _parts(text):
+        v = find_verb(text)
+        t, k = find_target(text)
+        return _score_parts(text, v, t, k)
+
+    def test_two_targets_gives_1_0(self):
+        """Two unique targets should still give +1.0 bonus."""
+        parts = self._parts("Refactor auth.py and router.py")
+        assert parts.get("multi_target") == pytest.approx(1.0)
+
+    def test_three_targets_gives_1_5(self):
+        """Three unique targets should give +1.5 bonus."""
+        parts = self._parts("Refactor auth.py, router.py, and config.py")
+        assert parts.get("multi_target") == pytest.approx(1.5)
+
+    def test_four_targets_gives_2_0(self):
+        """Four+ unique targets should give +2.0 bonus."""
+        text = "Refactor auth.py, router.py, config.py, and utils.py"
+        parts = self._parts(text)
+        assert parts.get("multi_target") == pytest.approx(2.0)
+
+    def test_five_targets_still_2_0(self):
+        """Five targets should also give +2.0 (cap)."""
+        text = "Merge auth.py, router.py, config.py, utils.py, and main.py"
+        parts = self._parts(text)
+        assert parts.get("multi_target") == pytest.approx(2.0)
+
+    def test_one_target_no_bonus(self):
+        """Single target should get no multi-target bonus."""
+        parts = self._parts("Build auth.py")
+        assert parts.get("multi_target", 0.0) == 0.0
+
+    def test_compute_score_and_score_parts_agree(self):
+        """compute_score and _score_parts must produce the same total."""
+        for text in [
+            "Refactor auth.py and router.py",
+            "Refactor auth.py, router.py, and config.py",
+            "Merge auth.py, router.py, config.py, and utils.py",
+        ]:
+            v = find_verb(text)
+            t, k = find_target(text)
+            score = compute_score(text, v, t, k)
+            parts = _score_parts(text, v, t, k)
+            parts_total = sum(parts.values())
+            assert min(parts_total / 10.0, 1.0) == pytest.approx(score, abs=0.05)
+
+    def test_score_still_capped_at_1(self):
+        """Even with graduated bonus, normalized score should never exceed 1.0."""
+        text = "Build auth.py, router.py, config.py, utils.py, and main.py with proper testing"
+        v = find_verb(text)
+        t, k = find_target(text)
+        assert compute_score(text, v, t, k) <= 1.0
+
+
+# ── similarity() function ───────────────────────────────────────────
+
+class TestSimilarity:
+    """Tests for the similarity() function."""
+
+    def test_identical_texts(self):
+        assert similarity("Build auth.py module", "Build auth.py module") == pytest.approx(1.0)
+
+    def test_completely_different(self):
+        assert similarity("Build auth.py module", "Deploy kubernetes cluster") < 0.3
+
+    def test_empty_text(self):
+        assert similarity("", "Build auth.py") == 0.0
+        assert similarity("Build auth.py", "") == 0.0
+        assert similarity("", "") == 0.0
+
+    def test_same_target_different_verb(self):
+        """Same target + different verb → high similarity (target-weighted)."""
+        score = similarity("Build auth.py module", "Refactor auth.py module")
+        assert score >= 0.5
+
+    def test_same_verb_different_target(self):
+        """Same verb + different target → lower similarity."""
+        score = similarity("Build auth.py module", "Build router.py module")
+        assert score < 0.8
+
+    def test_paraphrased_proposal(self):
+        """Near-duplicate proposal with different wording."""
+        a = "Add rate limiting to the API gateway"
+        b = "Implement rate limiting on the API gateway"
+        assert similarity(a, b) >= 0.4
+
+    def test_symmetry(self):
+        """similarity(a, b) == similarity(b, a)."""
+        a = "Build auth.py module for JWT"
+        b = "Refactor auth.py for session management"
+        assert similarity(a, b) == pytest.approx(similarity(b, a))
+
+    def test_range_0_to_1(self):
+        """similarity always returns values in [0.0, 1.0]."""
+        pairs = [
+            ("Build auth.py", "Build auth.py"),
+            ("Build auth.py", "Deploy k8s cluster"),
+            ("x", "y"),
+            ("", "something"),
+        ]
+        for a, b in pairs:
+            score = similarity(a, b)
+            assert 0.0 <= score <= 1.0, f"similarity({a!r}, {b!r}) = {score}"
+
+
+# ── BatchResult.summary() ──────────────────────────────────────────
+
+class TestBatchSummary:
+    """Tests for BatchResult.summary()."""
+
+    def test_summary_all_pass(self):
+        br = validate_batch(["Build auth.py", "Refactor router.py"])
+        summary = br.summary()
+        assert "2 proposals" in summary
+        assert "passed" in summary
+
+    def test_summary_mixed(self):
+        br = validate_batch(["Build auth.py", "vibes only here", "asdfjkl;"])
+        summary = br.summary()
+        assert "3 proposals" in summary
+
+    def test_summary_empty_batch(self):
+        br = validate_batch([])
+        assert br.summary() == "0 proposals"
+
+    def test_summary_shows_junk(self):
+        br = validate_batch(["asdfjkl;", "qwertyui"])
+        summary = br.summary()
+        assert "junk" in summary
+
+    def test_summary_shows_pass_rate(self):
+        br = validate_batch(["Build auth.py module for JWT", "Refactor router.py and config.py"])
+        summary = br.summary()
+        assert "100.0%" in summary

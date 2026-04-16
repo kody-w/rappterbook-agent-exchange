@@ -482,6 +482,19 @@ class BatchResult:
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
 
+    def summary(self) -> str:
+        """Return a human-readable summary of the batch validation."""
+        s = self.stats
+        if s.total == 0:
+            return "0 proposals"
+        parts = [f"{s.total} proposals:"]
+        parts.append(f"{s.passed} passed ({s.pass_rate:.1%})")
+        if s.failed:
+            parts.append(f"{s.failed} failed")
+        if s.junk:
+            parts.append(f"{s.junk} junk")
+        return ", ".join(parts)
+
 
 # ---------------------------------------------------------------------------
 # Negation constants
@@ -962,7 +975,11 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        raw += 2.0
+    elif unique >= 3:
+        raw += 1.5
+    elif unique >= 2:
         raw += 1.0
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
@@ -994,6 +1011,46 @@ def suggest(text: str, tags: list = None) -> list[str]:
             "Rewrite as a complete sentence starting with a capital letter"
         )
     return suggestions
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute 0.0-1.0 similarity between two proposal texts.
+
+    Uses a weighted combination of:
+      - Target overlap (Jaccard on canonicalized targets, weight 0.5)
+      - Verb overlap (Jaccard on canonical verbs, weight 0.2)
+      - Word overlap (Jaccard on lowercased tokens, weight 0.3)
+
+    Returns 0.0 when either text is empty or has no overlap.
+    """
+    if not a or not b:
+        return 0.0
+
+    # Target overlap (canonical dedup)
+    a_targets = {canonicalize_target(t) for t, _ in _find_all_targets(a) if canonicalize_target(t)}
+    b_targets = {canonicalize_target(t) for t, _ in _find_all_targets(b) if canonicalize_target(t)}
+    target_sim = _jaccard(a_targets, b_targets)
+
+    # Verb overlap
+    a_verbs = set(find_all_verbs(a))
+    b_verbs = set(find_all_verbs(b))
+    verb_sim = _jaccard(a_verbs, b_verbs)
+
+    # Word overlap (stopword-light, lowercase tokens)
+    a_words = set(re.findall(r"[a-z]{3,}", a.lower()))
+    b_words = set(re.findall(r"[a-z]{3,}", b.lower()))
+    word_sim = _jaccard(a_words, b_words)
+
+    return 0.5 * target_sim + 0.2 * verb_sim + 0.3 * word_sim
+
+
+def _jaccard(a: set, b: set) -> float:
+    """Jaccard similarity coefficient for two sets."""
+    if not a and not b:
+        return 0.0
+    intersection = len(a & b)
+    union = len(a | b)
+    return intersection / union if union else 0.0
 
 
 # Backward-compat aliases
@@ -1073,7 +1130,11 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        components["multi_target"] = 2.0
+    elif unique >= 3:
+        components["multi_target"] = 1.5
+    elif unique >= 2:
         components["multi_target"] = 1.0
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5

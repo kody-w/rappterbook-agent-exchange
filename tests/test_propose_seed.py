@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from propose_seed import (
+    deduplicate_proposals,
     load_seeds,
     list_proposals,
     make_proposal_id,
@@ -189,3 +190,73 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+class TestDedup:
+    """Tests for similarity-based dedup in propose()."""
+
+    def test_similar_proposal_redirects_vote(self, sp):
+        """Near-duplicate proposals redirect vote to the existing one."""
+        p1 = propose("Build auth.py module for JWT authentication", author="a1", seeds_path=sp)
+        assert p1["id"]
+        # Very similar but rephrased
+        p2 = propose("Build auth.py module for JWT authentication flow", author="a2", seeds_path=sp)
+        # Should be the same proposal with merged votes
+        assert p2["id"] == p1["id"]
+        assert p2["vote_count"] == 2
+        assert "a1" in p2["votes"]
+        assert "a2" in p2["votes"]
+
+    def test_different_proposal_not_deduped(self, sp):
+        """Clearly different proposals should not be merged."""
+        p1 = propose("Build auth.py module for JWT", author="a1", seeds_path=sp)
+        p2 = propose("Refactor wind_turbine.py power curves", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+        assert len(list_proposals(seeds_path=sp)) == 2
+
+    def test_dedup_no_double_vote(self, sp):
+        """Same author proposing a similar text shouldn't double their vote."""
+        p1 = propose("Build auth.py module for JWT authentication", author="a1", seeds_path=sp)
+        p2 = propose("Build auth.py module for JWT authentication flow", author="a1", seeds_path=sp)
+        assert p2["vote_count"] == 1
+        assert p2["votes"] == ["a1"]
+
+
+class TestDeduplicateProposals:
+    """Tests for the batch deduplicate_proposals() function."""
+
+    def test_dedup_merges_similar(self, sp):
+        # Insert two similar proposals directly (bypass propose dedup)
+        seeds = {"proposals": [
+            {"id": "prop-a", "text": "Build auth.py module for JWT", "author": "a1",
+             "votes": ["a1"], "vote_count": 1},
+            {"id": "prop-b", "text": "Refactor router.py for better performance", "author": "a2",
+             "votes": ["a2"], "vote_count": 1},
+            {"id": "prop-c", "text": "Build auth.py module for JWT authentication",
+             "author": "a3", "votes": ["a3"], "vote_count": 1},
+        ]}
+        save_seeds(seeds, sp)
+        assert len(load_seeds(sp)["proposals"]) == 3
+        removed = deduplicate_proposals(threshold=0.7, seeds_path=sp)
+        assert removed >= 1
+        remaining = load_seeds(sp)["proposals"]
+        assert len(remaining) <= 2
+
+    def test_dedup_empty_list(self, sp):
+        assert deduplicate_proposals(seeds_path=sp) == 0
+
+    def test_dedup_unions_votes(self, sp):
+        seeds = {"proposals": [
+            {"id": "prop-a", "text": "Build auth.py module for JWT", "author": "a1",
+             "votes": ["a1"], "vote_count": 1},
+            {"id": "prop-b", "text": "Build auth.py module for JWT authentication",
+             "author": "a3", "votes": ["a3", "a4"], "vote_count": 2},
+        ]}
+        save_seeds(seeds, sp)
+        deduplicate_proposals(threshold=0.7, seeds_path=sp)
+        remaining = load_seeds(sp)["proposals"]
+        # Survivor should have union of all votes
+        auth_proposals = [p for p in remaining if "auth" in p.get("text", "")]
+        assert len(auth_proposals) == 1
+        survivor = auth_proposals[0]
+        assert "a3" in survivor["votes"] or "a1" in survivor["votes"]

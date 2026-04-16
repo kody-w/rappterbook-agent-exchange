@@ -99,9 +99,19 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
+            return p
+
+    # Similarity-based dedup -- redirect vote to similar existing proposal
+    from seed_gate import similarity as _similarity
+    for p in seeds.get("proposals", []):
+        if _similarity(text, p.get("text", "")) >= 0.7:
+            if author not in p.get("votes", []):
+                p["votes"].append(author)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
             return p
 
     proposal = {
@@ -191,6 +201,46 @@ def purge_junk(seeds_path=None):
     seeds["proposals"] = [p for p in proposals if p["id"] not in junk_ids]
     save_seeds(seeds, seeds_path)
     return len(junk_ids)
+
+
+def deduplicate_proposals(threshold=0.7, seeds_path=None):
+    """Merge near-duplicate proposals.  Keeps highest-vote proposal as canonical.
+
+    For each cluster of similar proposals (above *threshold*), the one with the
+    most votes survives.  Votes from duplicates are unioned into the survivor.
+    Returns the number of proposals removed.
+    """
+    from seed_gate import similarity as _similarity
+    seeds = load_seeds(seeds_path)
+    proposals = seeds.get("proposals", [])
+    if len(proposals) < 2:
+        return 0
+
+    # Sort by vote_count desc so the "best" is first in each cluster
+    proposals.sort(key=lambda p: p.get("vote_count", 0), reverse=True)
+
+    keep: list[dict] = []
+    removed = 0
+    for p in proposals:
+        merged = False
+        for survivor in keep:
+            if _similarity(p.get("text", ""), survivor.get("text", "")) >= threshold:
+                # Merge votes into survivor
+                existing_votes = set(survivor.get("votes", []))
+                for v in p.get("votes", []):
+                    existing_votes.add(v)
+                survivor["votes"] = sorted(existing_votes)
+                survivor["vote_count"] = len(survivor["votes"])
+                removed += 1
+                merged = True
+                break
+        if not merged:
+            keep.append(p)
+
+    if removed:
+        seeds["proposals"] = keep
+        save_seeds(seeds, seeds_path)
+    return removed
 
 
 if __name__ == "__main__":
