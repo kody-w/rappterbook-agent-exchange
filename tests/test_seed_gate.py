@@ -1867,7 +1867,7 @@ class TestExplain:
 
     def test_shows_verb(self):
         result = explain("Build the auth.py module")
-        assert "verb=build" in result
+        assert "verb='build'" in result
 
     def test_shows_target(self):
         result = explain("Build the auth.py module")
@@ -1875,11 +1875,13 @@ class TestExplain:
 
     def test_shows_score(self):
         result = explain("Build the auth.py module")
-        assert "score=" in result
+        # Score appears in the PASS/FAIL preamble like "PASS (0.70 high)"
+        assert "PASS" in result and "0." in result
 
     def test_shows_confidence_when_passing(self):
         result = explain("Build the auth.py module")
-        assert "confidence=" in result
+        # Confidence appears inline: "PASS (0.70 high)"
+        assert "high" in result or "medium" in result or "low" in result
 
     def test_shows_suggestions_when_failing(self):
         result = explain("vibes and energy everywhere")
@@ -1983,3 +1985,561 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# =========================================================================
+# NEW TESTS: 6-agent consolidation (negation, compounds, VerbMatch, etc.)
+# =========================================================================
+
+class TestNegationAwareness:
+    """Negated verbs should NOT be detected (#12503 consolidation)."""
+
+    def test_dont_deploy_no_verb(self):
+        assert find_verb("Don't deploy the reactor") is None
+
+    def test_never_merge_no_verb(self):
+        assert find_verb("Never merge untested code") is None
+
+    def test_cant_build_no_verb(self):
+        assert find_verb("Can't build without dependencies") is None
+
+    def test_wont_fix_no_verb(self):
+        assert find_verb("Won't fix this edge case") is None
+
+    def test_shouldnt_deploy_no_verb(self):
+        assert find_verb("Shouldn't deploy on Friday") is None
+
+    def test_not_build_no_verb(self):
+        assert find_verb("Not build from scratch") is None
+
+    def test_do_not_merge_no_verb(self):
+        assert find_verb("Do not merge this PR") is None
+
+    def test_negation_fails_validation(self):
+        """Negated proposal should fail the gate."""
+        result = _v("Don't deploy the reactor.py module")
+        assert not result["passed"]
+
+    def test_affirmative_not_only(self):
+        """'not only' is affirmative, not negation."""
+        assert find_verb("Not only build but also test auth.py") == "build"
+
+    def test_affirmative_not_just(self):
+        """'not just' is affirmative, not negation."""
+        assert find_verb("Not just deploy but also monitor the service") == "deploy"
+
+    def test_negation_in_find_all_verbs(self):
+        """find_all_verbs should also skip negated verbs."""
+        verbs = find_all_verbs("Don't deploy but do build the auth.py")
+        assert "deploy" not in verbs
+        assert "build" in verbs
+
+    def test_double_negation_edge(self):
+        """Plain verb after negated section should be found."""
+        result = find_verb("Don't wait, build the auth.py module now")
+        assert result == "build"
+
+    def test_negation_with_inflected(self):
+        """Negated inflected verb should be skipped."""
+        assert find_verb("Never building on Friday") is None
+
+    def test_negation_doesnt_bleed(self):
+        """Negation scope is limited -- verb far from negation should be found."""
+        result = find_verb("Don't worry about it, the team will build auth.py")
+        assert result == "build"
+
+    def test_never_alone_no_verb(self):
+        assert find_verb("Never deploy untested code to production") is None
+
+    def test_cannot_single_word(self):
+        assert find_verb("Cannot deploy without approval") is None
+
+    def test_negation_validate_passes_affirmative(self):
+        """Affirmative use of verb should still pass."""
+        result = _v("Build the auth.py module for the colony")
+        assert result["passed"]
+
+    def test_negation_validate_fails_all_negated(self):
+        """When all verbs are negated, validation should fail."""
+        result = _v("Don't build, don't deploy, don't test anything")
+        assert not result["passed"]
+
+    def test_isnt_doesnt_negate_far_verb(self):
+        """Contractions like 'isn't' shouldn't negate verbs far away."""
+        # "isn't" negates nearby, but 'build' is far enough
+        result = find_verb("The module isn't great but we should build auth.py")
+        assert result == "build"
+
+
+class TestCompoundNameFiltering:
+    """Verbs embedded in compound names should NOT match (#12505)."""
+
+    def test_run_proof_no_run_verb(self):
+        """'run' inside 'run_proof' should not match as a verb."""
+        verbs = find_all_verbs("run_proof needs some work")
+        assert "run" not in verbs
+
+    def test_test_seed_gate_no_verb(self):
+        """'test' inside 'test_seed_gate' should not match."""
+        assert find_verb("test_seed_gate has failures") is None
+
+    def test_build_system_compound_no_verb(self):
+        """'build' inside 'build_system' should not match."""
+        assert find_verb("build_system is broken") is None
+
+    def test_compound_in_path_no_test_verb(self):
+        """'test' inside 'tests/test_seed_gate.py' should not match as verb."""
+        verbs = find_all_verbs("tests/test_seed_gate.py has many lines")
+        assert "test" not in verbs
+
+    def test_standalone_verb_still_matches(self):
+        """A standalone verb next to a compound should still match."""
+        assert find_verb("Build the run_proof module") == "build"
+
+    def test_kebab_compound_no_verb(self):
+        """'test' inside 'test-runner' should not match."""
+        assert find_verb("test-runner is slow") is None
+
+    def test_compound_in_find_all_verbs(self):
+        """find_all_verbs should also skip compound-embedded verbs."""
+        verbs = find_all_verbs("run_proof and build the auth.py module")
+        assert "run" not in verbs
+        assert "build" in verbs
+
+    def test_compound_validate_with_separate_verb(self):
+        """Should pass when a standalone verb exists alongside compound."""
+        result = _v("Build the run_proof module for testing")
+        assert result["passed"]
+
+    def test_compound_validate_no_standalone_verb(self):
+        """Should fail when the only 'verbs' are inside compounds."""
+        result = _v("run_proof and test_seed_gate need some love on auth.py")
+        # 'run' and 'test' are in compounds; no standalone verb found
+        assert not result["passed"]
+
+
+class TestVerbMatchDataclass:
+    """VerbMatch structured result (#12507 consolidation)."""
+
+    def test_find_verb_match_returns_verbmatch(self):
+        from seed_gate import find_verb_match, VerbMatch
+        m = find_verb_match("Build the auth.py module")
+        assert isinstance(m, VerbMatch)
+
+    def test_verb_match_verb_field(self):
+        from seed_gate import find_verb_match
+        m = find_verb_match("Build the auth.py module")
+        assert m.verb == "build"
+
+    def test_verb_match_token_index(self):
+        from seed_gate import find_verb_match
+        m = find_verb_match("Build the auth.py module")
+        assert m.token_index == 0
+
+    def test_verb_match_source_base(self):
+        from seed_gate import find_verb_match
+        m = find_verb_match("Build the auth.py module")
+        assert m.source == "base"
+
+    def test_verb_match_source_inflected(self):
+        from seed_gate import find_verb_match
+        m = find_verb_match("Building the auth.py module")
+        assert m.source == "inflected"
+        assert m.verb == "build"
+
+    def test_verb_match_source_phrasal(self):
+        from seed_gate import find_verb_match
+        m = find_verb_match("Set up the auth.py module")
+        assert m.source == "phrasal"
+        assert m.verb == "set up"
+
+    def test_verb_match_none_when_no_verb(self):
+        from seed_gate import find_verb_match
+        m = find_verb_match("The auth.py module")
+        assert m is None
+
+    def test_verb_match_frozen(self):
+        from seed_gate import find_verb_match
+        import dataclasses as dc
+        m = find_verb_match("Build auth.py")
+        try:
+            m.verb = "test"
+            assert False, "VerbMatch should be frozen"
+        except (AttributeError, dc.FrozenInstanceError):
+            pass
+
+    def test_verb_match_agrees_with_find_verb(self):
+        """find_verb_match and find_verb should agree on verb."""
+        from seed_gate import find_verb_match
+        cases = [
+            "Build the auth.py", "Deploy reactor.py",
+            "Setting up the water_mining module",
+            "The module needs work", "",
+        ]
+        for text in cases:
+            v = find_verb(text)
+            m = find_verb_match(text)
+            if v is None:
+                assert m is None, f"Expected None for '{text}'"
+            else:
+                assert m is not None and m.verb == v, f"Disagreement on '{text}'"
+
+
+class TestNumberedRefFilter:
+    """Numbered references should not be matched as files (#12521)."""
+
+    def test_fig_1_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("fig.1")
+
+    def test_no_5_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("no.5")
+
+    def test_ch_3_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("ch.3")
+
+    def test_sec_2_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("sec.2")
+
+    def test_vol_1_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("vol.1")
+
+    def test_eq_7_not_file(self):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match("eq.7")
+
+    def test_real_file_still_matches(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("auth.py")
+        assert not _is_false_file_match("reactor.rs")
+
+    def test_numbered_ref_in_target(self):
+        """fig.1 should not be found as a target."""
+        target, kind = find_target("See fig.1 for the diagram")
+        # fig.1 is filtered; should not be "file"
+        assert target != "fig.1"
+
+    def test_numbered_ref_doesnt_block_real_file(self):
+        """Real file should still be found even with numbered refs present."""
+        target, kind = find_target("Build auth.py per fig.1")
+        assert target == "auth.py"
+        assert kind == "file"
+
+
+class TestEnrichedSeedGateResult:
+    """SeedGateResult should carry enriched fields (#12530 consolidation)."""
+
+    def test_target_kind_present(self):
+        result = validate_seed("Build the auth.py module")
+        assert result.target_kind == "file"
+
+    def test_target_kind_tool(self):
+        result = validate_seed("Optimize the state_io module")
+        assert result.target_kind in ("tool", "module")
+
+    def test_target_kind_empty_when_no_target(self):
+        result = validate_seed("Explore the universe", ["philosophy"])
+        assert result.target_kind == ""
+
+    def test_verb_source_base(self):
+        result = validate_seed("Build the auth.py module")
+        assert result.verb_source == "base"
+
+    def test_verb_source_inflected(self):
+        result = validate_seed("Building the auth.py module")
+        assert result.verb_source == "inflected"
+
+    def test_verb_source_tag_implied(self):
+        result = validate_seed("The auth.py module needs work", ["code"])
+        assert result.verb_source == "tag-implied"
+
+    def test_verb_position_zero(self):
+        result = validate_seed("Build the auth.py module")
+        assert result.verb_position == 0
+
+    def test_verb_position_nonzero(self):
+        result = validate_seed("Please build the auth.py module")
+        assert result.verb_position is not None
+        assert result.verb_position > 0
+
+    def test_is_imperative_true(self):
+        result = validate_seed("Build the auth.py module")
+        assert result.is_imperative is True
+
+    def test_is_imperative_false(self):
+        result = validate_seed("Please build the auth.py module")
+        assert result.is_imperative is False
+
+    def test_score_parts_present(self):
+        result = validate_seed("Build the auth.py module")
+        assert isinstance(result.score_parts, dict)
+        assert "verb" in result.score_parts
+        assert "target" in result.score_parts
+        assert "total" in result.score_parts
+
+    def test_score_parts_verb_value(self):
+        result = validate_seed("Build the auth.py module")
+        assert result.score_parts["verb"] == 2.5
+
+    def test_score_parts_target_file_value(self):
+        result = validate_seed("Build the auth.py module")
+        assert result.score_parts["target"] == 4.0
+
+    def test_to_dict_includes_new_fields(self):
+        result = validate_seed("Build the auth.py module")
+        d = result.to_dict()
+        assert "target_kind" in d
+        assert "verb_source" in d
+        assert "verb_position" in d
+        assert "score_parts" in d
+        assert "is_imperative" in d
+
+    def test_to_dict_is_imperative_bool(self):
+        d = validate_seed("Build the auth.py module").to_dict()
+        assert d["is_imperative"] is True
+
+
+class TestExplainEnriched:
+    """explain() diagnostic should include enriched information."""
+
+    def test_explain_shows_verb_position(self):
+        result = explain("Build the auth.py module")
+        assert "@0" in result
+
+    def test_explain_shows_verb_source(self):
+        result = explain("Build the auth.py module")
+        assert "base" in result
+
+    def test_explain_shows_target_kind(self):
+        result = explain("Build the auth.py module")
+        assert "file" in result
+
+    def test_explain_shows_imperative(self):
+        result = explain("Build the auth.py module")
+        assert "imperative" in result
+
+    def test_explain_pass_fail(self):
+        assert "PASS" in explain("Build the auth.py module")
+        assert "FAIL" in explain("vibes everywhere")
+
+
+class TestScoreBreakdownEnriched:
+    """score_breakdown should return component dict."""
+
+    def test_has_all_components(self):
+        bd = score_breakdown("Build the auth.py module")
+        assert "verb" in bd
+        assert "target" in bd
+        assert "length" in bd
+        assert "multi_target" in bd
+        assert "imperative" in bd
+        assert "total" in bd
+
+    def test_total_is_sum(self):
+        bd = score_breakdown("Build the auth.py module")
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["total"] - expected) < 0.001
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build the auth.py module")
+        assert bd["imperative"] == 0.5
+
+    def test_no_imperative_when_verb_not_first(self):
+        bd = score_breakdown("Please build the auth.py module")
+        assert bd["imperative"] == 0.0
+
+    def test_multi_target_bonus(self):
+        bd = score_breakdown("Build auth.py and test reactor.py modules")
+        assert bd["multi_target"] == 1.0
+
+
+class TestNegationCompoundInteraction:
+    """Test negation + compound filtering interactions."""
+
+    def test_negation_and_compound_together(self):
+        """Compound-embedded verb and negated verb both skipped."""
+        result = find_verb("Don't run run_proof on auth.py")
+        # "run" is both negated and in compound -- neither should match
+        assert result is None
+
+    def test_standalone_after_negated_compound(self):
+        """Standalone verb after negated+compound section should be found."""
+        result = find_verb("Don't touch run_proof, just build auth.py")
+        assert result == "build"
+
+
+class TestScanVerbsUnified:
+    """_scan_verbs is the single source of truth for verb detection."""
+
+    def test_scan_returns_list(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Build and test auth.py")
+        assert isinstance(result, list)
+
+    def test_scan_returns_verb_matches(self):
+        from seed_gate import _scan_verbs, VerbMatch
+        result = _scan_verbs("Build the auth.py module")
+        assert len(result) == 1
+        assert isinstance(result[0], VerbMatch)
+
+    def test_scan_multiple_verbs(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Build and test the auth.py module")
+        verbs = [m.verb for m in result]
+        assert "build" in verbs
+        assert "test" in verbs
+
+    def test_scan_first_only(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Build and test auth.py", first_only=True)
+        assert len(result) == 1
+        assert result[0].verb == "build"
+
+    def test_scan_respects_negation(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Don't build auth.py")
+        assert len(result) == 0
+
+    def test_scan_respects_compounds(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("run_proof is important")
+        # 'run' is inside compound, should not match
+        verbs = [m.verb for m in result]
+        assert "run" not in verbs
+
+    def test_scan_deduplicates(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Build and build again on auth.py")
+        verbs = [m.verb for m in result]
+        assert verbs.count("build") == 1
+
+    def test_scan_phrasal_verb(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Set up the auth.py module")
+        assert len(result) == 1
+        assert result[0].verb == "set up"
+        assert result[0].source == "phrasal"
+
+
+class TestPropertyInvariantsConsolidated:
+    """Property-based invariants for the consolidated validator."""
+
+    PROPOSALS = [
+        "Build the auth.py module for testing",
+        "Don't deploy reactor.py on Friday",
+        "run_proof and test_seed_gate need work",
+        "Set up the water_mining module on Mars",
+        "Building and deploying the auth.py system",
+        "Fix fig.1 reference in the reactor docs",
+        "Not only build but test the auth.py module",
+        "",
+        "x",
+        "vibes and energy",
+    ]
+
+    def test_find_verb_agrees_with_find_verb_match(self):
+        from seed_gate import find_verb_match
+        for text in self.PROPOSALS:
+            v = find_verb(text)
+            m = find_verb_match(text)
+            if v is None:
+                assert m is None, f"Disagreement on '{text}'"
+            else:
+                assert m is not None and m.verb == v, f"'{text}': {v} vs {m}"
+
+    def test_find_verb_agrees_with_find_verb_with_position(self):
+        for text in self.PROPOSALS:
+            v = find_verb(text)
+            v2, pos = find_verb_with_position(text)
+            assert v == v2, f"Disagreement on '{text}'"
+
+    def test_validate_score_in_range(self):
+        for text in self.PROPOSALS:
+            if not text.strip() or len(text.strip()) < 15:
+                continue
+            result = _v(text)
+            assert 0.0 <= result["score"] <= 1.0, f"Score out of range for '{text}'"
+
+    def test_validate_junk_is_bool(self):
+        for text in self.PROPOSALS:
+            result = _v(text)
+            assert isinstance(result["junk"], bool)
+
+    def test_validate_passed_is_bool(self):
+        for text in self.PROPOSALS:
+            result = _v(text)
+            assert isinstance(result["passed"], bool)
+
+    def test_is_imperative_consistent_with_position(self):
+        """is_imperative should be True iff verb_position == 0."""
+        for text in self.PROPOSALS:
+            r = validate_seed(text)
+            if r.verb_position == 0:
+                assert r.is_imperative
+            elif r.verb_position is None:
+                assert not r.is_imperative
+            else:
+                assert not r.is_imperative
+
+    def test_score_parts_total_matches_score(self):
+        """score_parts['total'] / 10 should approximately equal score."""
+        for text in self.PROPOSALS:
+            r = validate_seed(text)
+            if r.passed and r.score_parts:
+                computed = min(r.score_parts.get("total", 0) / 10.0, 1.0)
+                assert abs(r.score - computed) < 0.01, f"'{text}': {r.score} vs {computed}"
+
+    def test_explain_returns_string(self):
+        for text in self.PROPOSALS:
+            result = explain(text)
+            assert isinstance(result, str)
+
+    def test_explain_contains_pass_or_fail(self):
+        for text in self.PROPOSALS:
+            result = explain(text)
+            assert "PASS" in result or "FAIL" in result
+
+
+class TestRealWorldConsolidated:
+    """Real-world proposals that exercise the consolidation features."""
+
+    def test_negated_real_world(self):
+        """A real-world negated proposal should fail."""
+        result = _v("Don't deploy the thermal_control.py module to production")
+        assert not result["passed"]
+
+    def test_compound_real_world_with_verb(self):
+        """run_proof mentioned alongside a real verb should pass."""
+        result = _v("Optimize run_proof.py for better performance")
+        assert result["passed"]
+
+    def test_inflected_real_world(self):
+        """Inflected verb 'Building' should be recognized."""
+        result = _v("Building the new air_filtration.py subsystem")
+        assert result["passed"]
+        assert result["verb_found"] == "build"
+
+    def test_phrasal_real_world(self):
+        """Phrasal verb 'Set up' should be recognized."""
+        result = _v("Set up the water_mining.py extraction pipeline")
+        assert result["passed"]
+        assert result["verb_found"] == "set up"
+
+    def test_enriched_dict_real_world(self):
+        """Dict output should carry all enriched fields."""
+        result = _v("Build the auth.py module for Mars colony security")
+        assert result["target_kind"] == "file"
+        assert result["verb_source"] == "base"
+        assert result["verb_position"] == 0
+        assert result["is_imperative"] is True
+        assert result["score_parts"]["verb"] == 2.5
+
+    def test_numbered_ref_real_world(self):
+        """Numbered refs like fig.1 should not interfere."""
+        result = _v("Build the reactor diagram per fig.1 in auth.py")
+        assert result["passed"]
+        assert result["target_found"] == "auth.py"
