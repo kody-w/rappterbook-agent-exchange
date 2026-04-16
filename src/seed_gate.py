@@ -58,6 +58,11 @@ Evolution log:
                   enriched SeedGateResult (target_kind, verb_source,
                   verb_position, score_parts, is_imperative, negated,
                   advisories, strength); explain_dict() structured API.
+    PR #304  -- graduated multi-target scoring (2→+1.0, 3→+1.5,
+                  4+→+2.0); clause-boundary negation reset (comma,
+                  period, semicolon, "but"); normalize_proposal()
+                  pre-processing; similarity() advisory dedup;
+                  BatchResult.summary() reporting method.
 """
 from __future__ import annotations
 
@@ -482,6 +487,14 @@ class BatchResult:
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
 
+    def summary(self) -> str:
+        """Return a human-readable one-line summary of the batch results."""
+        s = self.stats
+        pct = "%.0f%%" % (s.pass_rate * 100) if s.total else "n/a"
+        return "%d proposals: %d passed (%s), %d failed, %d junk" % (
+            s.total, s.passed, pct, s.failed, s.junk,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Negation constants
@@ -500,6 +513,13 @@ _CONTRACTION_NEG_STEMS: frozenset[str] = frozenset({
 })
 
 _AFFIRMATIVE_PAIRS: frozenset[str] = frozenset({"only", "just"})
+
+# Clause-boundary words that reset negation scope (PR #304).
+# Conservative set: only "but" as a word boundary; punctuation handled separately.
+_CLAUSE_BOUNDARY_WORDS: frozenset[str] = frozenset({"but"})
+
+# Punctuation characters that act as clause boundaries.
+_CLAUSE_BOUNDARY_PUNCT: frozenset[str] = frozenset({",", ".", ";", "—", "–"})
 
 
 # ---------------------------------------------------------------------------
@@ -542,11 +562,38 @@ class VerbMatch(tuple):
 # Internal helpers -- negation + compound + unified scanner
 # ---------------------------------------------------------------------------
 
-def _is_negated(tokens: list[str], idx: int) -> bool:
+def _has_clause_boundary(text: str, start_char: int, end_char: int) -> bool:
+    """Return True if there's a clause boundary between two character positions.
+
+    Checks for punctuation (comma, period, semicolon, dashes) and the
+    word 'but' in the text segment between start_char and end_char.
+    """
+    if start_char >= end_char or not text:
+        return False
+    segment = text[start_char:end_char]
+    if any(c in segment for c in _CLAUSE_BOUNDARY_PUNCT):
+        return True
+    if re.search(r'\bbut\b', segment, re.I):
+        return True
+    return False
+
+
+def _is_negated(
+    tokens: list[str],
+    idx: int,
+    *,
+    text: str = "",
+    positions: list[tuple[int, int]] | None = None,
+) -> bool:
     """Return True if the token at *idx* is negated within a 3-token window.
 
     Handles bare negation words, contraction stems (don't -> don, t),
     and affirmative exceptions (not only, not just).
+
+    When *text* and *positions* are provided, clause boundaries (commas,
+    periods, semicolons, 'but') between the negation word and the verb
+    reset the negation scope — 'Don't worry, build auth.py' treats
+    'build' as non-negated.
     """
     if idx <= 0:
         return False
@@ -556,8 +603,21 @@ def _is_negated(tokens: list[str], idx: int) -> bool:
         if tok in NEGATION_WORDS or tok in _CONTRACTION_NEG_STEMS:
             if tok == "not" and j + 1 < idx and tokens[j + 1] in _AFFIRMATIVE_PAIRS:
                 continue
+            # Clause-boundary check: if there's punctuation or "but"
+            # between the negation word and the verb, negation resets.
+            if text and positions and j < len(positions) and idx < len(positions):
+                neg_end = positions[j][1]
+                verb_start = positions[idx][0]
+                if _has_clause_boundary(text, neg_end, verb_start):
+                    continue
             return True
         if tok == "t" and j > 0 and tokens[j - 1] in _CONTRACTION_NEG_STEMS:
+            # Clause-boundary check for contractions too
+            if text and positions and j < len(positions) and idx < len(positions):
+                neg_end = positions[j][1]
+                verb_start = positions[idx][0]
+                if _has_clause_boundary(text, neg_end, verb_start):
+                    continue
             return True
     return False
 
@@ -600,7 +660,7 @@ def _scan_verbs(text: str) -> list[tuple[str, int, bool]]:
             skip_next = False
             continue
 
-        negated = _is_negated(tokens, i)
+        negated = _is_negated(tokens, i, text=lower, positions=positions)
 
         if i < len(positions):
             cs, ce = positions[i]
@@ -962,7 +1022,11 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        raw += 2.0
+    elif unique >= 3:
+        raw += 1.5
+    elif unique >= 2:
         raw += 1.0
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
@@ -1073,7 +1137,11 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        components["multi_target"] = 2.0
+    elif unique >= 3:
+        components["multi_target"] = 1.5
+    elif unique >= 2:
         components["multi_target"] = 1.0
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
@@ -1310,6 +1378,57 @@ def validate_batch(
         failed_items=tuple(failed_items),
         junk_items=tuple(junk_items),
     )
+
+
+# ---------------------------------------------------------------------------
+# Pre-processing + similarity (PR #304)
+# ---------------------------------------------------------------------------
+
+def normalize_proposal(text: str) -> str:
+    """Normalize a proposal for consistent validation and dedup.
+
+    Steps: strip whitespace, strip commit prefix, collapse runs of
+    whitespace to single spaces, strip leading/trailing quotes.
+    Apply at ingress (before hashing, validating, or comparing).
+    """
+    result = text.strip()
+    # Strip leading/trailing quotes
+    if len(result) >= 2 and result[0] == result[-1] and result[0] in "\"'":
+        result = result[1:-1].strip()
+    # Strip conventional commit prefix
+    result = _strip_commit_prefix(result)
+    # Collapse whitespace
+    result = re.sub(r"\s+", " ", result).strip()
+    return result
+
+
+def similarity(a: str, b: str) -> float:
+    """Token-based similarity between two proposals (0.0-1.0).
+
+    Combines Jaccard token overlap with verb+target fingerprint matching.
+    Use for advisory dedup, not hard rejection.
+    """
+    norm_a = normalize_proposal(a)
+    norm_b = normalize_proposal(b)
+    tokens_a = set(re.findall(r"\w+", norm_a.lower()))
+    tokens_b = set(re.findall(r"\w+", norm_b.lower()))
+    if not tokens_a or not tokens_b:
+        return 0.0
+    jaccard = len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+    # Boost similarity if verb+target fingerprints match
+    verb_a = find_verb(norm_a)
+    verb_b = find_verb(norm_b)
+    target_a, _ = find_target(norm_a)
+    target_b, _ = find_target(norm_b)
+    fingerprint_match = 0.0
+    if verb_a and verb_b and verb_a == verb_b:
+        fingerprint_match += 0.15
+    if target_a and target_b:
+        ca = canonicalize_target(target_a)
+        cb = canonicalize_target(target_b)
+        if ca == cb:
+            fingerprint_match += 0.25
+    return min(jaccard + fingerprint_match, 1.0)
 
 
 # ---------------------------------------------------------------------------

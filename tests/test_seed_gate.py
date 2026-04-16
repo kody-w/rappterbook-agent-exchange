@@ -62,6 +62,12 @@ def _vs(text, tags=None, mode="admission"):
     return validate_seed(text, tags or [], mode=mode)
 
 
+@pytest.fixture
+def sp(tmp_path):
+    """Return a unique seeds.json path per test (for propose_seed integration)."""
+    return tmp_path / "state" / "seeds.json"
+
+
 # ===================================================================
 # 1. Constants
 # ===================================================================
@@ -2083,9 +2089,9 @@ class TestNegation:
         assert not detect_negation("just vibes and energy")
 
     def test_negation_after_sentence_boundary(self):
-        # detect_negation checks the overall text for negation near any verb
-        # The first sentence has "Don't" near verbs, so it detects negation
-        assert detect_negation("Don't worry. Build auth.py now")
+        # PR #304: clause boundary resets negation -- "Build" is in a new clause
+        # after the period, so it's not negated by "Don't" in the first clause.
+        assert not detect_negation("Don't worry. Build auth.py now")
         # A truly clean sentence with no negation should be False
         assert not detect_negation("Please build auth.py now")
 
@@ -2520,3 +2526,423 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #304: Graduated multi-target scoring
+# ===================================================================
+
+class TestGraduatedMultiTarget:
+    """Test 2→+1.0, 3→+1.5, 4+→+2.0 graduated scoring."""
+
+    def test_two_targets_baseline(self):
+        r = _vs("Build auth.py and config.py for the login system")
+        assert r.score > 0.0
+
+    def test_three_targets_higher(self):
+        two = _vs("Build auth.py and config.py for the login system")
+        three = _vs("Build auth.py, config.py, and routes.py for the login system")
+        assert three.score >= two.score
+
+    def test_four_targets_highest(self):
+        three = _vs("Build auth.py, config.py, and routes.py for the login system")
+        four = _vs("Build auth.py, config.py, routes.py, and models.py for the login system")
+        assert four.score >= three.score
+
+    def test_score_parts_two_targets(self):
+        bd = score_breakdown("Build auth.py and config.py for the login system")
+        assert bd["multi_target"] == 1.0
+
+    def test_score_parts_three_targets(self):
+        bd = score_breakdown("Build auth.py, config.py, and routes.py for login")
+        assert bd["multi_target"] == 1.5
+
+    def test_score_parts_four_targets(self):
+        bd = score_breakdown("Build auth.py, config.py, routes.py, and models.py")
+        assert bd["multi_target"] == 2.0
+
+    def test_single_target_no_bonus(self):
+        bd = score_breakdown("Build auth.py")
+        assert bd["multi_target"] == 0.0
+
+    def test_score_never_exceeds_one(self):
+        r = _vs("Build auth.py, config.py, routes.py, models.py, and db.py in the system")
+        assert r.score <= 1.0
+
+    def test_compute_score_graduated(self):
+        from seed_gate import compute_score
+        # Two targets
+        s2 = compute_score(
+            "Build auth.py and config.py", "build", "auth.py", "file"
+        )
+        # Three targets
+        s3 = compute_score(
+            "Build auth.py, config.py, and routes.py", "build", "auth.py", "file"
+        )
+        assert s3 > s2
+
+
+# ===================================================================
+# PR #304: Clause-boundary negation reset
+# ===================================================================
+
+class TestClauseBoundaryNegation:
+    """Test that clause boundaries (comma, period, semicolon, 'but') reset negation."""
+
+    def test_period_resets_negation(self):
+        # "Don't worry. Build auth.py" — build is NOT negated
+        assert not detect_negation("Don't worry. Build auth.py now")
+
+    def test_comma_resets_negation(self):
+        assert not detect_negation("Don't just talk, build auth.py")
+
+    def test_semicolon_resets_negation(self):
+        assert not detect_negation("Don't hesitate; build auth.py")
+
+    def test_but_resets_negation(self):
+        assert not detect_negation("Don't wait but build auth.py now")
+
+    def test_same_clause_still_negated(self):
+        # "Don't build auth.py" — no clause boundary, still negated
+        assert detect_negation("Don't build auth.py")
+
+    def test_not_build_still_negated(self):
+        assert detect_negation("We should not build auth.py")
+
+    def test_never_deploy_still_negated(self):
+        assert detect_negation("Never deploy config.py to prod")
+
+    def test_multi_clause_first_verb_non_negated(self):
+        r = _vs("Don't worry, build solar_array.py immediately")
+        assert r.passed
+        assert not r.negated
+
+    def test_multi_clause_all_verbs_scanned(self):
+        from seed_gate import _scan_verbs
+        verbs = _scan_verbs("Don't worry, build auth.py and test config.py")
+        # "build" should be non-negated (after comma)
+        build_entries = [(v, neg) for v, _, neg in verbs if v == "build"]
+        assert build_entries
+        assert not build_entries[0][1]  # not negated
+
+    def test_dash_resets_negation(self):
+        assert not detect_negation("Don't just think — build auth.py")
+
+    def test_no_boundary_no_reset(self):
+        # Within same clause, negation persists
+        assert detect_negation("Do not ever build auth.py")
+
+    def test_has_clause_boundary_utility(self):
+        from seed_gate import _has_clause_boundary
+        assert _has_clause_boundary("hello, world", 5, 12)
+        assert not _has_clause_boundary("hello world", 5, 11)
+        assert _has_clause_boundary("stop. go", 4, 6)
+        assert _has_clause_boundary("no but yes", 2, 10)
+
+    def test_clause_boundary_empty_segment(self):
+        from seed_gate import _has_clause_boundary
+        assert not _has_clause_boundary("", 0, 0)
+        assert not _has_clause_boundary("hello", 3, 3)
+
+    def test_validate_seed_negation_advisory_after_boundary(self):
+        r = _vs("Don't panic, build auth.py now for the system")
+        assert r.passed
+        assert "negated-intent" not in r.advisories
+
+    def test_validate_seed_negation_advisory_no_boundary(self):
+        r = _vs("Don't build auth.py for the system today")
+        assert "negated-intent" in r.advisories
+
+
+# ===================================================================
+# PR #304: normalize_proposal()
+# ===================================================================
+
+class TestNormalizeProposal:
+    """Test normalize_proposal() pre-processing."""
+
+    def test_strips_whitespace(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("  Build auth.py  ") == "Build auth.py"
+
+    def test_strips_quotes(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal('"Build auth.py"') == "Build auth.py"
+
+    def test_strips_single_quotes(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("'Build auth.py'") == "Build auth.py"
+
+    def test_strips_commit_prefix(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("fix: Build auth.py") == "Build auth.py"
+
+    def test_feat_prefix(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("feat(auth): Build auth.py") == "Build auth.py"
+
+    def test_collapses_whitespace(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("Build   auth.py\t now") == "Build auth.py now"
+
+    def test_empty_string(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("") == ""
+
+    def test_no_change_needed(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("Build auth.py") == "Build auth.py"
+
+    def test_combined_normalization(self):
+        from seed_gate import normalize_proposal
+        result = normalize_proposal('  "fix: Build   auth.py"  ')
+        assert result == "Build auth.py"
+
+    def test_preserves_natural_prose(self):
+        from seed_gate import normalize_proposal
+        text = "Build: the reactor core thermal system"
+        assert normalize_proposal(text) == text
+
+    def test_mismatched_quotes_untouched(self):
+        from seed_gate import normalize_proposal
+        assert normalize_proposal("'Build auth.py\"") == "'Build auth.py\""
+
+
+# ===================================================================
+# PR #304: similarity()
+# ===================================================================
+
+class TestSimilarity:
+    """Test similarity() advisory dedup function."""
+
+    def test_identical(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py", "Build auth.py") == 1.0
+
+    def test_completely_different(self):
+        from seed_gate import similarity
+        s = similarity("Build auth.py", "Deploy config.yaml to production")
+        assert s < 0.5
+
+    def test_same_target_different_verb(self):
+        from seed_gate import similarity
+        # Same file target but different verb — high but not 1.0
+        s = similarity("Build auth.py", "Test auth.py")
+        assert 0.3 < s < 0.9
+
+    def test_same_verb_different_target(self):
+        from seed_gate import similarity
+        s = similarity("Build auth.py", "Build config.py")
+        assert 0.3 < s < 0.9
+
+    def test_empty_strings(self):
+        from seed_gate import similarity
+        assert similarity("", "") == 0.0
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_near_duplicate_wording(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build water_mining.py optimizer for drilling",
+            "Build water_mining.py optimizer for the drill system",
+        )
+        assert s >= 0.7
+
+    def test_normalized_before_compare(self):
+        from seed_gate import similarity
+        # commit prefix + extra whitespace should be stripped
+        s = similarity(
+            "fix: Build auth.py",
+            "Build  auth.py",
+        )
+        assert s >= 0.9
+
+    def test_fingerprint_boost(self):
+        from seed_gate import similarity
+        # Same verb + same target should boost
+        base = similarity("Build auth.py system", "Build auth.py module")
+        diff = similarity("Build auth.py system", "Test config.py module")
+        assert base > diff
+
+    def test_similarity_symmetric(self):
+        from seed_gate import similarity
+        s1 = similarity("Build auth.py", "Test auth.py")
+        s2 = similarity("Test auth.py", "Build auth.py")
+        assert abs(s1 - s2) < 0.01
+
+    def test_similarity_capped_at_one(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py", "Build auth.py") <= 1.0
+
+
+# ===================================================================
+# PR #304: BatchResult.summary()
+# ===================================================================
+
+class TestBatchResultSummary:
+    """Test BatchResult.summary() reporting method."""
+
+    def test_summary_format(self):
+        br = validate_batch([
+            "Build auth.py for the login system",
+            "Test config.py in the reactor core",
+            "vibes only here",
+            "",
+        ])
+        s = br.summary()
+        assert "4 proposals" in s
+        assert "passed" in s
+        assert "failed" in s
+        assert "junk" in s
+
+    def test_summary_empty_batch(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 proposals" in s
+        assert "n/a" in s
+
+    def test_summary_all_pass(self):
+        br = validate_batch([
+            "Build auth.py for the login system",
+            "Test config.py in the reactor core",
+        ])
+        s = br.summary()
+        assert "2 passed" in s
+        assert "0 failed" in s
+        assert "0 junk" in s
+
+    def test_summary_all_junk(self):
+        br = validate_batch(["", "x", ""])
+        s = br.summary()
+        assert "junk" in s
+
+    def test_summary_percentage(self):
+        br = validate_batch([
+            "Build auth.py for login",
+            "Make things better overall",
+            "",
+        ])
+        s = br.summary()
+        assert "%" in s
+
+
+# ===================================================================
+# PR #304: propose_seed.py near-duplicate folding
+# ===================================================================
+
+class TestNearDuplicateFolding:
+    """Test that near-duplicate proposals fold votes instead of creating new entries."""
+
+    def test_near_dup_folds_vote(self, sp):
+        from propose_seed import propose, list_proposals
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        # Very similar proposal from a different author
+        p2 = propose("Build water_mining.py optimizer for the drilling system", author="a2", seeds_path=sp)
+        # Should have folded into p1
+        assert p2["id"] == p1["id"]
+        assert p2["vote_count"] == 2
+        assert len(list_proposals(seeds_path=sp)) == 1
+
+    def test_different_proposals_not_folded(self, sp):
+        from propose_seed import propose, list_proposals
+        propose("Build auth.py for login system", author="a1", seeds_path=sp)
+        propose("Deploy config.yaml to production servers", author="a2", seeds_path=sp)
+        assert len(list_proposals(seeds_path=sp)) == 2
+
+    def test_near_dup_same_author_no_double_vote(self, sp):
+        from propose_seed import propose
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Build water_mining.py optimizer drilling system", author="a1", seeds_path=sp)
+        assert p2["vote_count"] == 1
+
+    def test_normalization_before_gate(self, sp):
+        from propose_seed import propose
+        # Commit prefix should be stripped before validation
+        p = propose("fix: Build solar_array.py controller power grid", author="a1", seeds_path=sp)
+        assert p.get("id", "").startswith("prop-")
+        assert "fix:" not in p["text"]
+
+
+# ===================================================================
+# PR #304: Integration invariants
+# ===================================================================
+
+class TestPR304Invariants:
+    """Property-based invariants for PR #304 features."""
+
+    def test_normalize_idempotent(self):
+        from seed_gate import normalize_proposal
+        cases = [
+            "Build auth.py",
+            "fix: Build auth.py",
+            '  "Build auth.py"  ',
+            "",
+        ]
+        for text in cases:
+            once = normalize_proposal(text)
+            twice = normalize_proposal(once)
+            assert once == twice, f"Not idempotent: {text!r}"
+
+    def test_similarity_reflexive(self):
+        from seed_gate import similarity
+        cases = [
+            "Build auth.py",
+            "Test the config.py system deeply",
+            "",
+        ]
+        for text in cases:
+            s = similarity(text, text)
+            assert s == 1.0 or (text == "" and s == 0.0)
+
+    def test_similarity_bounded(self):
+        from seed_gate import similarity
+        import itertools
+        texts = [
+            "Build auth.py for login",
+            "Deploy config.yaml",
+            "Test the reactor core",
+            "",
+        ]
+        for a, b in itertools.product(texts, repeat=2):
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0, f"Out of bounds: {s} for {a!r}, {b!r}"
+
+    def test_graduated_scoring_monotonic(self):
+        """More unique targets → higher or equal score."""
+        one = compute_score("Build auth.py now", "build", "auth.py", "file")
+        two = compute_score(
+            "Build auth.py and config.py now", "build", "auth.py", "file"
+        )
+        three = compute_score(
+            "Build auth.py, config.py, and routes.py", "build", "auth.py", "file"
+        )
+        four = compute_score(
+            "Build auth.py, config.py, routes.py, and models.py",
+            "build", "auth.py", "file",
+        )
+        assert one <= two <= three <= four
+
+    def test_clause_boundary_negation_preserves_same_clause(self):
+        """Negation within the same clause is still detected."""
+        from seed_gate import _scan_verbs
+        verbs = _scan_verbs("Don't build auth.py")
+        assert verbs
+        _, _, negated = verbs[0]
+        assert negated
+
+    def test_clause_boundary_negation_resets_across_boundary(self):
+        """Negation resets after a clause boundary."""
+        from seed_gate import _scan_verbs
+        verbs = _scan_verbs("Don't worry, build auth.py")
+        build_entries = [(v, neg) for v, _, neg in verbs if v == "build"]
+        assert build_entries
+        assert not build_entries[0][1]
+
+    def test_batch_summary_consistent_with_stats(self):
+        br = validate_batch([
+            "Build auth.py", "", "Test config.py", "vibes only",
+        ])
+        s = br.summary()
+        assert str(br.stats.total) in s
+        assert str(br.stats.passed) in s
+        assert str(br.stats.junk) in s

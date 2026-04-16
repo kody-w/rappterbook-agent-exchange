@@ -87,11 +87,13 @@ def make_proposal_id(text):
 
 def propose(text, author, context="", tags=None, seeds_path=None):
     """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
-    text = text.strip()
     tags = tags or []
 
+    # Normalize at ingress -- before hashing, validating, or comparing
+    from seed_gate import normalize_proposal, validate as validate_seed, similarity
+    text = normalize_proposal(text)
+
     # Specificity gate
-    from seed_gate import validate as validate_seed
     gate = validate_seed(text, tags)
     if not gate["passed"]:
         return {}
@@ -99,9 +101,19 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Duplicate check (exact match)
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
+            return p
+
+    # Near-duplicate advisory: if a highly-similar proposal exists,
+    # fold the vote instead of creating a new entry (similarity >= 0.85)
+    for p in seeds.get("proposals", []):
+        if similarity(text, p.get("text", "")) >= 0.85:
+            if author not in p.get("votes", []):
+                p["votes"].append(author)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
             return p
 
     proposal = {
