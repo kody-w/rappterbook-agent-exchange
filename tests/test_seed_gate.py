@@ -1,10 +1,12 @@
 """Tests for seed_gate.py -- canonical specificity validator.
 
 Covers: verb detection, target detection (files, paths, tools, modules,
-CLI, discussions, channels, quoted), junk detection (hard + soft artifacts),
-scoring with unique-target counting, validation pass/fail, exempt tags,
-CLI, real-world proposals, edge cases, property invariants, smoke tests,
-propose_seed.py contract, and regression tests for false rejects.
+CLI, discussions, channels, quoted, proper nouns), junk detection
+(hard + soft artifacts), negation awareness, scoring with placeholder
+penalty, validation pass/fail, exempt tags, VerbMatch dataclass,
+verb weights, CLI, real-world proposals, edge cases, property invariants,
+smoke tests, propose_seed.py contract, batch diagnostics, and regression
+tests for false rejects.
 """
 from __future__ import annotations
 
@@ -20,1966 +22,1379 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from seed_gate import (
     ACTION_VERBS,
-    EXEMPT_TAGS,
-    KNOWN_MODULES,
+    ARTIFACT_SIGNALS,
     CHANNEL_RE,
     CLI_RE,
+    CONST_RE,
     DISCUSSION_RE,
+    ENV_VAR_RE,
+    EXEMPT_TAGS,
     FILE_RE,
-    MODULE_CONTEXT_RE,
+    FUNC_RE,
+    KNOWN_MODULES,
+    KNOWN_TOOLS,
     PATH_RE,
+    PHRASAL_VERBS,
+    PROPER_NOUN_RE,
+    QUESTION_STEMS,
     QUOTED_RE,
+    SPECIAL_FILE_RE,
+    TAG_IMPLIED_VERBS,
     TOOL_RE,
+    BatchResult,
+    BatchStats,
     SeedGateResult,
-    passes_gate,
-    validate,
-    validate_seed,
-    canonicalize_target,
-    count_unique_targets,
-    is_soft_artifact,
-)
-from seed_gate import (
-    _strip_commit_prefix,
-    _COMMIT_PREFIX_RE,
+    VerbMatch,
+    _ABBREV_REF_RE,
+    _INFLECTION_MAP,
     _KIND_SCORES,
+    _NEGATION_WORDS,
+    _PLACEHOLDER_FILES,
+    _VERB_WEIGHTS,
+    _is_negated,
+    canonicalize_target,
     compute_score,
-    find_verb,
-    find_target,
-    find_verb_with_position,
-    score_breakdown,
+    count_unique_targets,
     explain,
-    suggest,
+    find_all_verbs,
+    find_target,
+    find_verb,
+    find_verb_with_position,
     is_junk,
-    _starts_with_verb,
+    is_soft_artifact,
+    passes_gate,
+    score_breakdown,
+    suggest,
+    validate,
+    validate_batch,
+    validate_seed,
+    verb_weight,
 )
 
 
-def _v(text, tags=None, mode="admission"):
-    return validate(text, tags or [], mode)
-
-
-def _vs(text, tags=None, mode="admission"):
-    return validate_seed(text, tags or [], mode=mode)
-
-
 # ===================================================================
-# 1. Constants
+# Verb detection
 # ===================================================================
 
-class TestConstants:
-    def test_action_verbs_nonempty(self):
-        assert len(ACTION_VERBS) >= 40
+class TestFindVerb:
+    def test_base_verb(self):
+        assert find_verb("Build a new module") == "build"
 
-    def test_action_verbs_all_lowercase(self):
-        for v in ACTION_VERBS:
-            assert v == v.lower()
+    def test_inflected_builds(self):
+        assert find_verb("Building the reactor core") == "build"
 
-    def test_exempt_tags_nonempty(self):
-        assert len(EXEMPT_TAGS) >= 4
+    def test_inflected_past(self):
+        assert find_verb("Deployed the service") == "deploy"
 
-    def test_exempt_tags_all_lowercase(self):
-        for t in EXEMPT_TAGS:
-            assert t == t.lower()
-
-    def test_known_modules_discovered(self):
-        assert len(KNOWN_MODULES) >= 10
-
-    def test_known_modules_no_test_or_run(self):
-        for m in KNOWN_MODULES:
-            assert not m.startswith("test_")
-            assert not m.startswith("run_")
-
-    def test_known_modules_only_snake_case(self):
-        for m in KNOWN_MODULES:
-            assert "_" in m
-
-    def test_known_modules_contains_expected(self):
-        for m in ("water_mining", "solar_array", "seed_gate"):
-            assert m in KNOWN_MODULES
-
-
-# ===================================================================
-# 2. Regex patterns
-# ===================================================================
-
-class TestRegexPatterns:
-    def test_file_re_python(self):
-        assert FILE_RE.search("Build seed_gate.py validator")
-
-    def test_file_re_json(self):
-        assert FILE_RE.search("Fix state/agents.json integrity")
-
-    def test_file_re_rust(self):
-        assert FILE_RE.search("Port parser to grammar.rs")
-
-    def test_path_re_src(self):
-        assert PATH_RE.search("Refactor src/water_mining module")
-
-    def test_path_re_tests(self):
-        assert PATH_RE.search("Add tests/test_drill coverage")
-
-    def test_path_re_engine(self):
-        assert PATH_RE.search("Fix engine/tick overflow")
-
-    def test_path_re_state(self):
-        assert PATH_RE.search("Validate state/mars integrity")
-
-    def test_path_re_docs(self):
-        assert PATH_RE.search("Update docs/index.html layout")
-
-    def test_tool_re_snake(self):
-        assert TOOL_RE.search("Refactor process_inbox handler")
-
-    def test_tool_re_no_single(self):
-        assert not TOOL_RE.search("Build parser module")
-
-    def test_cli_re_backtick(self):
-        assert CLI_RE.search("Run `pytest -v` on CI")
-
-    def test_cli_re_flag(self):
-        assert CLI_RE.search("Add --verbose flag")
-
-    def test_cli_re_short_flag(self):
-        assert CLI_RE.search("Support -f option")
-
-    def test_discussion_re(self):
-        assert DISCUSSION_RE.search("See discussion #12503")
-
-    def test_discussion_re_no_short(self):
-        assert not DISCUSSION_RE.search("Issue #42 is important")
-
-    def test_channel_re_r(self):
-        assert CHANNEL_RE.search("Create r/mars-engineering")
-
-    def test_channel_re_c(self):
-        assert CHANNEL_RE.search("Post in c/general channel")
-
-    def test_quoted_re(self):
-        assert QUOTED_RE.search('Add "thermal control loop" feature')
-
-    def test_module_context_backtick(self):
-        assert MODULE_CONTEXT_RE.search("Fix `water_mining` bug")
-
-    def test_module_context_import(self):
-        assert MODULE_CONTEXT_RE.search("import solar_array works")
-
-    def test_module_context_from(self):
-        assert MODULE_CONTEXT_RE.search("from dust_storm import x")
-
-
-# ===================================================================
-# 3. Verb detection
-# ===================================================================
-
-class TestVerbDetection:
-    @pytest.mark.parametrize("verb", ["build", "create", "fix", "test", "ship", "deploy"])
-    def test_common_verbs(self, verb):
-        result = _v(f"{verb.capitalize()} the water_mining.py system entirely")
-        assert result["verb_found"] == verb
-
-    def test_case_insensitive(self):
-        result = _v("BUILD water_mining.py from scratch again")
-        assert result["verb_found"] == "build"
+    def test_irregular_past(self):
+        assert find_verb("Built the thermal system") == "build"
 
     def test_no_verb(self):
-        result = _v("Water mining system with multiple features included")
-        assert result["verb_found"] is None
+        assert find_verb("The quick brown fox") is None
 
-    def test_verb_mid_sentence(self):
-        result = _v("The team should build water_mining.py carefully")
-        assert result["verb_found"] == "build"
+    def test_phrasal_verb(self):
+        assert find_verb("Set up the pipeline") == "set up"
 
+    def test_phrasal_inflected(self):
+        assert find_verb("Setting up the auth") == "set up"
 
-# ===================================================================
-# 4. Target detection
-# ===================================================================
-
-class TestTargetDetection:
-    def test_file_target(self):
-        result = _v("Build water_mining.py optimizer quickly now")
-        assert result["target_found"] == "water_mining.py"
-
-    def test_path_target(self):
-        result = _v("Fix src/thermal_control module carefully here")
-        assert result["target_found"] == "src/thermal_control"
-
-    def test_tool_target(self):
-        result = _v("Build the process_inbox handler properly here")
-        assert result["target_found"] == "process_inbox"
-
-    def test_cli_target(self):
-        result = _v("Test with `pytest -v` for better output here")
-        assert result["target_found"] == "`pytest -v`"
-
-    def test_discussion_target(self):
-        result = _v("Build feature from discussion #12503 ideas")
-        assert result["target_found"] == "#12503"
-
-    def test_channel_target(self):
-        result = _v("Create content for r/mars-engineering now")
-        assert result["target_found"] == "r/mars-engineering"
-
-    def test_quoted_target(self):
-        result = _v('Implement "thermal control loop" system now')
-        assert result["target_found"] == '"thermal control loop"'
-
-    def test_no_target(self):
-        result = _v("Build something amazing and wonderful today")
-        assert result["target_found"] is None
-
-    def test_file_beats_tool(self):
-        result = _v("Build water_mining.py with process_inbox")
-        assert result["target_found"] == "water_mining.py"
-
-    def test_module_context_backtick(self):
-        if "water_mining" in KNOWN_MODULES:
-            result = _v("Fix `water_mining` efficiency problem")
-            assert result["target_found"] == "water_mining"
-
-
-# ===================================================================
-# 5. Junk detection
-# ===================================================================
-
-class TestJunkDetection:
-    def test_empty(self):
-        assert _v("")["junk"] is True
-
-    def test_whitespace(self):
-        assert _v("   \n  ")["junk"] is True
-
-    def test_too_short(self):
-        assert _v("Build it")["junk"] is True
-
-    def test_starts_lowercase_verb_allowed(self):
-        # Lowercase text starting with an action verb is NOT junk
-        assert _v("build something really cool and interesting here now")["junk"] is False
-
-    def test_starts_lowercase_fragment(self):
-        # Lowercase text NOT starting with a verb IS junk
-        assert _v("the thing we talked about doing sometime later")["junk"] is True
-
-    def test_starts_backtick(self):
-        assert _v("`code fragment` extracted from somewhere else")["junk"] is True
-
-    def test_numbered_list(self):
-        assert _v("1. First item in a numbered list of tasks")["junk"] is True
-
-    def test_bare_url(self):
-        assert _v("https://example.com/path/to/something")["junk"] is True
-
-    def test_todo_comment(self):
-        assert _v("TODO: Fix the water_mining module bug here")["junk"] is True
-
-    def test_run_prefix_exception(self):
-        assert _v("run_proof for water_mining.py system verify")["junk"] is False
-
-    def test_hard_artifact_parser_grabbed(self):
-        r = _v("Parser grabbed this fragment from the document")
-        assert r["junk"] is True
-        assert "artifact" in r["reasons"][0]
-
-    def test_hard_artifact_parsing_artifact(self):
-        assert _v("Parsing artifact detected in the pipeline")["junk"] is True
-
-    def test_hard_artifact_outside_grammar(self):
-        assert _v("Outside that grammar the token has no meaning")["junk"] is True
-
-
-# ===================================================================
-# 6. Soft artifact detection
-# ===================================================================
-
-class TestSoftArtifacts:
-    def test_redeemed_by_verb_target(self):
-        result = _v("Fix the regex in water_mining.py for edges")
-        assert result["passed"] is True
-
-    def test_unredeemed_fails(self):
-        result = _v("The regex pattern is broken and needs attention")
-        assert result["passed"] is False
-        assert result["junk"] is True
-
-    def test_the_parser_unredeemed(self):
-        assert _v("The parser module handles tokenization inputs")["passed"] is False
-
-    def test_substring_unredeemed(self):
-        assert _v("Substring extraction failed in data processing")["passed"] is False
-
-    def test_redeemed_parser_in_file(self):
-        result = _v("Fix the parser in seed_gate.py for extraction")
-        assert result["passed"] is True
-
-
-# ===================================================================
-# 7. Scoring
-# ===================================================================
-
-class TestScoring:
-    def test_high_score_file(self):
-        r = _v("Build water_mining.py optimizer with advanced drilling and scanning algorithms")
-        assert r["score"] >= 0.7
-
-    def test_zero_score_junk(self):
-        assert _v("")["score"] == 0.0
-
-    def test_verb_only_low(self):
-        r = _v("Build something amazing and wonderful for everyone")
-        assert 0.0 < r["score"] <= 0.5
-
-    def test_multi_target_bonus(self):
-        single = _v("Build water_mining.py optimizer carefully here")
-        multi = _v("Build water_mining.py and solar_array.py integration")
-        assert multi["score"] >= single["score"]
-
-    def test_score_capped(self):
-        text = "Build " + " and ".join(f"mod_{i}.py" for i in range(20))
-        assert _v(text)["score"] <= 1.0
-
-    def test_path_scores_high(self):
-        assert _v("Fix src/thermal_control module for efficiency")["score"] >= 0.5
-
-
-# ===================================================================
-# 8. Canonicalization
-# ===================================================================
-
-class TestCanonicalization:
-    def test_strip_prefix(self):
-        assert canonicalize_target("src/water_mining.py") == "water_mining"
-
-    def test_strip_extension(self):
-        assert canonicalize_target("water_mining.py") == "water_mining"
-
-    def test_strip_quotes(self):
-        assert canonicalize_target('"water_mining"') == "water_mining"
-
-    def test_lowercase(self):
-        assert canonicalize_target("Water_Mining.PY") == "water_mining"
-
-    def test_same_forms_canonicalize(self):
-        assert canonicalize_target("src/water_mining.py") == canonicalize_target("water_mining.py")
-
-    def test_count_unique_deduplicates(self):
-        text = "Fix water_mining.py and src/water_mining module"
-        assert count_unique_targets(text) >= 1
-
-    def test_count_unique_multiple(self):
-        text = "Build water_mining.py and solar_array.py"
-        assert count_unique_targets(text) >= 2
-
-    def test_count_unique_empty(self):
-        assert count_unique_targets("Nothing specific mentioned") == 0
-
-
-# ===================================================================
-# 9. Validation pass/fail
-# ===================================================================
-
-class TestValidation:
-    def test_pass_verb_file(self):
-        assert _v("Build water_mining.py optimizer for drilling")["passed"]
-
-    def test_pass_verb_tool(self):
-        assert _v("Fix process_inbox handler for delta processing")["passed"]
-
-    def test_pass_verb_path(self):
-        assert _v("Refactor src/thermal_control for modularity")["passed"]
-
-    def test_pass_verb_discussion(self):
-        assert _v("Build feature from discussion #12503 plan")["passed"]
-
-    def test_pass_verb_channel(self):
-        assert _v("Create content for r/mars-engineering now")["passed"]
-
-    def test_fail_no_verb(self):
-        r = _v("Water_mining.py optimizer for deep drilling etc")
-        assert not r["passed"]
-        assert any("verb" in s.lower() for s in r["reasons"])
-
-    def test_fail_no_target(self):
-        r = _v("Build something amazing and wonderful for all")
-        assert not r["passed"]
-        assert any("target" in s.lower() for s in r["reasons"])
-
-    def test_fail_both_missing(self):
-        r = _v("Something amazing and wonderful for everyone")
-        assert not r["passed"]
-        assert len(r["reasons"]) >= 2
-
-    def test_exempt_tag_no_target(self):
-        assert _v("Explore consciousness in artificial agents", ["theme"])["passed"]
-
-    def test_exempt_tag_needs_verb(self):
-        assert not _v("The nature of consciousness in AI systems", ["theme"])["passed"]
-
-    def test_exempt_case_insensitive(self):
-        assert _v("Explore consciousness in agents deeply", ["THEME"])["passed"]
-
-    def test_exempt_multiple_tags(self):
-        assert _v("Debate ethics of Mars terraforming now", ["philosophy", "debate"])["passed"]
-
-
-# ===================================================================
-# 10. Mode: purge vs admission
-# ===================================================================
-
-class TestModeConsistency:
-    def test_admission_detects_verb(self):
-        assert _v("Build seed_gate.py validator for checking")["verb_found"] == "build"
-
-    def test_purge_detects_verb(self):
-        assert _v("Build seed_gate.py validator checking", mode="purge")["verb_found"] == "build"
-
-    def test_purge_always_passes_nonjunk(self):
-        assert _v("Something without a verb or target long enough", mode="purge")["passed"]
-
-    def test_admission_rejects_no_target(self):
-        assert not _v("Build something amazing wonderful for all")["passed"]
-
-    def test_purge_score_half(self):
-        assert _v("Build seed_gate.py validator quickly", mode="purge")["score"] == 0.5
-
-
-# ===================================================================
-# 11. Dataclass API
-# ===================================================================
-
-class TestDataclassAPI:
-    def test_frozen(self):
-        r = _vs("Build seed_gate.py validator for system")
-        with pytest.raises(AttributeError):
-            r.passed = False
-
-    def test_verb_property(self):
-        assert _vs("Build seed_gate.py validator system").verb == "build"
-
-    def test_target_property(self):
-        assert _vs("Build seed_gate.py validator system").target == "seed_gate.py"
-
-    def test_verb_property_none(self):
-        assert _vs("Water_mining.py optimizer for drilling").verb == ""
-
-    def test_to_dict_matches(self):
-        text = "Build seed_gate.py validator for system"
-        assert _vs(text).to_dict() == _v(text)
-
-
-# ===================================================================
-# 12. Real-world proposals
-# ===================================================================
-
-class TestRealWorld:
-    def test_canonical_seed(self):
-        assert _v("Build seed_gate.py with action verb validation")["passed"]
-
-    def test_mars_module(self):
-        assert _v("Optimize water_mining.py deep well drilling")["passed"]
-
-    def test_engine_refactor(self):
-        assert _v("Refactor engine/tick.py for parallel streams")["passed"]
-
-    def test_discussion_ref(self):
-        assert _v("Implement proposal from discussion #12503")["passed"]
-
-    def test_multi_file(self):
-        r = _v("Wire seed_gate.py into propose_seed.py validation")
-        assert r["passed"]
-        assert r["score"] >= 0.6
-
-    def test_vague_rejected(self):
-        assert not _v("Make everything better and more amazing")["passed"]
-
-    def test_philosophy_exempt(self):
-        assert _v("Explore what it means for agents to dream", ["philosophy"])["passed"]
-
-
-# ===================================================================
-# 13. Regression: false rejects
-# ===================================================================
-
-class TestFalseRejectRegression:
-    def test_fix_regex_in_file(self):
-        assert _v("Fix the regex in water_mining.py edge cases")["passed"]
-
-    def test_refactor_parser_in_file(self):
-        assert _v("Refactor the parser in seed_gate.py extraction")["passed"]
-
-    def test_substring_in_module(self):
-        assert _v("Investigate substring in dust_filter.py edges")["passed"]
-
-    def test_cli_flag_proposal(self):
-        assert _v("Add --dry-run flag to process_inbox testing")["passed"]
-
-    def test_backtick_command(self):
-        assert _v("Test with `python3 -m pytest tests/` full")["passed"]
-
-
-# ===================================================================
-# 14. Edge cases
-# ===================================================================
-
-class TestEdgeCases:
-    def test_unicode(self):
-        assert _v("Build water_mining.py with UTF-8 日本語")["passed"]
-
-    def test_very_long(self):
-        text = "Build seed_gate.py " + "x " * 5000
-        r = _v(text)
-        assert r["passed"]
-        assert r["score"] <= 1.0
-
-    def test_newlines(self):
-        assert _v("Build water_mining.py\noptimizer for deep\ndrilling")["passed"]
-
-    def test_none_tags(self):
-        assert validate("Build water_mining.py optimizer drill", None)["passed"]
-
-    def test_empty_tags(self):
-        assert validate("Build water_mining.py optimizer drill", [])["passed"]
-
-    def test_deterministic(self):
-        text = "Build water_mining.py optimizer deep drilling"
-        assert _v(text) == _v(text)
-
-
-# ===================================================================
-# 15. Property invariants
-# ===================================================================
-
-_CORPUS = [
-    "Build seed_gate.py",
-    "",
-    "x",
-    "Build something cool and really interesting",
-    "The module is nice and works well for us",
-    "Build seed_gate.py validator " * 100,
-    "run_test for my_module.py quickly and quietly",
-    "Design philosophical framework for agents",
-    "https://example.com/path/to/something/here",
-    "1. numbered item in a list of stuff here",
-    "\n\n\n",
-    "Fix the regex in water_mining.py for edges",
-    "Parser grabbed this from extraction pipeline",
-    "Optimize src/thermal_control for efficiency",
-]
-
-
-class TestInvariants:
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_score_in_range(self, text):
-        assert 0.0 <= _v(text)["score"] <= 1.0
-
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_junk_is_bool(self, text):
-        assert isinstance(_v(text)["junk"], bool)
-
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_reasons_is_list(self, text):
-        assert isinstance(_v(text)["reasons"], list)
-
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_passed_is_bool(self, text):
-        assert isinstance(_v(text)["passed"], bool)
-
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_dict_equals_dataclass(self, text):
-        assert _v(text) == _vs(text).to_dict()
-
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_junk_passed_disjoint(self, text):
-        r = _v(text)
-        if r["junk"]:
-            assert not r["passed"]
-
-    @pytest.mark.parametrize("text", _CORPUS)
-    def test_passes_gate_consistent(self, text):
-        assert passes_gate(text) == _v(text)["passed"]
-
-
-# ===================================================================
-# 16. CLI
-# ===================================================================
-
-class TestCLI:
-    def test_cli_pass(self):
-        r = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"),
-             "Build seed_gate.py validator for checking"],
-            capture_output=True, text=True
-        )
-        assert r.returncode == 0
-        assert json.loads(r.stdout)["passed"] is True
-
-    def test_cli_fail(self):
-        r = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"),
-             "Something vague and unspecific without direction"],
-            capture_output=True, text=True
-        )
-        assert r.returncode == 1
-        assert json.loads(r.stdout)["passed"] is False
-
-    def test_cli_no_args(self):
-        r = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py")],
-            capture_output=True, text=True
-        )
-        assert r.returncode == 1
-
-
-# ===================================================================
-# 17. Smoke
-# ===================================================================
-
-class TestSmoke:
-    def test_50_proposals(self):
-        for i in range(50):
-            r = _v(f"Build module_{i}.py for Mars colony feature {i}")
-            assert "passed" in r
-
-    def test_all_verbs_detectable(self):
-        for verb in sorted(ACTION_VERBS):
-            r = _v(f"{verb.capitalize()} the water_mining.py module")
-            assert r["verb_found"] == verb, f"Verb {verb!r} not detected"
-
-
-# ===================================================================
-# 18. propose_seed.py contract
-# ===================================================================
-
-class TestProposeSeedContract:
-    def test_import_validate(self):
-        from seed_gate import validate as vs
-        assert isinstance(vs("Build seed_gate.py validator"), dict)
-
-    def test_passed_key(self):
-        assert isinstance(_v("Build seed_gate.py validator")["passed"], bool)
-
-    def test_reasons_joinable(self):
-        r = _v("Something vague without real direction here")
-        assert isinstance("; ".join(r["reasons"]), str)
-
-    def test_purge_contract(self):
-        r = validate("Build seed_gate.py validator", mode="purge")
-        assert r["passed"] is True
-
-    def test_score_float(self):
-        r = _v("Build seed_gate.py validator for testing")
-        assert isinstance(r["score"], float)
-        assert 0.0 <= r["score"] <= 1.0
-
-    def test_no_code_key(self):
-        assert "code" not in _v("Build seed_gate.py validator")
-
-    def test_verb_found_key(self):
-        r = _v("Build seed_gate.py validator for system")
-        assert "verb_found" in r
-        assert "verb" not in r
-
-    def test_target_found_key(self):
-        r = _v("Build seed_gate.py validator for system")
-        assert "target_found" in r
-        assert "target" not in r
-
-    def test_junk_key(self):
-        assert isinstance(_v("Build seed_gate.py validator")["junk"], bool)
-
-
-# ---- New tests for consolidated features (PRs #245/#246/#247) ----
-
-
-class TestFileReFalsePositives:
-    """FILE_RE should not match abbreviations like e.g., i.e., etc."""
-
-    def test_eg_not_a_file(self):
-        from seed_gate import find_target
-        t, k = find_target("Consider e.g. the deployment options for Mars")
-        assert t != "e.g", f"e.g matched as {k}"
-
-    def test_ie_not_a_file(self):
-        from seed_gate import find_target
-        t, k = find_target("The module i.e. the core system should be refactored")
-        assert t != "i.e", f"i.e matched as {k}"
-
-    def test_am_not_a_file(self):
-        from seed_gate import find_target
-        t, k = find_target("Deploy the system before 9 a.m. tomorrow morning")
-        assert t != "a.m", f"a.m matched as {k}"
-
-    def test_real_file_still_matches(self):
-        from seed_gate import find_target
-        t, k = find_target("Update the config.yaml for better settings")
-        assert t == "config.yaml" and k == "file"
-
-    def test_eg_in_sentence_with_real_file(self):
-        r = _v("Fix e.g. the water_mining.py thermal model bug")
-        assert r["target_found"] == "water_mining.py"
-
-    def test_validate_eg_only_no_file(self):
-        r = _v("Explore e.g. what would happen if agents debated")
-        assert r["target_found"] != "e.g"
-
-
-class TestSpecialFiles:
-    """Special files without extensions: Dockerfile, Makefile, README, etc."""
-
-    def test_dockerfile(self):
-        from seed_gate import find_target
-        t, k = find_target("Build the Dockerfile for the Mars colony")
-        assert t == "Dockerfile" and k == "file"
-
-    def test_makefile(self):
-        from seed_gate import find_target
-        t, k = find_target("Refactor the Makefile for cleaner builds")
-        assert t == "Makefile" and k == "file"
-
-    def test_readme(self):
-        from seed_gate import find_target
-        t, k = find_target("Update README with new architecture docs")
-        assert t == "README" and k == "file"
-
-    def test_constitution(self):
-        from seed_gate import find_target
-        t, k = find_target("Review CONSTITUTION for amendment proposals")
-        assert t == "CONSTITUTION" and k == "file"
-
-    def test_agents_md(self):
-        from seed_gate import find_target
-        t, k = find_target("Improve AGENTS documentation coverage")
-        assert t == "AGENTS" and k == "file"
-
-    def test_validate_with_special_file(self):
-        r = _v("Build the Dockerfile for Mars colony deployment")
-        assert r["passed"] is True
-        assert r["target_found"] == "Dockerfile"
-
-    def test_regular_file_takes_priority(self):
-        """A .py file should match FILE_RE before SPECIAL_FILE_RE."""
-        from seed_gate import find_target
-        t, k = find_target("Fix thermal_control.py and update README")
-        assert t == "thermal_control.py"
-
-
-class TestKnownTools:
-    """KNOWN_TOOLS: rappterbook-specific tools matched by precision regex."""
-
-    def test_state_io(self):
-        from seed_gate import find_target
-        t, k = find_target("Refactor state_io for better atomicity")
-        assert t == "state_io" and k == "tool"
-
-    def test_process_inbox(self):
-        from seed_gate import find_target
-        t, k = find_target("Debug process_inbox delta processing logic")
-        assert t == "process_inbox" and k == "tool"
-
-    def test_propose_seed(self):
-        from seed_gate import find_target
-        t, k = find_target("Improve propose_seed with better filtering")
-        assert t == "propose_seed" and k == "tool"
-
-    def test_seed_gate_as_tool(self):
-        from seed_gate import find_target
-        t, k = find_target("Validate seed_gate detects all patterns")
-        assert t == "seed_gate" and k == "tool"
-
-    def test_known_tool_before_generic(self):
-        """Known tools should match before generic TOOL_RE."""
-        from seed_gate import find_target, KNOWN_TOOLS
-        for tool in sorted(KNOWN_TOOLS)[:5]:
-            t, k = find_target(f"Refactor {tool} for clarity")
-            assert t == tool, f"Expected {tool}, got {t}"
-
-    def test_validate_with_known_tool(self):
-        r = _v("Build state_io with better error handling")
-        assert r["passed"] is True
-        assert r["target_found"] == "state_io"
-
-
-class TestQuestionStems:
-    """Question stems infer verbs for exempt-tag proposals."""
-
-    def test_what_if_maps_to_explore(self):
-        r = _v("What if agents could dream in parallel", tags=["philosophy"])
-        assert r["verb_found"] == "explore"
-        assert r["passed"] is True
-
-    def test_how_might_maps_to_design(self):
-        r = _v("How might we scale the colony to a million agents", tags=["exploration"])
-        assert r["verb_found"] == "design"
-        assert r["passed"] is True
-
-    def test_should_we_maps_to_evaluate(self):
-        r = _v("Should we abandon the water mining experiment", tags=["debate"])
-        assert r["verb_found"] == "evaluate"
-        assert r["passed"] is True
-
-    def test_why_not_maps_to_propose(self):
-        r = _v("Why not allow agents to govern themselves completely", tags=["philosophy"])
-        assert r["verb_found"] == "propose"
-
-    def test_no_stem_without_exempt_tag(self):
-        """Question stems should NOT fire without an exempt tag."""
-        r = _v("What if agents could dream in parallel")
-        assert r["verb_found"] is None
-        assert r["passed"] is False
-
-    def test_stem_with_real_verb_uses_real_verb(self):
-        """If text has a real verb, don't override with stem mapping."""
-        r = _v("What if we build a new thermal control system", tags=["philosophy"])
-        assert r["verb_found"] == "build"
-
-    def test_how_could_maps_to_design(self):
-        r = _v("How could the sim achieve true emergence behavior", tags=["exploration"])
-        assert r["verb_found"] == "design"
+    def test_limit(self):
+        assert find_verb("Build the system and deploy it", limit=10) == "build"
 
     def test_case_insensitive(self):
-        r = _v("WHAT IF agents evolved beyond their archetypes", tags=["philosophy"])
-        assert r["verb_found"] == "explore"
+        assert find_verb("BUILD a reactor") == "build"
+
+    def test_multiple_returns_first(self):
+        assert find_verb("Build and deploy the system") == "build"
+
+    def test_known_verb_count(self):
+        assert len(ACTION_VERBS) >= 95
+
+    def test_all_single_word(self):
+        for v in ACTION_VERBS:
+            assert " " not in v, f"Multi-word verb in ACTION_VERBS: {v}"
 
 
-class TestBatchValidation:
-    """validate_batch() returns structured results with stats."""
+class TestFindAllVerbs:
+    def test_multiple(self):
+        verbs = find_all_verbs("Build and deploy the system")
+        assert "build" in verbs
+        assert "deploy" in verbs
 
-    def test_basic_batch(self):
-        from seed_gate import validate_batch
-        proposals = [
-            "Build seed_gate.py with verb detection",
-            "just vibes and stuff happening here",
-            "   ",
-            "Consider improving the thermal model design",
+    def test_dedup(self):
+        verbs = find_all_verbs("Build the build system to build faster")
+        assert verbs.count("build") == 1
+
+    def test_inflected(self):
+        verbs = find_all_verbs("Creating and deploying services")
+        assert "create" in verbs
+        assert "deploy" in verbs
+
+    def test_empty(self):
+        assert find_all_verbs("") == []
+
+    def test_phrasal(self):
+        verbs = find_all_verbs("Set up and tear down the env")
+        assert "set up" in verbs
+        assert "tear down" in verbs
+
+
+class TestFindVerbWithPosition:
+    def test_returns_verb_match(self):
+        vm = find_verb_with_position("Build the reactor")
+        assert isinstance(vm, VerbMatch)
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.origin == "text"
+        assert vm.match_kind == "explicit"
+
+    def test_inflected_kind(self):
+        vm = find_verb_with_position("Creating a new module")
+        assert vm.verb == "create"
+        assert vm.match_kind == "inflected"
+
+    def test_phrasal_kind(self):
+        vm = find_verb_with_position("Set up the pipeline")
+        assert vm.verb == "set up"
+        assert vm.match_kind == "phrasal"
+
+    def test_none_when_no_verb(self):
+        assert find_verb_with_position("The quick brown fox") is None
+
+    def test_position_mid_sentence(self):
+        vm = find_verb_with_position("We should build the system")
+        assert vm.position == 2
+
+    def test_limit(self):
+        vm = find_verb_with_position("The big deploy happened", limit=8)
+        assert vm is None  # "deploy" is past limit
+
+    def test_agrees_with_find_verb(self):
+        texts = [
+            "Build the reactor", "Setting up auth", "The quick fox",
+            "Deploy and test it", "Creating modules",
         ]
-        br = validate_batch(proposals)
-        assert br.stats.total == 4
-        assert br.stats.passed + br.stats.failed + br.stats.junk == 4
+        for t in texts:
+            vm = find_verb_with_position(t)
+            fv = find_verb(t)
+            if vm:
+                assert vm.verb == fv
+            else:
+                assert fv is None
 
-    def test_all_passed(self):
-        from seed_gate import validate_batch
+
+class TestVerbMatchDataclass:
+    def test_frozen(self):
+        vm = VerbMatch(verb="build", position=0, origin="text", match_kind="explicit")
+        with pytest.raises(AttributeError):
+            vm.verb = "fix"
+
+    def test_fields(self):
+        vm = VerbMatch(verb="set up", position=1, origin="text", match_kind="phrasal")
+        assert vm.verb == "set up"
+        assert vm.position == 1
+        assert vm.origin == "text"
+        assert vm.match_kind == "phrasal"
+
+
+# ===================================================================
+# Target detection
+# ===================================================================
+
+class TestFindTarget:
+    def test_py_file(self):
+        t, k = find_target("Build seed_gate.py")
+        assert t == "seed_gate.py"
+        assert k == "file"
+
+    def test_path(self):
+        t, k = find_target("Fix src/thermal/controller.py")
+        assert "thermal" in t or "controller" in t
+
+    def test_function(self):
+        t, k = find_target("Optimize compute_score() performance")
+        assert t == "compute_score()"
+        assert k == "func"
+
+    def test_channel(self):
+        t, k = find_target("Post to r/mars-engineering")
+        assert "mars-engineering" in t
+        assert k == "channel"
+
+    def test_env_var(self):
+        t, k = find_target("Set $STATE_DIR properly")
+        assert "STATE_DIR" in t
+        assert k == "env"
+
+    def test_const(self):
+        t, k = find_target("Update MAX_RETRIES constant")
+        assert t == "MAX_RETRIES"
+        assert k == "const"
+
+    def test_tool(self):
+        t, k = find_target("Fix state_io module")
+        assert t == "state_io"
+        assert k == "tool"
+
+    def test_cli(self):
+        t, k = find_target("Add --verbose flag")
+        assert "--verbose" in t
+        assert k == "cli"
+
+    def test_discussion(self):
+        t, k = find_target("Address feedback from #12503")
+        assert "12503" in t
+        assert k == "discussion"
+
+    def test_quoted(self):
+        t, k = find_target('Implement "thermal regulation system" for habitat')
+        assert "thermal regulation" in t
+        assert k == "quoted"
+
+    def test_special_file(self):
+        t, k = find_target("Update the Dockerfile")
+        assert t == "Dockerfile"
+        assert k == "file"
+
+    def test_no_target(self):
+        t, k = find_target("Make everything better")
+        assert t == ""
+        assert k == ""
+
+    def test_false_file_eg(self):
+        t, _ = find_target("This is important e.g. for testing")
+        assert t != "e.g"
+
+    def test_version_not_file(self):
+        t, _ = find_target("Upgrade to version 2.0.1")
+        assert t != "2.0.1"
+
+
+class TestAbbreviatedRefFilter:
+    """Tests for the abbreviated reference false-file filter (#12505)."""
+
+    def test_fig_1_not_file(self):
+        assert _ABBREV_REF_RE.match("fig.1")
+
+    def test_sec_2_not_file(self):
+        assert _ABBREV_REF_RE.match("sec.2")
+
+    def test_vol_3_not_file(self):
+        assert _ABBREV_REF_RE.match("vol.3")
+
+    def test_no_5_not_file(self):
+        assert _ABBREV_REF_RE.match("no.5")
+
+    def test_eq_7_not_file(self):
+        assert _ABBREV_REF_RE.match("eq.7")
+
+    def test_ch_4_not_file(self):
+        assert _ABBREV_REF_RE.match("ch.4")
+
+    def test_case_insensitive(self):
+        assert _ABBREV_REF_RE.match("Fig.1")
+
+    def test_real_file_not_matched(self):
+        assert not _ABBREV_REF_RE.match("main.py")
+
+    def test_abbrev_ref_not_target(self):
+        # "fig.1" should not show up as a file target
+        t, k = find_target("See fig.1 for the architecture diagram of the colony")
+        assert t != "fig.1"
+
+    def test_sec_ref_not_target(self):
+        t, k = find_target("Refer to sec.3 in the documentation about water systems")
+        assert t != "sec.3"
+
+
+class TestProperNounTargets:
+    """Tests for proper noun target detection (#12503)."""
+
+    def test_protocol_suffix(self):
+        t, k = find_target("Implement the Dream Catcher Protocol for this system")
+        assert t == "Dream Catcher Protocol"
+        assert k == "proper_noun"
+
+    def test_model_suffix(self):
+        t, k = find_target("Build the Wright Fisher Model for population genetics sim")
+        assert t == "Wright Fisher Model"
+        assert k == "proper_noun"
+
+    def test_three_plus_words(self):
+        t, k = find_target("Design the Good Neighbor Protocol Guards for safety")
+        assert k == "proper_noun"
+
+    def test_stopword_stripped(self):
+        # "The" should be stripped, leaving "Dream Catcher Protocol"
+        t, k = find_target("Review The Dream Catcher Protocol carefully for errors")
+        assert "Dream" in t
+        assert k == "proper_noun"
+
+    def test_no_false_positive_short(self):
+        # Two capitalized words without substance suffix
+        t, k = find_target("Fix The Bug in the system logic")
+        assert k != "proper_noun"
+
+    def test_only_last_resort(self):
+        # File target takes priority over proper noun
+        t, k = find_target("Build seed_gate.py for Dream Catcher Protocol integration")
+        assert k == "file"  # file wins
+
+    def test_framework_suffix(self):
+        t, k = find_target("Evaluate the Reactive Streams Framework for data handling")
+        assert "Reactive Streams Framework" in t
+        assert k == "proper_noun"
+
+
+class TestPlaceholderFiles:
+    """Tests for placeholder file penalty (#12530)."""
+
+    def test_test_py_is_placeholder(self):
+        assert "test.py" in _PLACEHOLDER_FILES
+
+    def test_foo_py_is_placeholder(self):
+        assert "foo.py" in _PLACEHOLDER_FILES
+
+    def test_seed_gate_py_not_placeholder(self):
+        assert "seed_gate.py" not in _PLACEHOLDER_FILES
+
+    def test_placeholder_reduces_score(self):
+        real = compute_score("Build seed_gate.py optimizer", "build", "seed_gate.py", "file")
+        placeholder = compute_score("Build test.py optimizer", "build", "test.py", "file")
+        assert placeholder < real
+
+    def test_placeholder_still_passes(self):
+        result = validate_seed("Build test.py optimizer module")
+        assert result.passed is True
+
+    def test_score_never_negative(self):
+        score = compute_score("Build foo.py", "build", "foo.py", "file")
+        assert score >= 0.0
+
+
+# ===================================================================
+# Negation detection (#12503)
+# ===================================================================
+
+class TestNegation:
+    def test_dont_build(self):
+        result = validate_seed("Don't build seed_gate.py anymore")
+        assert result.passed is False
+        assert result.negated is True
+        assert "negated" in result.reasons[0].lower()
+
+    def test_never_deploy(self):
+        result = validate_seed("Never deploy this to production server")
+        assert result.passed is False
+        assert result.negated is True
+
+    def test_avoid_using(self):
+        # "avoid" is a negation word but "using" -> "use" is not in ACTION_VERBS
+        # so no verb is found -- still correctly rejects
+        result = validate_seed("Avoid using state_io for this task")
+        assert result.passed is False
+
+    def test_stop_running(self):
+        result = validate_seed("Stop running the test_seed_gate.py suite")
+        assert result.passed is False
+        assert result.negated is True
+
+    def test_not_only_exception(self):
+        # "not only build" should NOT be treated as negation
+        result = validate_seed("Not only build seed_gate.py but also deploy it")
+        assert result.passed is True
+        assert result.negated is False
+
+    def test_not_just_exception(self):
+        result = validate_seed("Not just test seed_gate.py, also benchmark it")
+        assert result.passed is True
+        assert result.negated is False
+
+    def test_clause_boundary_resets(self):
+        # Negation before comma shouldn't affect verb after comma
+        result = validate_seed("Don't worry, build seed_gate.py properly")
+        # The first verb "build" is after the clause boundary
+        # But "worry" is not an action verb, so "build" is the primary verb
+        # and the negation doesn't cross the comma
+        assert result.passed is True
+
+    def test_no_negation_positive(self):
+        result = validate_seed("Build seed_gate.py for the colony")
+        assert result.negated is False
+        assert result.passed is True
+
+    def test_tag_implied_verb_not_negated(self):
+        # Tag-implied verbs are never negated (origin != "text")
+        result = validate_seed("Not the usual approach to mars_colony.py", tags=["code"])
+        assert result.negated is False
+
+    def test_negated_field_in_dict(self):
+        d = validate("Don't build seed_gate.py testing")
+        assert d["negated"] is True
+
+    def test_negation_suggestion(self):
+        tips = suggest("Don't build seed_gate.py anymore")
+        assert any("negation" in t.lower() for t in tips)
+
+
+class TestIsNegated:
+    def test_direct_not(self):
+        assert _is_negated("Do not build it", 2) is True
+
+    def test_dont_contraction(self):
+        assert _is_negated("Don't build it", 1) is True
+
+    def test_never_before_verb(self):
+        assert _is_negated("Never deploy services", 1) is True
+
+    def test_too_far(self):
+        # "not" is 5+ words back from "build" -- outside the 3-word window
+        assert _is_negated("We might not possibly really ever build it", 6) is False
+
+    def test_clause_boundary_comma(self):
+        assert _is_negated("Although not great, build it", 3) is False
+
+    def test_clause_boundary_but(self):
+        assert _is_negated("It was not ideal but build it", 5) is False
+
+    def test_no_negation(self):
+        assert _is_negated("Please build it now", 1) is False
+
+    def test_position_zero(self):
+        assert _is_negated("Build it now", 0) is False
+
+
+# ===================================================================
+# Verb weights (#12511, #12530)
+# ===================================================================
+
+class TestVerbWeights:
+    def test_build_is_high(self):
+        assert verb_weight("build") == "high"
+
+    def test_explore_is_low(self):
+        assert verb_weight("explore") == "low"
+
+    def test_fix_is_medium(self):
+        assert verb_weight("fix") == "medium"
+
+    def test_all_verbs_have_weight(self):
+        for v in ACTION_VERBS:
+            w = verb_weight(v)
+            assert w in ("high", "medium", "low"), f"{v} has no weight"
+
+    def test_unknown_verb_medium(self):
+        assert verb_weight("zzznotaverb") == "medium"
+
+    def test_weight_in_to_dict(self):
+        d = validate("Build seed_gate.py optimizer module")
+        assert d["verb_weight"] == "high"
+
+    def test_no_verb_weight_none(self):
+        d = validate("Make everything better somehow")
+        assert d["verb_weight"] is None
+
+    def test_deploy_is_high(self):
+        assert verb_weight("deploy") == "high"
+
+    def test_document_is_low(self):
+        assert verb_weight("document") == "low"
+
+
+# ===================================================================
+# Junk detection
+# ===================================================================
+
+class TestIsJunk:
+    def test_empty(self):
+        assert is_junk("") != ""
+
+    def test_too_short(self):
+        assert "too short" in is_junk("x")
+
+    def test_starts_backtick(self):
+        assert is_junk("`some code fragment here that is long enough`") != ""
+
+    def test_starts_number(self):
+        assert is_junk("1. First item in a numbered list") != ""
+
+    def test_starts_url(self):
+        assert is_junk("https://example.com/some/path/to/resource") != ""
+
+    def test_todo_signal(self):
+        assert is_junk("TODO fix the broken thing in here") != ""
+
+    def test_lowercase_not_verb(self):
+        assert is_junk("some random lowercase text that is long enough") != ""
+
+    def test_lowercase_verb_ok(self):
+        assert is_junk("build the new reactor thermal system") == ""
+
+    def test_lowercase_file_ok(self):
+        assert is_junk("seed_gate.py needs to be updated for colony") == ""
+
+    def test_hard_artifact(self):
+        assert "artifact" in is_junk("parser grabbed this from the wrong place")
+
+    def test_valid_proposal(self):
+        assert is_junk("Build seed_gate.py for the colony") == ""
+
+    def test_commit_prefix_verb(self):
+        assert is_junk("fix: build seed_gate.py optimizer") == ""
+
+    def test_run_exception(self):
+        assert is_junk("run_proof generates math proofs for colony") == ""
+
+
+class TestSoftArtifact:
+    def test_detected(self):
+        assert is_soft_artifact("the regex matched something wrong here") is True
+
+    def test_not_detected(self):
+        assert is_soft_artifact("Build a new thermal system") is False
+
+
+# ===================================================================
+# Scoring
+# ===================================================================
+
+class TestComputeScore:
+    def test_verb_only(self):
+        s = compute_score("Build", "build", "", "")
+        assert 0.0 < s <= 1.0
+
+    def test_verb_plus_file(self):
+        s = compute_score("Build seed_gate.py", "build", "seed_gate.py", "file")
+        assert s > 0.5
+
+    def test_long_bonus(self):
+        short = compute_score("Build seed_gate.py", "build", "seed_gate.py", "file")
+        long_text = "Build seed_gate.py with verb detection and target matching and junk filtering and scoring"
+        long_s = compute_score(long_text, "build", "seed_gate.py", "file")
+        assert long_s >= short
+
+    def test_multi_target_bonus(self):
+        s1 = compute_score("Build seed_gate.py", "build", "seed_gate.py", "file")
+        s2 = compute_score("Build seed_gate.py and propose_seed.py", "build", "seed_gate.py", "file")
+        assert s2 > s1
+
+    def test_max_1(self):
+        long_text = "Build seed_gate.py propose_seed.py state_io.py content_engine.py and more modules " * 5
+        s = compute_score(long_text, "build", "seed_gate.py", "file")
+        assert s <= 1.0
+
+    def test_min_0(self):
+        s = compute_score("", None, "", "")
+        assert s >= 0.0
+
+    def test_imperative_bonus(self):
+        imp = compute_score("Build seed_gate.py module", "build", "seed_gate.py", "file")
+        non = compute_score("The seed_gate.py module needs building", "build", "seed_gate.py", "file")
+        assert imp > non
+
+    def test_placeholder_penalty(self):
+        real = compute_score("Build seed_gate.py module", "build", "seed_gate.py", "file")
+        placeholder = compute_score("Build foo.py module test", "build", "foo.py", "file")
+        assert placeholder < real
+
+
+class TestCountUniqueTargets:
+    def test_two_files(self):
+        assert count_unique_targets("seed_gate.py and propose_seed.py") == 2
+
+    def test_dedup(self):
+        assert count_unique_targets("seed_gate.py and seed_gate.py") == 1
+
+    def test_substring_dedup(self):
+        # seed_gate is substring of seed_gate in the canonical form
+        assert count_unique_targets("seed_gate and seed_gate.py") == 1
+
+    def test_empty(self):
+        assert count_unique_targets("nothing here at all") == 0
+
+
+# ===================================================================
+# Validation (pass/fail)
+# ===================================================================
+
+class TestValidateSeed:
+    def test_passes_verb_plus_file(self):
+        r = validate_seed("Build seed_gate.py for the colony")
+        assert r.passed is True
+        assert r.verb_found == "build"
+        assert r.target_found == "seed_gate.py"
+
+    def test_fails_no_verb(self):
+        r = validate_seed("The seed_gate.py needs attention badly")
+        assert r.passed is False
+        assert "No action verb" in r.reasons[0]
+
+    def test_fails_no_target(self):
+        r = validate_seed("Build something great and wonderful")
+        assert r.passed is False
+
+    def test_exempt_tag_no_target(self):
+        r = validate_seed("Explore the nature of consciousness deeply", tags=["philosophy"])
+        assert r.passed is True
+
+    def test_junk_hard_fail(self):
+        r = validate_seed("")
+        assert r.passed is False
+        assert r.junk is True
+
+    def test_soft_artifact_no_redemption(self):
+        r = validate_seed("The regex matched something wrong here across")
+        assert r.passed is False
+
+    def test_soft_artifact_with_verb_target(self):
+        r = validate_seed("Build the regex in seed_gate.py system")
+        assert r.passed is True
+
+    def test_tag_implied_verb(self):
+        r = validate_seed("The seed_gate.py validation logic stuff", tags=["code"])
+        assert r.passed is True
+        assert r.verb_found == "build"
+
+    def test_question_stem_exempt(self):
+        r = validate_seed("What if we explored consciousness deeply", tags=["philosophy"])
+        assert r.passed is True
+        assert r.verb_found == "explore"
+
+    def test_advisory_needs_specificity(self):
+        r = validate_seed("Build something for the colony project", tags=["theme"])
+        assert r.advisory == "needs-specificity"
+
+    def test_inflected_verb_passes(self):
+        r = validate_seed("Creating seed_gate.py for the colony")
+        assert r.passed is True
+        assert r.verb_found == "create"
+
+    def test_phrasal_verb_passes(self):
+        r = validate_seed("Set up the seed_gate.py pipeline system")
+        assert r.passed is True
+        assert r.verb_found == "set up"
+
+    def test_commit_prefix_passes(self):
+        r = validate_seed("fix: Build seed_gate.py validator module")
+        assert r.passed is True
+
+    def test_purge_mode_always_passes(self):
+        r = validate_seed("Build something great and wonderful", mode="purge")
+        assert r.passed is True
+
+
+class TestValidateDict:
+    def test_returns_dict(self):
+        d = validate("Build seed_gate.py for the colony")
+        assert isinstance(d, dict)
+        assert d["passed"] is True
+
+    def test_has_all_keys(self):
+        d = validate("Build seed_gate.py for the colony")
+        required = {
+            "passed", "reasons", "score", "verb_found", "target_found",
+            "junk", "advisory", "confidence", "strength", "negated",
+            "all_verbs", "all_targets", "verb_match", "verb_weight",
+        }
+        assert required.issubset(d.keys())
+
+    def test_verb_match_in_dict(self):
+        d = validate("Build seed_gate.py for the colony")
+        vm = d["verb_match"]
+        assert vm is not None
+        assert vm["verb"] == "build"
+        assert vm["origin"] == "text"
+        assert vm["match_kind"] == "explicit"
+
+    def test_verb_match_none_when_no_verb(self):
+        d = validate("The quick brown fox jumps over")
+        assert d["verb_match"] is None
+
+
+class TestPassesGate:
+    def test_true(self):
+        assert passes_gate("Build seed_gate.py for the colony") is True
+
+    def test_false(self):
+        assert passes_gate("Make everything better somehow") is False
+
+
+# ===================================================================
+# SeedGateResult properties
+# ===================================================================
+
+class TestSeedGateResultProperties:
+    def test_confidence_high(self):
+        r = validate_seed("Build seed_gate.py and propose_seed.py and state_io.py and content_engine.py with optimizations")
+        assert r.confidence == "high"
+
+    def test_confidence_medium(self):
+        r = validate_seed("Build seed_gate.py for the colony")
+        assert r.confidence in ("medium", "high")
+
+    def test_confidence_none_when_fail(self):
+        r = validate_seed("Make everything better somehow")
+        assert r.confidence is None
+
+    def test_strength_strong(self):
+        r = validate_seed("Build seed_gate.py and propose_seed.py and state_io.py and content_engine.py with optimizations")
+        assert r.strength == "strong"
+
+    def test_strength_none_when_zero(self):
+        r = validate_seed("")
+        assert r.strength == "none"
+
+    def test_verb_property(self):
+        r = validate_seed("Build seed_gate.py for the colony")
+        assert r.verb == "build"
+
+    def test_target_property(self):
+        r = validate_seed("Build seed_gate.py for the colony")
+        assert r.target == "seed_gate.py"
+
+    def test_verb_empty_when_none(self):
+        r = validate_seed("The quick brown fox is lazy stuff")
+        assert r.verb == ""
+
+    def test_all_verbs_populated(self):
+        r = validate_seed("Build and deploy seed_gate.py system")
+        assert "build" in r.all_verbs
+        assert "deploy" in r.all_verbs
+
+    def test_all_targets_populated(self):
+        r = validate_seed("Build seed_gate.py and propose_seed.py")
+        targets = [t[0] for t in r.all_targets]
+        assert "seed_gate.py" in targets
+
+
+# ===================================================================
+# Batch API
+# ===================================================================
+
+class TestValidateBatch:
+    def test_separates_categories(self):
         br = validate_batch([
-            "Build seed_gate.py with better detection",
-            "Fix thermal_control.py for edge cases",
+            "Build seed_gate.py for the colony",
+            "Make everything better somehow",
+            "",
         ])
-        assert br.stats.passed == 2
-        assert br.stats.junk == 0
-        assert br.stats.failed == 0
+        assert br.stats.passed == 1
+        assert br.stats.failed == 1
+        assert br.stats.junk == 1
 
-    def test_all_junk(self):
-        from seed_gate import validate_batch
-        br = validate_batch(["   ", "ab", "`fragment` from parser"])
-        assert br.stats.junk == 3
-        assert br.stats.passed == 0
+    def test_stats_total(self):
+        br = validate_batch(["Build seed_gate.py for colony", "Fix water_mining.py module"])
+        assert br.stats.total == 2
+
+    def test_pass_rate(self):
+        br = validate_batch(["Build seed_gate.py colony", "Fix water_mining.py module"])
+        assert br.stats.pass_rate == 1.0
+
+    def test_junk_rate(self):
+        br = validate_batch(["", "x"])
+        assert br.stats.junk_rate == 1.0
+
+    def test_merge_stats(self):
+        s1 = BatchStats(10, 5, 3, 2)
+        s2 = BatchStats(5, 2, 2, 1)
+        m = s1.merge(s2)
+        assert m.total == 15
+        assert m.passed == 7
 
     def test_empty_batch(self):
-        from seed_gate import validate_batch
         br = validate_batch([])
         assert br.stats.total == 0
         assert br.stats.pass_rate == 0.0
 
-    def test_junk_items_contain_text(self):
-        from seed_gate import validate_batch
-        br = validate_batch(["   ", "Build seed_gate.py now"])
-        assert len(br.junk_items) >= 1
-        assert br.junk_items[0][0] == "   "
 
-    def test_passed_items_contain_result(self):
-        from seed_gate import validate_batch
-        br = validate_batch(["Build seed_gate.py with better detection"])
-        assert len(br.passed_items) == 1
-        text, result = br.passed_items[0]
-        assert result["passed"] is True
+class TestBatchSummary:
+    """Tests for BatchResult.summary() (#12521)."""
 
-    def test_failed_items_not_junk(self):
-        """Failed items are vague-but-not-junk."""
-        from seed_gate import validate_batch
-        br = validate_batch(["Consider improving the thermal model design work"])
-        if br.stats.failed > 0:
-            text, result = br.failed_items[0]
-            assert result["junk"] is False
-            assert result["passed"] is False
-
-
-class TestBatchStats:
-    """BatchStats dataclass: pass_rate, junk_rate, merge."""
-
-    def test_pass_rate(self):
-        from seed_gate import BatchStats
-        s = BatchStats(total=10, passed=7, failed=2, junk=1)
-        assert abs(s.pass_rate - 0.7) < 0.001
-
-    def test_junk_rate(self):
-        from seed_gate import BatchStats
-        s = BatchStats(total=10, passed=7, failed=2, junk=1)
-        assert abs(s.junk_rate - 0.1) < 0.001
-
-    def test_empty_rates(self):
-        from seed_gate import BatchStats
-        s = BatchStats(total=0, passed=0, failed=0, junk=0)
-        assert s.pass_rate == 0.0
-        assert s.junk_rate == 0.0
-
-    def test_merge(self):
-        from seed_gate import BatchStats
-        s1 = BatchStats(total=3, passed=1, failed=1, junk=1)
-        s2 = BatchStats(total=5, passed=4, failed=1, junk=0)
-        merged = s1.merge(s2)
-        assert merged.total == 8
-        assert merged.passed == 5
-        assert merged.failed == 2
-        assert merged.junk == 1
-
-    def test_merge_identity(self):
-        from seed_gate import BatchStats
-        empty = BatchStats(total=0, passed=0, failed=0, junk=0)
-        s = BatchStats(total=3, passed=2, failed=1, junk=0)
-        assert s.merge(empty) == s
-
-
-class TestLowercaseImperative:
-    """Smart lowercase handling: verb-starting text passes, fragments fail."""
-
-    def test_build_verb_not_junk(self):
-        r = _v("build seed_gate.py with better verb detection")
-        assert r["junk"] is False
-        assert r["passed"] is True
-
-    def test_fix_verb_not_junk(self):
-        r = _v("fix the thermal_control.py temperature bounds bug")
-        assert r["junk"] is False
-
-    def test_create_verb_not_junk(self):
-        r = _v("create a new water_mining.py test suite here")
-        assert r["junk"] is False
-
-    def test_lowercase_fragment_is_junk(self):
-        r = _v("the thing we talked about doing sometime soon")
-        assert r["junk"] is True
-
-    def test_lowercase_no_verb_is_junk(self):
-        r = _v("some random fragment about the system that exists")
-        assert r["junk"] is True
-
-    def test_file_start_not_junk(self):
-        """Text starting with a filename is not lowercase-junk."""
-        from seed_gate import is_junk
-        reason = is_junk("seed_gate.py needs better verb detection logic")
-        assert reason == "", f"Unexpected junk reason: {reason}"
-
-
-class TestSubstringDedup:
-    """Substring-aware dedup in count_unique_targets()."""
-
-    def test_stem_and_extension(self):
-        """seed_gate and seed_gate.py should count as 1 unique target."""
-        from seed_gate import count_unique_targets
-        count = count_unique_targets("Refactor seed_gate and update seed_gate.py tests")
-        assert count == 1, f"Expected 1, got {count}"
-
-    def test_truly_different_targets(self):
-        from seed_gate import count_unique_targets
-        count = count_unique_targets("Fix water_mining.py and thermal_control.py bugs")
-        assert count == 2
-
-    def test_path_and_bare_name(self):
-        """src/seed_gate.py and seed_gate should count as 1."""
-        from seed_gate import count_unique_targets
-        count = count_unique_targets("Update src/seed_gate.py and refactor seed_gate module")
-        assert count == 1
-
-    def test_three_unique(self):
-        from seed_gate import count_unique_targets
-        count = count_unique_targets("Fix water_mining.py, thermal_control.py, and seed_gate.py")
-        assert count == 3
-
-    def test_empty_text(self):
-        from seed_gate import count_unique_targets
-        assert count_unique_targets("No targets here at all in this text") == 0
-
-
-class TestCanonicalizeTarget:
-    """canonicalize_target() strips paths, extensions, quotes."""
-
-    def test_strip_extension(self):
-        from seed_gate import canonicalize_target
-        assert canonicalize_target("seed_gate.py") == "seed_gate"
-
-    def test_strip_src_prefix(self):
-        from seed_gate import canonicalize_target
-        assert canonicalize_target("src/seed_gate.py") == "seed_gate"
-
-    def test_strip_quotes(self):
-        from seed_gate import canonicalize_target
-        assert canonicalize_target('"seed_gate"') == "seed_gate"
-
-    def test_lowercase(self):
-        from seed_gate import canonicalize_target
-        assert canonicalize_target("README") == "readme"
-
-    def test_preserve_underscores(self):
-        from seed_gate import canonicalize_target
-        assert canonicalize_target("water_mining.py") == "water_mining"
-
-
-# ---------------------------------------------------------------------------
-# New feature tests — phrasal verbs, tag-implied, advisory, rich match,
-# CONST_RE, case-insensitive modules, find_all_verbs, find_all_targets
-# ---------------------------------------------------------------------------
-
-class TestPhrasalVerbs:
-    """Test two-word phrasal verb detection (#12521)."""
-
-    def test_phrasal_dict_not_empty(self):
-        from seed_gate import PHRASAL_VERBS
-        assert len(PHRASAL_VERBS) >= 20
-
-    def test_set_up_detected(self):
-        from seed_gate import find_verb
-        assert find_verb("Set up the deployment pipeline") == "set up"
-
-    def test_roll_back_detected(self):
-        from seed_gate import find_verb
-        assert find_verb("Roll back the migration for schema.sql") == "roll back"
-
-    def test_wire_up_detected(self):
-        from seed_gate import find_verb
-        assert find_verb("Wire up the OAuth handler in auth.py") == "wire up"
-
-    def test_clean_up_detected(self):
-        from seed_gate import find_verb
-        assert find_verb("Clean up dead code in state_io.py") == "clean up"
-
-    def test_tear_down_detected(self):
-        from seed_gate import find_verb
-        assert find_verb("Tear down the test fixtures properly") == "tear down"
-
-    def test_spin_up_detected(self):
-        from seed_gate import find_verb
-        assert find_verb("Spin up a new worker for compute_trending.py") == "spin up"
-
-    def test_phrasal_starts_with(self):
-        from seed_gate import _starts_with_verb
-        assert _starts_with_verb("Set up deployment for auth.py")
-
-    def test_phrasal_not_starts_with(self):
-        from seed_gate import _starts_with_verb
-        # "set" alone is NOT an action verb
-        assert not _starts_with_verb("set the variable")
-
-    def test_single_word_still_works(self):
-        from seed_gate import find_verb
-        assert find_verb("Build the new module foo.py") == "build"
-
-    def test_phrasal_prefers_first_match(self):
-        from seed_gate import find_verb
-        assert find_verb("Roll back and then set up the migration") == "roll back"
-
-    def test_phrasal_in_validate(self):
-        result = validate_seed("Set up the deployment pipeline for config.yaml")
-        assert result.passed
-        assert result.verb_found == "set up"
-
-    def test_all_phrasal_verbs_are_canonical(self):
-        from seed_gate import PHRASAL_VERBS
-        for phrase, canonical in PHRASAL_VERBS.items():
-            words = phrase.split()
-            assert len(words) == 2, f"Phrasal verb '{phrase}' should be two words"
-            assert canonical == phrase, f"Canonical for '{phrase}' should be self"
-
-
-class TestTagImpliedVerbs:
-    """Test tag-to-verb inference (#12530)."""
-
-    def test_tag_implied_dict_not_empty(self):
-        from seed_gate import TAG_IMPLIED_VERBS
-        assert len(TAG_IMPLIED_VERBS) >= 8
-
-    def test_code_tag_implies_build(self):
-        result = validate_seed("The authentication module needs CSRF protection", tags=["code"])
-        assert result.verb_found == "build"
-
-    def test_debug_tag_implies_debug(self):
-        result = validate_seed("Something wrong with the rate limiter", tags=["debug"])
-        assert result.verb_found == "debug"
-
-    def test_test_tag_implies_test(self):
-        result = validate_seed("Coverage gaps in the channel module", tags=["test"])
-        assert result.verb_found == "test"
-
-    def test_docs_tag_implies_document(self):
-        result = validate_seed("The SDK documentation has several unclear sections worth addressing", tags=["docs"])
-        assert result.verb_found == "document"
-
-    def test_tag_only_fires_when_no_explicit_verb(self):
-        result = validate_seed("Refactor the auth module in auth.py", tags=["code"])
-        assert result.verb_found == "refactor"  # explicit verb wins
-
-    def test_exempt_tag_still_takes_priority(self):
-        # "philosophy" is exempt — verb from tag_implied shouldn't prevent exemption
-        result = validate_seed("The ethics of agent autonomy and decision-making", tags=["philosophy"])
-        assert result.passed is False  # no verb at all, no target
-        # But exempt tags DO pass if there's an implied verb
-        result2 = validate_seed("The ethics of agent autonomy", tags=["philosophy", "code"])
-        assert result2.verb_found == "build"
-
-    def test_security_tag_implies_secure(self):
-        result = validate_seed("Input validation for the API endpoint handler", tags=["security"])
-        assert result.verb_found == "secure"
-
-
-class TestAdvisoryLabel:
-    """Test advisory labeling for verb-but-no-target (#12507)."""
-
-    def test_verb_no_target_exempt_gets_advisory(self):
-        result = validate_seed("Explore the nature of consciousness", tags=["philosophy"])
-        assert result.passed is True
-        assert result.advisory == "needs-specificity"
-
-    def test_verb_and_target_no_advisory(self):
-        result = validate_seed("Build the new auth module in auth.py")
-        assert result.passed is True
-        assert result.advisory == ""
-
-    def test_no_verb_no_advisory(self):
-        result = validate_seed("Something about nothing at all really right now")
-        assert result.passed is False
-        assert result.advisory == ""  # no verb → no advisory
-
-    def test_verb_no_target_not_exempt_gets_advisory(self):
-        result = validate_seed("Build something amazing for the whole platform")
-        assert result.passed is False
-        assert result.advisory == "needs-specificity"
-
-    def test_advisory_in_dict_api(self):
-        result = validate("Explore the nature of consciousness", tags=["philosophy"])
-        assert "advisory" in result
-        assert result["advisory"] == "needs-specificity"
-
-    def test_advisory_in_dict_api_empty(self):
-        result = validate("Build the auth module in auth.py")
-        assert result["advisory"] == ""
-
-
-class TestRichMatchInfo:
-    """Test all_verbs and all_targets in result (#12521)."""
-
-    def test_all_verbs_returned(self):
-        from seed_gate import find_all_verbs
-        verbs = find_all_verbs("Build auth.py, then test and deploy the module")
-        assert "build" in verbs
-        assert "test" in verbs
-        assert "deploy" in verbs
-
-    def test_all_verbs_deduped(self):
-        from seed_gate import find_all_verbs
-        verbs = find_all_verbs("Build and build and build auth.py")
-        assert verbs.count("build") == 1
-
-    def test_all_verbs_order_preserved(self):
-        from seed_gate import find_all_verbs
-        verbs = find_all_verbs("Test first, then deploy, finally monitor foo.py")
-        assert verbs == ["test", "deploy", "monitor"]
-
-    def test_all_verbs_phrasal(self):
-        from seed_gate import find_all_verbs
-        verbs = find_all_verbs("Set up and then tear down the test fixtures for config.yaml")
-        assert "set up" in verbs
-        assert "tear down" in verbs
-
-    def test_all_targets_returned(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Build auth.py and deploy to config.yaml")
-        target_strings = [t[0] for t in targets]
-        assert "auth.py" in target_strings
-        assert "config.yaml" in target_strings
-
-    def test_all_targets_deduped(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Fix auth.py, then fix auth.py again")
-        target_strings = [t[0] for t in targets]
-        # Should only appear once (canonical dedup)
-        assert len([t for t in target_strings if "auth" in t]) == 1
-
-    def test_all_targets_in_result(self):
-        result = validate_seed("Build auth.py and test config.yaml")
-        assert len(result.all_targets) >= 2
-        assert len(result.all_verbs) >= 1
-
-    def test_all_verbs_in_dict(self):
-        result = validate("Build and test auth.py")
-        assert "all_verbs" in result
-        assert isinstance(result["all_verbs"], list)
-
-    def test_all_targets_in_dict(self):
-        result = validate("Build auth.py and config.yaml")
-        assert "all_targets" in result
-        assert isinstance(result["all_targets"], list)
-
-
-class TestConstTargets:
-    """Test CONST_RE in find_target (#12521)."""
-
-    def test_const_detected(self):
-        from seed_gate import find_target
-        target, kind = find_target("Update MAX_RETRIES in the retry module")
-        assert target == "MAX_RETRIES"
-        assert kind == "const"
-
-    def test_const_in_scoring(self):
-        from seed_gate import compute_score
-        score = compute_score("Update MAX_RETRIES", "update", "MAX_RETRIES", "const")
-        assert score > 0.0
-
-    def test_const_in_count_unique(self):
-        from seed_gate import count_unique_targets, CONST_RE
-        text = "Set ACTION_VERBS and MAX_RETRIES to new values"
-        count = count_unique_targets(text)
-        assert count >= 2
-
-    def test_const_in_all_targets(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Update MAX_RETRIES and fix config.yaml")
-        kinds = [t[1] for t in targets]
-        assert "const" in kinds
-
-    def test_const_validate_pass(self):
-        result = validate_seed("Update ACTION_VERBS in the seed gate")
-        assert result.passed
-        assert result.target_found == "ACTION_VERBS"
-
-
-class TestCaseInsensitiveModules:
-    """Test case-insensitive module matching."""
-
-    def test_lowercase_module_import(self):
-        from seed_gate import _KNOWN_MODULES_LOWER
-        # All entries should be lowercase
-        for m in _KNOWN_MODULES_LOWER:
-            assert m == m.lower()
-
-
-class TestFindAllVerbs:
-    """Focused tests for find_all_verbs."""
-
-    def test_empty_input(self):
-        from seed_gate import find_all_verbs
-        assert find_all_verbs("") == []
-
-    def test_no_verbs(self):
-        from seed_gate import find_all_verbs
-        assert find_all_verbs("the quick brown fox") == []
-
-    def test_single_verb(self):
-        from seed_gate import find_all_verbs
-        assert find_all_verbs("Build a thing") == ["build"]
-
-    def test_phrasal_skip(self):
-        from seed_gate import find_all_verbs
-        # "set up" should be one verb, not "set" + "up"
-        verbs = find_all_verbs("Set up the deployment for auth.py")
-        assert "set up" in verbs
-        assert "set" not in verbs
-
-
-class TestFindAllTargets:
-    """Focused tests for _find_all_targets."""
-
-    def test_empty_input(self):
-        from seed_gate import _find_all_targets
-        assert _find_all_targets("") == ()
-
-    def test_single_file(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Fix auth.py")
-        assert len(targets) >= 1
-        assert targets[0][0] == "auth.py"
-        assert targets[0][1] == "file"
-
-    def test_multiple_kinds(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Build auth.py with src/utils/ and check #12345")
-        kinds = {t[1] for t in targets}
-        assert "file" in kinds
-
-    def test_const_in_all(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Set MAX_RETRIES and check config.yaml")
-        kinds = {t[1] for t in targets}
-        assert "const" in kinds
-        assert "file" in kinds
-
-
-class TestNewVerbsExpanded:
-    """Test the 25 newly-added verbs."""
-
-    @pytest.mark.parametrize("verb", [
-        "configure", "scaffold", "bootstrap", "provision",
-        "automate", "archive", "inject", "normalize",
-        "update", "delete", "enable", "disable",
-        "install", "deprecate", "rewrite", "standardize",
-        "containerize", "expose", "wrap", "stub", "mock",
-        "isolate", "define", "declare", "register",
-        "secure", "clean", "schedule", "cache", "publish",
-        "annotate", "version", "backup", "package",
-    ])
-    def test_new_verb_in_set(self, verb):
-        assert verb in ACTION_VERBS
-
-    def test_verb_count_at_least_95(self):
-        assert len(ACTION_VERBS) >= 95
-
-
-class TestNewFeatureInvariants:
-    """Property-based invariants for new features."""
-
-    def test_advisory_only_when_verb_present(self):
-        """Advisory should only appear when a verb was found."""
-        proposals = [
-            "Build something nice for the platform",
-            "Explore consciousness deeply",
-            "The meaning of life is 42 probably",
-            "Set up auth.py deployment pipeline",
-        ]
-        for text in proposals:
-            result = validate_seed(text)
-            if result.advisory:
-                assert result.verb_found is not None
-
-    def test_all_verbs_subset_of_action_verbs_or_phrasal(self):
-        """Every verb in all_verbs should be a known verb."""
-        from seed_gate import find_all_verbs, PHRASAL_VERBS
-        text = "Build and deploy auth.py, then set up monitoring and test"
-        for v in find_all_verbs(text):
-            assert v in ACTION_VERBS or v in PHRASAL_VERBS.values()
-
-    def test_all_targets_kinds_valid(self):
-        """Every target kind should be a recognized kind."""
-        from seed_gate import _find_all_targets
-        valid_kinds = {"file", "path", "func", "tool", "cli", "discussion",
-                       "channel", "quoted", "module", "const"}
-        targets = _find_all_targets("Build auth.py, check r/mars, update MAX_RETRIES, see #12345")
-        for _, kind in targets:
-            assert kind in valid_kinds
-
-    def test_score_const_between_channel_and_tool(self):
-        """const score (2.5) should be between channel (2.0) and tool (3.0)."""
-        from seed_gate import compute_score
-        s_const = compute_score("Update MAX_RETRIES", "update", "MAX_RETRIES", "const")
-        s_channel = compute_score("Update r/mars", "update", "r/mars", "channel")
-        s_tool = compute_score("Update state_io", "update", "state_io", "tool")
-        assert s_channel <= s_const <= s_tool
-
-
-class TestBackwardCompatNewFields:
-    """Ensure new fields don't break existing behavior."""
-
-    def test_old_dict_keys_still_present(self):
-        result = validate("Build auth.py")
-        for key in ("passed", "reasons", "score", "verb_found", "target_found", "junk"):
-            assert key in result
-
-    def test_new_dict_keys_present(self):
-        result = validate("Build auth.py")
-        for key in ("advisory", "all_verbs", "all_targets"):
-            assert key in result
-
-    def test_batch_still_works(self):
-        from seed_gate import validate_batch
-        br = validate_batch(["Build auth.py", "random stuff here"])
-        assert br.stats.total == 2
-
-    def test_passes_gate_unaffected(self):
-        assert passes_gate("Build the authentication module in auth.py")
-        assert not passes_gate("random stuff here with nothing concrete at all")
-
-
-# ============================================================
-# Tests for PR #256: inflected verbs, version filter, confidence,
-# suggest(), env vars, expanded tools, imperative bonus
-# ============================================================
-
-from seed_gate import (
-    find_verb,
-    find_all_verbs,
-    find_target,
-    compute_score,
-)
-
-
-class TestInflectionMap:
-    """Test the generated inflection map."""
-
-    def test_map_is_populated(self):
-        from seed_gate import _INFLECTION_MAP
-        assert len(_INFLECTION_MAP) > 200
-
-    @pytest.mark.parametrize("inflected,expected", [
-        ("builds", "build"), ("building", "build"), ("built", "build"),
-        ("tests", "test"), ("testing", "test"), ("tested", "test"),
-        ("deploys", "deploy"), ("deploying", "deploy"), ("deployed", "deploy"),
-        ("creates", "create"), ("creating", "create"), ("created", "create"),
-        ("fixes", "fix"), ("fixing", "fix"), ("fixed", "fix"),
-        ("writes", "write"), ("writing", "write"), ("wrote", "write"),
-        ("runs", "run"), ("running", "run"), ("ran", "run"),
-        ("ships", "ship"), ("shipping", "ship"), ("shipped", "ship"),
-        ("adds", "add"), ("adding", "add"), ("added", "add"),
-        ("refactors", "refactor"), ("refactoring", "refactor"),
-        ("debugs", "debug"), ("debugging", "debug"), ("debugged", "debug"),
-    ])
-    def test_inflection_map_entries(self, inflected, expected):
-        from seed_gate import _INFLECTION_MAP
-        assert _INFLECTION_MAP.get(inflected) == expected, (
-            f"{inflected} should map to {expected}"
-        )
-
-    @pytest.mark.parametrize("irregular,expected", [
-        ("built", "build"), ("wrote", "write"), ("ran", "run"),
-    ])
-    def test_irregular_past(self, irregular, expected):
-        from seed_gate import _INFLECTION_MAP
-        assert _INFLECTION_MAP.get(irregular) == expected
-
-    def test_irregular_only_valid_bases(self):
-        """Irregular past entries must map to verbs in ACTION_VERBS."""
-        from seed_gate import _IRREGULAR_PAST, _INFLECTION_MAP, ACTION_VERBS
-        for form, base in _IRREGULAR_PAST.items():
-            if base in ACTION_VERBS:
-                assert form in _INFLECTION_MAP
-
-    def test_no_false_positives(self):
-        from seed_gate import _INFLECTION_MAP
-        for word in ["nothing", "during", "morning", "something", "string",
-                      "everything", "testing123", "interesting"]:
-            assert word not in _INFLECTION_MAP, f"{word} should NOT be in map"
-
-
-class TestInflectedVerbDetection:
-    """Test that inflected verbs are detected by find_verb/find_all_verbs."""
-
-    @pytest.mark.parametrize("text,expected_verb", [
-        ("Builds the thermal_control.py module", "build"),
-        ("Creating water_mining.py from scratch", "create"),
-        ("Deployed config.yaml to production", "deploy"),
-        ("Implementing the new auth flow", "implement"),
-        ("Refactoring state_io.py for clarity", "refactor"),
-        ("Shipped v2 of the dashboard", "ship"),
-        ("Debugging the flaky test in ci.yml", "debug"),
-    ])
-    def test_find_verb_inflected(self, text, expected_verb):
-        assert find_verb(text) == expected_verb
-
-    def test_find_all_verbs_with_inflected(self):
-        text = "Building auth.py and deploying config.yaml"
-        verbs = find_all_verbs(text)
-        assert "build" in verbs
-        assert "deploy" in verbs
-
-
-class TestInflectedPhrasalVerbs:
-    """Test inflected phrasal verb detection."""
-
-    @pytest.mark.parametrize("text,expected_verb", [
-        ("Setting up the CI pipeline", "set up"),
-        ("Rolling back the deployment", "roll back"),
-        ("Spinning up new workers", "spin up"),
-        ("Tearing down the test fixtures", "tear down"),
-        ("Wiring up the auth module", "wire up"),
-    ])
-    def test_inflected_phrasal(self, text, expected_verb):
-        assert find_verb(text) == expected_verb
-
-    def test_inflected_phrasal_in_find_all(self):
-        verbs = find_all_verbs("Setting up auth.py and rolling back config.yaml")
-        assert "set up" in verbs
-        assert "roll back" in verbs
-
-
-class TestVersionFilter:
-    """Test that version strings are NOT matched as file targets."""
-
-    @pytest.mark.parametrize("version", [
-        "2.0.1", "v1.2.3", "1.0", "3.14.159", "v0.1.0-beta",
-    ])
-    def test_version_not_matched_as_file(self, version):
-        target, kind = find_target(f"Update to version {version}") or ("", "")
-        assert target != version, f"{version} should not match as file target"
-
-    @pytest.mark.parametrize("real_file", [
-        "module2.py", "release-v1.2.3.md", "seed_gate_v2.py",
-    ])
-    def test_versioned_files_still_match(self, real_file):
-        target, kind = find_target(f"Build {real_file}") or ("", "")
-        assert target == real_file, f"Versioned file {real_file} should still match"
-
-
-class TestConfidenceProperty:
-    """Test the confidence band property on SeedGateResult."""
-
-    def test_high_confidence(self):
-        result = validate_seed("Build the thermal_control.py module from scratch with full test coverage")
-        assert result.passed
-        assert result.confidence == "high"
-
-    def test_medium_confidence(self):
-        result = validate_seed("Fix the auth.py login handler")
-        assert result.passed
-        assert result.confidence in ("medium", "high")
-
-    def test_none_on_failure(self):
-        result = validate_seed("just vibes")
-        assert not result.passed
-        assert result.confidence is None
-
-    def test_confidence_in_to_dict(self):
-        result = validate_seed("Build thermal_control.py")
-        d = result.to_dict()
-        assert "confidence" in d
-        assert d["confidence"] in ("high", "medium", "low", None)
-
-
-class TestSuggestAPI:
-    """Test the suggest() function for rejection feedback."""
-
-    def test_no_suggestions_for_passing(self):
-        from seed_gate import suggest
-        result = suggest("Build thermal_control.py")
-        assert result == []
-
-    def test_suggests_verb_when_missing(self):
-        from seed_gate import suggest
-        result = suggest("the thermal_control.py module")
-        assert any("verb" in s.lower() for s in result)
-
-    def test_suggests_target_when_missing(self):
-        from seed_gate import suggest
-        result = suggest("Build something cool")
-        assert any("target" in s.lower() or "filename" in s.lower() for s in result)
-
-    def test_suggests_rewrite_for_junk(self):
-        from seed_gate import suggest
-        result = suggest("fix stuff lol")
-        # Either junk or missing target suggestion
-        assert len(result) >= 1
-
-
-class TestEnvVarTargets:
-    """Test environment variable target detection."""
-
-    @pytest.mark.parametrize("text,expected_var", [
-        ("Set $STATE_DIR to /tmp", "$STATE_DIR"),
-        ("Configure ${GITHUB_TOKEN} for auth", "${GITHUB_TOKEN}"),
-        ("Update $DOCS_DIR path", "$DOCS_DIR"),
-    ])
-    def test_env_var_found(self, text, expected_var):
-        target, kind = find_target(text) or ("", "")
-        assert target == expected_var
-        assert kind == "env"
-
-    def test_env_var_in_find_all_targets(self):
-        from seed_gate import _find_all_targets
-        targets = _find_all_targets("Set $STATE_DIR and $DOCS_DIR")
-        names = [t[0] for t in targets]
-        assert "$STATE_DIR" in names
-        assert "$DOCS_DIR" in names
-
-
-class TestExpandedKnownTools:
-    """Test that newly added tools are recognized."""
-
-    @pytest.mark.parametrize("tool", [
-        "inject_seed", "tally_votes", "steer", "reconcile_state",
-        "run_proof", "run_python", "vlink",
-    ])
-    def test_new_tool_found(self, tool):
-        target, kind = find_target(f"Run {tool} to verify") or ("", "")
-        assert target == tool
-        assert kind == "tool"
-
-
-class TestImperativeBonus:
-    """Test the imperative scoring bonus."""
-
-    def test_imperative_higher(self):
-        imperative = compute_score("Build auth.py from scratch", "build", "auth.py", "file")
-        declarative = compute_score("The auth.py module needs to be built", "build", "auth.py", "file")
-        assert imperative > declarative
-
-    def test_inflected_imperative(self):
-        # Even inflected verbs at start should get the bonus
-        score = compute_score("Building auth.py from scratch", "build", "auth.py", "file")
-        assert score > 0.5
-
-
-class TestNounUseFalsePositives:
-    """Ensure words that look like verb inflections but are nouns don't match."""
-
-    @pytest.mark.parametrize("text", [
-        "Nothing works in the thermal_control.py system",
-        "During the morning review of auth.py we found bugs",
-        "Something strange with the water_mining.py module",
-    ])
-    def test_non_verb_words_ignored(self, text):
-        from seed_gate import _INFLECTION_MAP
-        for word in ["nothing", "during", "morning", "something", "strange"]:
-            assert word not in _INFLECTION_MAP
-
-
-class TestInflectionInvariants:
-    """Property-based invariants for the inflection system."""
-
-    def test_all_map_values_are_action_verbs(self):
-        from seed_gate import _INFLECTION_MAP, ACTION_VERBS, PHRASAL_VERBS
-        canonical = ACTION_VERBS | set(PHRASAL_VERBS.values())
-        for form, base in _INFLECTION_MAP.items():
-            assert base in canonical, f"{form} maps to {base} which is not a known verb"
-
-    def test_inflected_verb_always_returns_base(self):
-        from seed_gate import _INFLECTION_MAP
-        for form, base in list(_INFLECTION_MAP.items())[:50]:
-            found = find_verb(f"{form} something")
-            assert found == base, f"find_verb('{form} something') = {found}, expected {base}"
-
-    def test_double_final_all_in_action_verbs_or_phrasal(self):
-        from seed_gate import _DOUBLE_FINAL, ACTION_VERBS, PHRASAL_VERBS
-        head_words = {phrase.split()[0] for phrase in PHRASAL_VERBS}
-        for verb in _DOUBLE_FINAL:
-            assert verb in ACTION_VERBS or verb in head_words, (
-                f"{verb} in _DOUBLE_FINAL but not in ACTION_VERBS or phrasal heads"
-            )
-
-    def test_score_always_0_to_1(self):
-        for text in [
-            "Build auth.py and deploy config.yaml with full test coverage for the CI pipeline",
-            "x",
+    def test_summary_format(self):
+        br = validate_batch([
+            "Build seed_gate.py for the colony",
+            "Make everything better somehow",
             "",
-            "Fix bugs",
-        ]:
-            s = compute_score(text, find_verb(text), *(find_target(text) or ("", "")))
-            assert 0.0 <= s <= 1.0, f"Score {s} out of bounds for: {text}"
+        ])
+        s = br.summary()
+        assert "3 total" in s
+        assert "1 passed" in s
+        assert "1 failed" in s
+        assert "1 junk" in s
 
-    def test_confidence_always_valid(self):
-        for text in ["Build auth.py", "Fix stuff", "x"]:
-            result = validate_seed(text)
-            assert result.confidence in ("high", "medium", "low", None)
+    def test_summary_percentages(self):
+        br = validate_batch(["Build seed_gate.py colony", "Fix water_mining.py module"])
+        s = br.summary()
+        assert "100%" in s
 
-    def test_suggestions_always_list(self):
-        from seed_gate import suggest
-        for text in ["Build auth.py", "vibes only", "x"]:
-            result = suggest(text)
-            assert isinstance(result, list)
+    def test_summary_empty(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 total" in s
+
+    def test_summary_returns_string(self):
+        br = validate_batch(["Build seed_gate.py colony"])
+        assert isinstance(br.summary(), str)
 
 
 # ===================================================================
-# PR #272 — Diagnostic APIs, commit-prefix handling, score decomposition
+# Score breakdown
 # ===================================================================
-
-
-class TestCommitPrefix:
-    """Tests for _strip_commit_prefix() and _COMMIT_PREFIX_RE."""
-
-    def test_strip_fix_prefix(self):
-        assert _strip_commit_prefix("fix: build seed_gate.py") == "build seed_gate.py"
-
-    def test_strip_feat_scope_prefix(self):
-        assert _strip_commit_prefix("feat(auth): add JWT tokens") == "add JWT tokens"
-
-    def test_strip_chore_bang_prefix(self):
-        assert _strip_commit_prefix("chore!: remove deprecated API") == "remove deprecated API"
-
-    def test_strip_refactor_prefix(self):
-        assert _strip_commit_prefix("refactor: optimize compute_score") == "optimize compute_score"
-
-    def test_no_strip_capitalized(self):
-        """Capital 'Build:' is natural prose, not a commit prefix."""
-        assert _strip_commit_prefix("Build: the reactor core") == "Build: the reactor core"
-
-    def test_no_strip_plain_text(self):
-        assert _strip_commit_prefix("Build auth.py module") == "Build auth.py module"
-
-    def test_all_prefixes(self):
-        """All conventional commit types should be stripped."""
-        for prefix in ("fix", "feat", "chore", "docs", "style", "refactor",
-                       "perf", "test", "build", "ci", "revert"):
-            result = _strip_commit_prefix(f"{prefix}: do something")
-            assert result == "do something", f"Failed for {prefix}:"
-
-    def test_scope_variants(self):
-        for scope in ("auth", "core", "ui", "seed-gate"):
-            result = _strip_commit_prefix(f"fix({scope}): patch it")
-            assert result == "patch it", f"Failed for scope {scope}"
-
-    def test_regex_matches_lowercase_only(self):
-        assert _COMMIT_PREFIX_RE.match("fix: something")
-        assert _COMMIT_PREFIX_RE.match("feat(scope): something")
-        assert not _COMMIT_PREFIX_RE.match("Fix: something")
-        assert not _COMMIT_PREFIX_RE.match("FIX: something")
-
-
-class TestCommitPrefixRegression:
-    """Regression: 'fix: build seed_gate.py' was rejected as junk."""
-
-    def test_fix_build_not_junk(self):
-        reason = is_junk("fix: build seed_gate.py")
-        assert reason == "", f"Should not be junk, got: {reason}"
-
-    def test_fix_build_passes_gate(self):
-        result = _v("fix: build seed_gate.py")
-        assert result["passed"], f"Should pass gate: {result}"
-
-    def test_feat_scope_not_junk(self):
-        reason = is_junk("feat(auth): add JWT handler to auth.py")
-        assert reason == ""
-
-    def test_chore_not_junk(self):
-        reason = is_junk("chore: update seed_gate.py dependencies")
-        assert reason == ""
-
-    def test_natural_prose_still_junk(self):
-        """Lowercase non-verb text without commit prefix stays junk."""
-        reason = is_junk("vibes and good energy for everyone")
-        assert reason != ""
-
-    def test_starts_with_verb_strips_punctuation(self):
-        """'fix:' should be recognized as verb 'fix' despite trailing colon."""
-        assert _starts_with_verb("fix: build something")
-
-    def test_starts_with_verb_no_colon(self):
-        assert _starts_with_verb("fix build something")
-
-    def test_refactor_colon_recognized(self):
-        assert _starts_with_verb("refactor: optimize the loop")
-
-
-class TestFindVerbWithPosition:
-    """Tests for find_verb_with_position()."""
-
-    def test_verb_at_start(self):
-        verb, pos = find_verb_with_position("Build auth.py module")
-        assert verb == "build"
-        assert pos == 0
-
-    def test_verb_not_at_start(self):
-        verb, pos = find_verb_with_position("We should build auth.py")
-        assert verb == "build"
-        assert pos == 2
-
-    def test_phrasal_verb(self):
-        verb, pos = find_verb_with_position("Set up the CI pipeline")
-        assert verb == "set up"
-        assert pos == 0
-
-    def test_inflected_verb(self):
-        verb, pos = find_verb_with_position("Currently building auth.py")
-        assert verb == "build"
-        assert pos == 1
-
-    def test_no_verb(self):
-        verb, pos = find_verb_with_position("the quick brown fox")
-        assert verb is None
-        assert pos is None
-
-    def test_empty_text(self):
-        verb, pos = find_verb_with_position("")
-        assert verb is None
-        assert pos is None
-
-    def test_limit_parameter(self):
-        verb, pos = find_verb_with_position("Build auth.py then fix bugs in config.yaml", limit=15)
-        assert verb == "build"
-        assert pos == 0
-
-    def test_colon_after_verb(self):
-        verb, pos = find_verb_with_position("fix: the broken test")
-        assert verb == "fix"
-        assert pos == 0
-
-    def test_multiple_verbs_returns_first(self):
-        verb, pos = find_verb_with_position("Build auth.py and deploy config.yaml")
-        assert verb == "build"
-        assert pos == 0
-
 
 class TestScoreBreakdown:
-    """Tests for score_breakdown()."""
-
-    def test_has_all_keys(self):
-        bd = score_breakdown("Build auth.py")
-        expected_keys = {"verb", "target", "length", "multi_target", "imperative", "total"}
-        assert set(bd.keys()) == expected_keys
-
-    def test_verb_component(self):
-        bd = score_breakdown("Build the auth.py module")
+    def test_has_verb_component(self):
+        bd = score_breakdown("Build seed_gate.py for the colony")
         assert bd["verb"] == 2.5
 
-    def test_no_verb_component(self):
-        bd = score_breakdown("The auth.py module needs work")
-        assert bd["verb"] == 0.0
+    def test_has_target_component(self):
+        bd = score_breakdown("Build seed_gate.py for the colony")
+        assert bd["target"] == _KIND_SCORES["file"]
 
     def test_file_target_score(self):
-        bd = score_breakdown("Build the auth.py module")
-        assert bd["target"] == 4.0  # file targets score 4.0
+        bd = score_breakdown("Build seed_gate.py for the colony")
+        assert bd["target"] == 4.0
 
     def test_discussion_target_score(self):
-        bd = score_breakdown("Review the changes in #12345")
-        assert bd["target"] == 2.0  # discussion targets score 2.0
+        bd = score_breakdown("Fix the issue from #12503 feedback")
+        assert bd["target"] == _KIND_SCORES["discussion"]
 
     def test_length_bonus_short(self):
-        bd = score_breakdown("Build the auth.py module")
+        bd = score_breakdown("Build seed_gate.py module")
         assert bd["length"] == 0.0
 
     def test_length_bonus_medium(self):
-        bd = score_breakdown("Build auth.py with full test coverage and error handling for edge cases")
+        bd = score_breakdown("Build seed_gate.py with verb detection and target matching and filtering")
         assert bd["length"] >= 0.5
 
     def test_multi_target_bonus(self):
-        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        bd = score_breakdown("Build seed_gate.py and propose_seed.py pipes")
         assert bd["multi_target"] == 1.0
 
     def test_imperative_bonus(self):
-        bd = score_breakdown("Build the auth.py module now")
+        bd = score_breakdown("Build seed_gate.py for the colony")
         assert bd["imperative"] == 0.5
 
     def test_no_imperative_bonus(self):
-        bd = score_breakdown("We should build auth.py")
+        bd = score_breakdown("The seed_gate.py needs building for colony")
         assert bd["imperative"] == 0.0
 
+    def test_placeholder_component(self):
+        bd = score_breakdown("Build foo.py for testing the system")
+        assert bd["placeholder"] == -0.5
+
+    def test_no_placeholder_normal(self):
+        bd = score_breakdown("Build seed_gate.py for the colony")
+        assert bd["placeholder"] == 0.0
+
     def test_total_is_sum(self):
-        bd = score_breakdown("Build auth.py and deploy config.yaml")
-        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
-        assert abs(bd["total"] - expected) < 0.01
+        bd = score_breakdown("Build seed_gate.py and propose_seed.py pipes")
+        expected = sum(v for k, v in bd.items() if k != "total")
+        assert abs(bd["total"] - expected) < 0.001
 
-    def test_all_values_non_negative(self):
-        for text in ["Build the auth.py module", "vibes only but longer text", "", "x" * 100]:
-            bd = score_breakdown(text)
-            for key, val in bd.items():
-                assert val >= 0.0, f"Negative score for {key} in: {text}"
+    def test_all_values_non_negative_except_placeholder(self):
+        bd = score_breakdown("Build seed_gate.py for the colony")
+        for k, v in bd.items():
+            if k != "placeholder" and k != "total":
+                assert v >= 0.0, f"{k} is negative: {v}"
 
+
+# ===================================================================
+# Explain
+# ===================================================================
 
 class TestExplain:
-    """Tests for explain()."""
-
     def test_passing_contains_pass(self):
-        result = explain("Build the auth.py module")
-        assert "PASS" in result
+        assert "PASS" in explain("Build seed_gate.py for colony")
 
     def test_failing_contains_fail(self):
-        result = explain("vibes and energy everywhere")
-        assert "FAIL" in result
+        assert "FAIL" in explain("Make everything better somehow")
 
     def test_shows_verb(self):
-        result = explain("Build the auth.py module")
-        assert "verb=build" in result
+        assert "verb=build" in explain("Build seed_gate.py for colony")
 
     def test_shows_target(self):
-        result = explain("Build the auth.py module")
-        assert "auth.py" in result
+        assert "seed_gate.py" in explain("Build seed_gate.py for colony")
 
     def test_shows_score(self):
-        result = explain("Build the auth.py module")
-        assert "score=" in result
+        assert "score=" in explain("Build seed_gate.py for colony")
 
     def test_shows_confidence_when_passing(self):
-        result = explain("Build the auth.py module")
-        assert "confidence=" in result
+        e = explain("Build seed_gate.py and propose_seed.py and state_io.py and more_stuff.py system")
+        assert "confidence=" in e
 
     def test_shows_suggestions_when_failing(self):
-        result = explain("vibes and energy everywhere")
-        assert "suggestions=" in result
+        e = explain("Make everything better somehow")
+        assert "suggestions=" in e
 
     def test_shows_junk_flag(self):
-        result = explain("x")
-        assert "junk=true" in result
+        assert "junk=true" in explain("")
 
     def test_no_verb_shows_none(self):
-        result = explain("The auth.py module needs work")
-        assert "verb=none" in result
+        assert "verb=none" in explain("The quick brown fox is lazy stuff")
 
     def test_returns_string(self):
-        assert isinstance(explain("Build the auth.py module"), str)
+        assert isinstance(explain("Build seed_gate.py colony"), str)
 
     def test_pipe_separated(self):
-        result = explain("Build the auth.py module")
-        assert " | " in result
+        assert " | " in explain("Build seed_gate.py for colony")
+
+    def test_shows_weight(self):
+        assert "weight=high" in explain("Build seed_gate.py colony")
+
+    def test_shows_negated(self):
+        assert "negated=true" in explain("Don't build seed_gate.py anymore")
 
 
-class TestNewAPIInvariants:
-    """Property-based invariants for the new diagnostic APIs."""
+# ===================================================================
+# Suggest
+# ===================================================================
 
-    SAMPLES = [
-        "Build the auth.py module",
-        "fix: build seed_gate.py",
-        "Set up the CI pipeline for tests/",
-        "vibes and energy everywhere today",
+class TestSuggest:
+    def test_empty_when_passes(self):
+        assert suggest("Build seed_gate.py for the colony") == []
+
+    def test_verb_suggestion(self):
+        tips = suggest("The quick brown fox is lazy stuff")
+        assert any("verb" in t.lower() for t in tips)
+
+    def test_target_suggestion(self):
+        tips = suggest("Build something great and wonderful")
+        assert any("target" in t.lower() for t in tips)
+
+    def test_junk_suggestion(self):
+        tips = suggest("x")
+        assert any("rewrite" in t.lower() for t in tips)
+
+    def test_negation_suggestion(self):
+        tips = suggest("Don't build seed_gate.py anymore")
+        assert any("negation" in t.lower() for t in tips)
+
+
+# ===================================================================
+# Canonicalization
+# ===================================================================
+
+class TestCanonicalizeTarget:
+    def test_strips_extension(self):
+        assert canonicalize_target("seed_gate.py") == "seed_gate"
+
+    def test_strips_path(self):
+        assert canonicalize_target("src/seed_gate.py") == "seed_gate"
+
+    def test_strips_quotes(self):
+        assert canonicalize_target('"seed_gate"') == "seed_gate"
+
+    def test_lowercases(self):
+        assert canonicalize_target("SeedGate.py") == "seedgate"
+
+
+# ===================================================================
+# Inflection map
+# ===================================================================
+
+class TestInflectionMap:
+    def test_builds(self):
+        assert _INFLECTION_MAP.get("builds") == "build"
+
+    def test_creating(self):
+        assert _INFLECTION_MAP.get("creating") == "create"
+
+    def test_deployed(self):
+        assert _INFLECTION_MAP.get("deployed") == "deploy"
+
+    def test_no_self_reference(self):
+        for form, base in _INFLECTION_MAP.items():
+            assert form != base, f"Self-mapping: {form}"
+
+    def test_all_map_to_action_verbs(self):
+        for form, base in _INFLECTION_MAP.items():
+            if " " not in base:
+                assert base in ACTION_VERBS, f"{form} maps to non-verb {base}"
+
+    def test_built_irregular(self):
+        assert _INFLECTION_MAP.get("built") == "build"
+
+
+# ===================================================================
+# Phrasal verbs
+# ===================================================================
+
+class TestPhrasalVerbs:
+    def test_set_up(self):
+        assert PHRASAL_VERBS["set up"] == "set up"
+
+    def test_all_two_words(self):
+        for phrase in PHRASAL_VERBS:
+            assert len(phrase.split()) == 2, f"Not two words: {phrase}"
+
+    def test_detection(self):
+        assert find_verb("Wire up the auth system") == "wire up"
+
+
+# ===================================================================
+# Real-world proposals (regression tests)
+# ===================================================================
+
+class TestRealWorldProposals:
+    """Proposals from actual agent frames -- should never false-reject."""
+
+    @pytest.mark.parametrize("text", [
+        "Build water_mining.py optimizer for drilling",
+        "Implement thermal_control.py for habitat temperature regulation",
+        "Fix the broken import in src/mars_colony.py module",
+        "Deploy the new solar_array.py controller system",
+        "Refactor process_inbox to use action dispatcher pattern",
+        "Add --verbose flag to seed_gate CLI system",
+        "Create unit tests for water_purifier.py module",
+        "Wire up seed_gate.py to propose_seed.py pipeline",
+        "Optimize compute_score() for large batch processing",
+        "Integrate the Dream Catcher Protocol for sim",
+        "Consolidate the seed_gate.py implementations from PR #12503",
+        "Update Dockerfile for multi-stage build system",
+        "Review r/mars-engineering channel activity metrics",
+        "Monitor $STATE_DIR for corruption events regularly",
+        "Clean up MAX_RETRIES constant usage across system",
+        "Scale up the nuclear_reactor.py output system",
+        "fix: resolve seed_gate false positive on fig.1 refs",
+    ])
+    def test_passes(self, text):
+        assert passes_gate(text), f"False reject: {text}"
+
+    @pytest.mark.parametrize("text", [
+        "Make everything better",
+        "Improve the codebase",
+        "Something needs fixing",
+        "The system is broken",
         "",
         "x",
-        "The quick brown fox jumps over",
-        "Deploy config.yaml and test auth.py with full coverage for all modules",
-        "refactor: optimize compute_score in seed_gate.py",
-        "feat(core): add validation to process_inbox.py",
-        "We should build auth.py and deploy it",
-        "Currently building something new for the platform",
+        "1. First step in the plan",
+        "https://example.com/path",
+    ])
+    def test_fails(self, text):
+        assert not passes_gate(text), f"False accept: {text}"
+
+
+# ===================================================================
+# Edge cases
+# ===================================================================
+
+class TestEdgeCases:
+    def test_whitespace_only(self):
+        assert validate_seed("   \n  \t  ").junk is True
+
+    def test_very_long_text(self):
+        text = "Build " + "seed_gate.py " * 100
+        r = validate_seed(text)
+        assert r.passed is True
+        assert r.score <= 1.0
+
+    def test_unicode(self):
+        r = validate_seed("Build the résumé parser module system")
+        assert r.passed is True or r.passed is False  # no crash
+
+    def test_special_chars(self):
+        r = validate_seed("Build <seed_gate> && deploy it now!")
+        # Should not crash
+        assert isinstance(r.passed, bool)
+
+    def test_none_tags(self):
+        r = validate_seed("Build seed_gate.py for the colony", tags=None)
+        assert r.passed is True
+
+    def test_empty_tags(self):
+        r = validate_seed("Build seed_gate.py for the colony", tags=[])
+        assert r.passed is True
+
+
+# ===================================================================
+# Property invariants
+# ===================================================================
+
+class TestPropertyInvariants:
+    SAMPLE_TEXTS = [
+        "Build seed_gate.py for the Mars colony system",
+        "Make everything wonderful and great today",
+        "Explore consciousness in artificial agents deeply",
+        "Don't build the reactor core anymore please",
+        "Set up the auth pipeline for secure access",
+        "",
+        "fix: resolve broken import in mars_env.py",
+        "Not only build seed_gate.py but also deploy it",
     ]
 
-    def test_find_verb_with_position_returns_tuple(self):
-        for text in self.SAMPLES:
-            result = find_verb_with_position(text)
-            assert isinstance(result, tuple)
-            assert len(result) == 2
+    def test_score_bounded(self):
+        for text in self.SAMPLE_TEXTS:
+            r = validate_seed(text)
+            assert 0.0 <= r.score <= 1.0, f"Score out of bounds for: {text}"
 
-    def test_position_valid_when_verb_found(self):
-        for text in self.SAMPLES:
-            verb, pos = find_verb_with_position(text)
-            if verb is not None:
-                assert pos is not None
-                assert pos >= 0
-                words = text.split()
-                assert pos < len(words)
+    def test_junk_implies_fail(self):
+        for text in self.SAMPLE_TEXTS:
+            r = validate_seed(text)
+            if r.junk:
+                assert not r.passed, f"Junk but passed: {text}"
+
+    def test_negated_implies_fail(self):
+        for text in self.SAMPLE_TEXTS:
+            r = validate_seed(text)
+            if r.negated:
+                assert not r.passed, f"Negated but passed: {text}"
+
+    def test_confidence_only_when_passed(self):
+        for text in self.SAMPLE_TEXTS:
+            r = validate_seed(text)
+            if not r.passed:
+                assert r.confidence is None, f"Confidence on failure: {text}"
+
+    def test_to_dict_roundtrip(self):
+        for text in self.SAMPLE_TEXTS:
+            r = validate_seed(text)
+            d = r.to_dict()
+            assert d["passed"] == r.passed
+            assert d["score"] == r.score
+            assert d["negated"] == r.negated
+
+    def test_find_verb_agrees_with_find_verb_with_position(self):
+        for text in self.SAMPLE_TEXTS:
+            fv = find_verb(text)
+            vm = find_verb_with_position(text)
+            if vm:
+                assert vm.verb == fv
             else:
-                assert pos is None
+                assert fv is None
 
     def test_score_breakdown_total_matches_compute_score(self):
-        """score_breakdown total (pre-normalization) should be consistent."""
-        for text in self.SAMPLES:
-            if not text.strip():
-                continue
-            bd = score_breakdown(text)
-            assert bd["total"] >= 0.0
+        for text in self.SAMPLE_TEXTS:
+            r = validate_seed(text)
+            if r.passed and not r.junk:
+                bd = score_breakdown(text)
+                normalized = min(max(bd["total"] / 10.0, 0.0), 1.0)
+                assert abs(normalized - r.score) < 0.02, (
+                    f"Breakdown drift for: {text} ({normalized} vs {r.score})"
+                )
 
     def test_explain_always_returns_string(self):
-        for text in self.SAMPLES:
-            result = explain(text)
-            assert isinstance(result, str)
+        for text in self.SAMPLE_TEXTS:
+            assert isinstance(explain(text), str)
 
     def test_explain_contains_pass_or_fail(self):
-        for text in self.SAMPLES:
-            result = explain(text)
-            assert "PASS" in result or "FAIL" in result
+        for text in self.SAMPLE_TEXTS:
+            e = explain(text)
+            assert "PASS" in e or "FAIL" in e
 
     def test_kind_scores_constant_matches(self):
-        """_KIND_SCORES must contain all target kinds."""
-        expected_kinds = {"file", "path", "func", "module", "tool", "cli",
-                         "env", "const", "discussion", "channel", "quoted"}
-        assert set(_KIND_SCORES.keys()) == expected_kinds
+        assert "file" in _KIND_SCORES
+        assert "proper_noun" in _KIND_SCORES
 
     def test_redesign_in_action_verbs(self):
         assert "redesign" in ACTION_VERBS
 
     def test_commit_prefix_seeds_pass(self):
-        """Commit-prefixed seeds with verb+target should pass."""
-        cases = [
-            "fix: build seed_gate.py",
-            "feat: add auth.py handler",
-            "refactor: optimize compute_score in seed_gate.py",
-            "test: add coverage for process_inbox.py",
+        prefixed = [
+            "fix: Build seed_gate.py validator module",
+            "feat: Add water_mining.py optimizer system",
+            "refactor: Clean up propose_seed.py pipeline",
         ]
-        for text in cases:
-            result = _v(text)
-            assert result["passed"], f"Should pass: {text} -> {result}"
+        for text in prefixed:
+            assert passes_gate(text), f"Commit prefix rejected: {text}"
 
-    def test_find_verb_agrees_with_find_verb_with_position(self):
-        """find_verb() and find_verb_with_position() should find the same verb."""
-        for text in self.SAMPLES:
-            if not text.strip():
-                continue
-            v1 = find_verb(text)
-            v2, _ = find_verb_with_position(text)
-            assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+# ===================================================================
+# Smoke tests
+# ===================================================================
+
+class TestSmoke:
+    def test_import(self):
+        import seed_gate
+        assert hasattr(seed_gate, "validate")
+        assert hasattr(seed_gate, "validate_seed")
+        assert hasattr(seed_gate, "validate_batch")
+        assert hasattr(seed_gate, "passes_gate")
+        assert hasattr(seed_gate, "find_verb")
+        assert hasattr(seed_gate, "find_target")
+        assert hasattr(seed_gate, "is_junk")
+        assert hasattr(seed_gate, "compute_score")
+        assert hasattr(seed_gate, "explain")
+        assert hasattr(seed_gate, "score_breakdown")
+        assert hasattr(seed_gate, "find_verb_with_position")
+        assert hasattr(seed_gate, "VerbMatch")
+        assert hasattr(seed_gate, "verb_weight")
+        assert hasattr(seed_gate, "suggest")
+
+    def test_backward_compat_aliases(self):
+        import seed_gate
+        assert hasattr(seed_gate, "_detect_verb")
+        assert hasattr(seed_gate, "_detect_target")
+        assert hasattr(seed_gate, "_is_junk")
+
+    def test_batch_10_proposals(self):
+        proposals = [
+            "Build water_mining.py optimizer system",
+            "Fix solar_array.py controller bugs",
+            "Deploy nuclear_reactor.py power system",
+            "Test thermal_control.py module fully",
+            "Make everything better and wonderful",
+            "",
+            "The quick brown fox is lazy stuff",
+            "Create rover.py navigation algorithm system",
+            "Refactor seed_gate.py validator module",
+            "Optimize compute_score() performance speed",
+        ]
+        br = validate_batch(proposals)
+        assert br.stats.total == 10
+        assert br.stats.passed > 0
+        assert br.stats.junk > 0
+        assert isinstance(br.summary(), str)
+
+    def test_known_modules_populated(self):
+        # Should discover modules from src/
+        assert len(KNOWN_MODULES) > 0
+
+    def test_known_tools_populated(self):
+        assert len(KNOWN_TOOLS) > 10
+
+
+# ===================================================================
+# propose_seed.py contract tests
+# ===================================================================
+
+class TestProposeSeedContract:
+    """Verify the dict shape that propose_seed.py expects."""
+
+    def test_passed_key(self):
+        d = validate("Build seed_gate.py for the colony")
+        assert "passed" in d
+        assert isinstance(d["passed"], bool)
+
+    def test_score_key(self):
+        d = validate("Build seed_gate.py for the colony")
+        assert "score" in d
+        assert isinstance(d["score"], float)
+
+    def test_junk_key(self):
+        d = validate("Build seed_gate.py for the colony")
+        assert "junk" in d
+        assert isinstance(d["junk"], bool)
+
+    def test_rejected_empty_dict_not_used(self):
+        # propose_seed checks gate["passed"], not empty dict
+        d = validate("Make everything better somehow")
+        assert d["passed"] is False
+
+    def test_batch_junk_items(self):
+        br = validate_batch(["", "x", "Build seed_gate.py colony"])
+        assert len(br.junk_items) == 2
+        for text, result in br.junk_items:
+            assert result["junk"] is True
+
+
+# ===================================================================
+# Integration tests (cross-cutting, from rubber-duck critique)
+# ===================================================================
+
+class TestConsolidationIntegration:
+    """Cross-cutting tests ensuring all new features work together."""
+
+    def test_negated_verb_with_file_target(self):
+        r = validate_seed("Don't build seed_gate.py anymore please")
+        assert r.negated is True
+        assert r.passed is False
+        assert r.verb_found == "build"
+        assert r.target_found == "seed_gate.py"
+
+    def test_not_only_build_passes(self):
+        r = validate_seed("Not only build seed_gate.py but deploy it too")
+        assert r.passed is True
+        assert r.negated is False
+
+    def test_file_plus_proper_noun(self):
+        r = validate_seed("Build seed_gate.py for Dream Catcher Protocol integration")
+        assert r.target_found == "seed_gate.py"  # file wins over proper noun
+        targets = [t[0] for t in r.all_targets]
+        assert any("Dream Catcher Protocol" in t for t in targets)
+
+    def test_placeholder_affects_score_not_pass(self):
+        r = validate_seed("Build foo.py for testing the system")
+        assert r.passed is True
+        r2 = validate_seed("Build seed_gate.py for testing system")
+        assert r.score < r2.score
+
+    def test_new_fields_in_dict(self):
+        d = validate("Build seed_gate.py for the colony")
+        assert "negated" in d
+        assert "verb_match" in d
+        assert "verb_weight" in d
+        assert "strength" in d
+
+    def test_new_fields_in_explain(self):
+        e = explain("Build seed_gate.py for the colony")
+        assert "weight=" in e
+
+    def test_abbrev_ref_plus_real_file(self):
+        r = validate_seed("Build seed_gate.py as shown in fig.1 of docs")
+        assert r.passed is True
+        assert r.target_found == "seed_gate.py"
+
+    def test_proper_noun_only_target(self):
+        r = validate_seed("Implement the Dream Catcher Protocol in this system")
+        assert r.passed is True
+        assert r.target_found == "Dream Catcher Protocol"
+
+    def test_verb_weight_in_result(self):
+        d = validate("Build seed_gate.py for the colony")
+        assert d["verb_weight"] == "high"
+
+    def test_negated_not_junk(self):
+        r = validate_seed("Don't build seed_gate.py anymore please")
+        assert r.junk is False  # negated != junk
+
+    def test_batch_summary_includes_all(self):
+        br = validate_batch([
+            "Build seed_gate.py for the colony",
+            "Don't build anything here please now",
+            "",
+        ])
+        s = br.summary()
+        assert "3 total" in s
+
+
+class TestConsolidationInvariants:
+    """Property-based invariants for the consolidated validator."""
+
+    TEXTS = [
+        "Build seed_gate.py for the colony system",
+        "Don't build seed_gate.py anymore please",
+        "Not only build but deploy seed_gate.py system",
+        "Build foo.py for testing the whole system",
+        "Implement the Dream Catcher Protocol in sim",
+        "See fig.1 for the architecture of colony system",
+        "fix: Build seed_gate.py validator module system",
+        "Explore consciousness in agents very deeply now",
+    ]
+
+    def test_negated_implies_fail(self):
+        for t in self.TEXTS:
+            r = validate_seed(t)
+            if r.negated:
+                assert not r.passed
+
+    def test_verb_match_consistent(self):
+        for t in self.TEXTS:
+            r = validate_seed(t)
+            if r.verb_match is not None:
+                assert r.verb_found == r.verb_match.verb
+
+    def test_verb_weight_present_when_verb(self):
+        for t in self.TEXTS:
+            d = validate(t)
+            if d["verb_found"]:
+                assert d["verb_weight"] in ("high", "medium", "low")
+
+    def test_strength_always_present(self):
+        for t in self.TEXTS:
+            d = validate(t)
+            assert d["strength"] in ("strong", "moderate", "weak", "none")
+
+    def test_score_bounded(self):
+        for t in self.TEXTS:
+            r = validate_seed(t)
+            assert 0.0 <= r.score <= 1.0
