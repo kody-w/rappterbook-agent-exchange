@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -81,8 +82,40 @@ def save_seeds(data, path=None):
 
 
 def make_proposal_id(text):
-    """Generate a short deterministic proposal ID."""
-    return "prop-" + hashlib.sha256(text.encode()).hexdigest()[:8]
+    """Generate a short deterministic proposal ID.
+
+    Uses normalized text (collapsed whitespace, lowered) so trivially
+    different phrasings hash to the same ID.
+    """
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    return "prop-" + hashlib.sha256(normalized.encode()).hexdigest()[:8]
+
+
+def similarity(a, b):
+    """Jaccard token similarity between two proposal texts.
+
+    Uses regex tokenization to handle punctuation and paths correctly
+    (e.g. 'auth.py,' → 'auth.py').  Returns 0.0–1.0.
+    """
+    ta = set(re.findall(r"[a-zA-Z0-9_./-]+", a.lower()))
+    tb = set(re.findall(r"[a-zA-Z0-9_./-]+", b.lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def find_similar(text, proposals, threshold=0.8):
+    """Find existing proposals similar to *text* above *threshold*.
+
+    Returns list of (proposal_dict, similarity_score) sorted by score desc.
+    Advisory — does NOT prevent insertion.
+    """
+    matches = []
+    for p in proposals:
+        score = similarity(text, p.get("text", ""))
+        if score >= threshold:
+            matches.append((p, score))
+    return sorted(matches, key=lambda x: x[1], reverse=True)
 
 
 def propose(text, author, context="", tags=None, seeds_path=None):
@@ -99,10 +132,17 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check (normalized hash)
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
             return p
+
+    # Near-duplicate advisory — return existing if very similar
+    similar = find_similar(text, seeds.get("proposals", []))
+    if similar:
+        best_match, sim_score = similar[0]
+        if sim_score >= 0.9:
+            return best_match
 
     proposal = {
         "id": prop_id,

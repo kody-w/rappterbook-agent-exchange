@@ -2520,3 +2520,176 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ---------------------------------------------------------------------------
+# Evolution: graduated multi-target scoring, single-source scoring,
+#            BatchResult.summary(), compute_score/score_parts consistency
+# ---------------------------------------------------------------------------
+
+
+class TestGraduatedMultiTarget:
+    """Graduated bonus: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_two_targets(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml and fix README")
+        assert bd["multi_target"] == 1.5
+
+    def test_four_targets(self):
+        bd = score_breakdown(
+            "Build auth.py, deploy config.yaml, fix README, and test schema.sql"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_single_target_no_bonus(self):
+        bd = score_breakdown("Build auth.py module now")
+        assert bd["multi_target"] == 0.0
+
+    def test_monotonic_with_targets(self):
+        """More targets → higher (or equal) score."""
+        s1 = _v("Build auth.py module for testing")["score"]
+        s2 = _v("Build auth.py and config.yaml integration")["score"]
+        s3 = _v("Build auth.py, config.yaml, and schema.sql")["score"]
+        assert s1 <= s2 <= s3
+
+    def test_four_plus_beats_three(self):
+        s3 = _v("Build auth.py, config.yaml, and README pipe")["score"]
+        s4 = _v("Build auth.py, config.yaml, README, and schema.sql")["score"]
+        assert s4 >= s3
+
+    def test_multi_target_bonus_function(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(0) == 0.0
+        assert _multi_target_bonus(1) == 0.0
+        assert _multi_target_bonus(2) == 1.0
+        assert _multi_target_bonus(3) == 1.5
+        assert _multi_target_bonus(4) == 2.0
+        assert _multi_target_bonus(10) == 2.0
+
+    def test_strength_crossings(self):
+        """Graduated scoring may change strength bands."""
+        r = validate_seed(
+            "Build auth.py, config.yaml, schema.sql, and deploy README changes"
+        )
+        assert r.strength in ("strong", "moderate")
+        assert r.confidence in ("high", "medium")
+
+
+class TestSingleSourceScoring:
+    """compute_score == sum(_score_parts)/10 invariant."""
+
+    TEXTS = [
+        "Build auth.py module for testing now",
+        "Fix config.yaml and deploy schema.sql and update README",
+        "Build auth.py, config.yaml, and schema.sql for full coverage",
+        "just vibes and energy everywhere today",
+        "Build the thermal_control.py module from scratch with full test coverage",
+    ]
+
+    def test_compute_score_equals_parts_sum(self):
+        for text in self.TEXTS:
+            verb = find_verb(text)
+            target, kind = find_target(text)
+            parts = score_breakdown(text)
+            total = parts.get("total", 0.0)
+            expected = min(total / 10.0, 1.0)
+            actual = compute_score(text, verb, target, kind)
+            assert abs(actual - expected) < 0.01, (
+                f"Score mismatch for '{text}': compute={actual}, parts={expected}"
+            )
+
+    def test_score_parts_matches_result(self):
+        """validate_seed().score == compute_score() for the same text."""
+        for text in self.TEXTS:
+            result = validate_seed(text)
+            if result.junk:
+                continue
+            verb = find_verb(text)
+            target, kind = find_target(text)
+            cs = compute_score(text, verb, target, kind)
+            # When mode is admission and it passes, score should match
+            if result.passed:
+                assert abs(result.score - cs) < 0.01, (
+                    f"Score mismatch for '{text}': result={result.score}, compute={cs}"
+                )
+
+
+class TestBatchResultSummary:
+    """BatchResult.summary() returns a human-readable string."""
+
+    def test_summary_format(self):
+        br = validate_batch([
+            "Build auth.py module for testing",
+            "just vibes and energy flowing",
+            "   ",
+            "Fix config.yaml edge cases now",
+        ])
+        s = br.summary()
+        assert "4 proposals" in s
+        assert "passed" in s
+        assert "failed" in s
+        assert "junk" in s
+        assert "pass rate" in s
+
+    def test_summary_empty_batch(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 proposals" in s
+
+    def test_summary_all_pass(self):
+        br = validate_batch([
+            "Build auth.py module for testing",
+            "Fix config.yaml edge cases now",
+        ])
+        s = br.summary()
+        assert "2 passed" in s
+
+    def test_summary_returns_string(self):
+        br = validate_batch(["Build auth.py"])
+        assert isinstance(br.summary(), str)
+
+
+class TestEvolutionInvariants:
+    """Cross-cutting invariants for the evolution."""
+
+    CORPUS = [
+        "Build auth.py module for testing now",
+        "Deploy config.yaml and fix README and test schema.sql",
+        "just vibes and energy everywhere today",
+        "",
+        "Build auth.py, config.yaml, schema.sql, and README together",
+        "fix: build seed_gate.py for validation now",
+        "Set up the CI pipeline for config.yaml correctly",
+    ]
+
+    def test_score_always_in_range(self):
+        for text in self.CORPUS:
+            r = _v(text)
+            assert 0.0 <= r["score"] <= 1.0
+
+    def test_score_breakdown_total_nonneg(self):
+        for text in self.CORPUS:
+            bd = score_breakdown(text)
+            assert bd["total"] >= 0.0
+
+    def test_multi_target_nonneg(self):
+        for text in self.CORPUS:
+            bd = score_breakdown(text)
+            assert bd["multi_target"] >= 0.0
+
+    def test_batch_summary_always_string(self):
+        br = validate_batch(self.CORPUS)
+        assert isinstance(br.summary(), str)
+
+    def test_graduated_monotonic(self):
+        """_multi_target_bonus is monotonically non-decreasing."""
+        from seed_gate import _multi_target_bonus
+        prev = 0.0
+        for n in range(10):
+            cur = _multi_target_bonus(n)
+            assert cur >= prev
+            prev = cur

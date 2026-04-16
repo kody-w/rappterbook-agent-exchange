@@ -482,6 +482,14 @@ class BatchResult:
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
 
+    def summary(self) -> str:
+        """One-line human-readable summary for logging/CLI."""
+        s = self.stats
+        return (
+            f"{s.total} proposals: {s.passed} passed, {s.failed} failed, "
+            f"{s.junk} junk ({s.pass_rate:.0%} pass rate)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Negation constants
@@ -944,29 +952,35 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _multi_target_bonus(unique: int) -> float:
+    """Graduated bonus for multiple concrete targets.
+
+    2 targets → +1.0, 3 → +1.5, 4+ → +2.0.
+    Rewards increasingly specific proposals.
+    """
+    if unique >= 4:
+        return 2.0
+    if unique >= 3:
+        return 1.5
+    if unique >= 2:
+        return 1.0
+    return 0.0
+
+
 def compute_score(
     text: str,
     verb: str | None,
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        raw += _KIND_SCORES.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
+    """Compute a 0.0-1.0 specificity score.
+
+    Delegates to _score_parts() for the component breakdown, then
+    normalizes.  This ensures compute_score and score_breakdown always
+    agree (single source of truth for score math).
+    """
+    parts = _score_parts(text, verb, target, target_kind)
+    raw = sum(parts.values())
     return min(raw / 10.0, 1.0)
 
 
@@ -1055,9 +1069,10 @@ _KIND_SCORES: dict[str, float] = {
 
 def _score_parts(text: str, verb: str | None, target: str | None,
                   target_kind: str) -> dict[str, float]:
-    """Internal helper: compute score components without running full validate.
+    """Single source of truth: compute score components.
 
     Returns dict suitable for SeedGateResult.score_parts.
+    compute_score() delegates here — never duplicate math.
     """
     components: dict[str, float] = {}
     if verb:
@@ -1073,8 +1088,9 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
-        components["multi_target"] = 1.0
+    mt_bonus = _multi_target_bonus(unique)
+    if mt_bonus:
+        components["multi_target"] = mt_bonus
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
     return components

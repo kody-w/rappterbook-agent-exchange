@@ -189,3 +189,130 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# ---------------------------------------------------------------------------
+# Evolution: similarity(), find_similar(), near-duplicate advisory
+# ---------------------------------------------------------------------------
+
+
+class TestSimilarity:
+    """Tests for similarity() Jaccard function."""
+
+    def test_identical(self):
+        from propose_seed import similarity
+        assert similarity("Build auth.py", "Build auth.py") == 1.0
+
+    def test_disjoint(self):
+        from propose_seed import similarity
+        assert similarity("Build auth.py", "Fix config.yaml") < 0.5
+
+    def test_empty_a(self):
+        from propose_seed import similarity
+        assert similarity("", "Build auth.py") == 0.0
+
+    def test_empty_b(self):
+        from propose_seed import similarity
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_both_empty(self):
+        from propose_seed import similarity
+        assert similarity("", "") == 0.0
+
+    def test_range(self):
+        from propose_seed import similarity
+        s = similarity("Build auth.py handler", "Build auth.py module")
+        assert 0.0 <= s <= 1.0
+
+    def test_case_insensitive(self):
+        from propose_seed import similarity
+        assert similarity("BUILD AUTH.PY", "build auth.py") == 1.0
+
+    def test_punctuation_normalized(self):
+        from propose_seed import similarity
+        s = similarity("Build auth.py, deploy config.yaml", "Build auth.py deploy config.yaml")
+        assert s > 0.9
+
+    def test_near_duplicate_high_sim(self):
+        from propose_seed import similarity
+        a = "Build water_mining.py optimizer for drilling"
+        b = "Build water_mining.py optimizer for deep drilling"
+        assert similarity(a, b) > 0.7
+
+    def test_symmetric(self):
+        from propose_seed import similarity
+        a = "Build auth.py handler"
+        b = "Deploy config.yaml server"
+        assert similarity(a, b) == similarity(b, a)
+
+
+class TestFindSimilar:
+    """Tests for find_similar() advisory function."""
+
+    def test_finds_similar(self):
+        from propose_seed import find_similar
+        proposals = [
+            {"text": "Build water_mining.py optimizer for drilling operations"},
+            {"text": "Fix thermal_control.py temperature bounds"},
+        ]
+        matches = find_similar(
+            "Build water_mining.py optimizer for drilling tasks",
+            proposals,
+            threshold=0.7,
+        )
+        assert len(matches) >= 1
+        assert matches[0][1] > 0.7
+
+    def test_empty_proposals(self):
+        from propose_seed import find_similar
+        assert find_similar("Build auth.py", []) == []
+
+    def test_no_matches_below_threshold(self):
+        from propose_seed import find_similar
+        proposals = [{"text": "Fix thermal_control.py temperature bounds"}]
+        matches = find_similar("Build auth.py handler", proposals, threshold=0.9)
+        assert len(matches) == 0
+
+    def test_sorted_by_score(self):
+        from propose_seed import find_similar
+        proposals = [
+            {"text": "Build auth.py handler quickly"},
+            {"text": "Build auth.py handler for login system"},
+        ]
+        matches = find_similar("Build auth.py handler", proposals, threshold=0.5)
+        if len(matches) >= 2:
+            assert matches[0][1] >= matches[1][1]
+
+    def test_custom_threshold(self):
+        from propose_seed import find_similar
+        proposals = [{"text": "Build auth.py module for login"}]
+        high = find_similar("Build auth.py module", proposals, threshold=0.95)
+        low = find_similar("Build auth.py module", proposals, threshold=0.3)
+        assert len(low) >= len(high)
+
+
+class TestNearDuplicate:
+    """Near-duplicate detection in propose()."""
+
+    def test_near_dup_returns_existing(self, sp):
+        """Very similar proposals (>0.9 sim) should return existing."""
+        base = "Build water_mining.py optimizer for drilling system temperature monitoring backup recovery"
+        p1 = propose(base, author="a1", seeds_path=sp)
+        assert p1["id"].startswith("prop-")
+        # Near-identical: 10/11 token overlap → 0.909 Jaccard
+        p2 = propose(f"{base} operations", author="a2", seeds_path=sp)
+        # p2 should return the existing p1 (near-dup, >0.9 similarity)
+        assert p2["id"] == p1["id"]
+
+    def test_different_proposals_both_accepted(self, sp):
+        """Genuinely different proposals should both be accepted."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Fix thermal_control.py temperature monitoring bug", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+        assert len(list_proposals(seeds_path=sp)) == 2
+
+    def test_normalized_hash_dedup(self, sp):
+        """Trivially different text (case, whitespace) hashes the same."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("build  water_mining.py  optimizer  for  drilling", author="a2", seeds_path=sp)
+        assert p1["id"] == p2["id"]
