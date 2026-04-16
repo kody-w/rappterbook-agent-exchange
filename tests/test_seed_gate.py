@@ -52,6 +52,7 @@ from seed_gate import (
     is_junk,
     _starts_with_verb,
 )
+from seed_gate import detect_negation, _analyze, _extract_main_clause, _COMMIT_PREFIX_VERBS
 
 
 def _v(text, tags=None, mode="admission"):
@@ -1677,35 +1678,49 @@ class TestCommitPrefix:
     """Tests for _strip_commit_prefix() and _COMMIT_PREFIX_RE."""
 
     def test_strip_fix_prefix(self):
-        assert _strip_commit_prefix("fix: build seed_gate.py") == "build seed_gate.py"
+        body, verb = _strip_commit_prefix("fix: build seed_gate.py")
+        assert body == "Build seed_gate.py"
+        assert verb == "fix"
 
     def test_strip_feat_scope_prefix(self):
-        assert _strip_commit_prefix("feat(auth): add JWT tokens") == "add JWT tokens"
+        body, verb = _strip_commit_prefix("feat(auth): add JWT tokens")
+        assert body == "Add JWT tokens"
+        assert verb == "build"
 
     def test_strip_chore_bang_prefix(self):
-        assert _strip_commit_prefix("chore!: remove deprecated API") == "remove deprecated API"
+        body, verb = _strip_commit_prefix("chore!: remove deprecated API")
+        assert body == "Remove deprecated API"
+        assert verb == "clean"
 
     def test_strip_refactor_prefix(self):
-        assert _strip_commit_prefix("refactor: optimize compute_score") == "optimize compute_score"
+        body, verb = _strip_commit_prefix("refactor: optimize compute_score")
+        assert body == "Optimize compute_score"
+        assert verb == "refactor"
 
     def test_no_strip_capitalized(self):
         """Capital 'Build:' is natural prose, not a commit prefix."""
-        assert _strip_commit_prefix("Build: the reactor core") == "Build: the reactor core"
+        body, verb = _strip_commit_prefix("Build: the reactor core")
+        assert body == "Build: the reactor core"
+        assert verb is None
 
     def test_no_strip_plain_text(self):
-        assert _strip_commit_prefix("Build auth.py module") == "Build auth.py module"
+        body, verb = _strip_commit_prefix("Build auth.py module")
+        assert body == "Build auth.py module"
+        assert verb is None
 
     def test_all_prefixes(self):
         """All conventional commit types should be stripped."""
         for prefix in ("fix", "feat", "chore", "docs", "style", "refactor",
                        "perf", "test", "build", "ci", "revert"):
-            result = _strip_commit_prefix(f"{prefix}: do something")
-            assert result == "do something", f"Failed for {prefix}:"
+            body, verb = _strip_commit_prefix(f"{prefix}: do something")
+            assert body == "Do something", f"Failed for {prefix}:"
+            assert verb is not None, f"No implied verb for {prefix}"
 
     def test_scope_variants(self):
         for scope in ("auth", "core", "ui", "seed-gate"):
-            result = _strip_commit_prefix(f"fix({scope}): patch it")
-            assert result == "patch it", f"Failed for scope {scope}"
+            body, verb = _strip_commit_prefix(f"fix({scope}): patch it")
+            assert body == "Patch it", f"Failed for scope {scope}"
+            assert verb == "fix"
 
     def test_regex_matches_lowercase_only(self):
         assert _COMMIT_PREFIX_RE.match("fix: something")
@@ -1983,3 +1998,507 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# ===================================================================
+# PR #289: Negation detection, _analyze pipeline, enriched SeedGateResult
+# ===================================================================
+
+class TestNegationDetection:
+    """Tests for detect_negation() -- construction-based negation."""
+
+    # -- Contraction negations (should detect) ---
+    def test_dont_deploy(self):
+        assert detect_negation("Don't deploy auth.py")
+
+    def test_doesnt_work(self):
+        assert detect_negation("Doesn't work with state_io.py")
+
+    def test_didnt_fix(self):
+        assert detect_negation("Didn't fix the thermal.py issue")
+
+    def test_wont_build(self):
+        assert detect_negation("Won't build the reactor module")
+
+    def test_wouldnt_deploy(self):
+        assert detect_negation("Wouldn't deploy to production")
+
+    def test_shouldnt_merge(self):
+        assert detect_negation("Shouldn't merge this PR")
+
+    def test_cant_build(self):
+        assert detect_negation("Can't build water_mining.py")
+
+    def test_cannot_deploy(self):
+        assert detect_negation("Cannot deploy the auth module")
+
+    def test_curly_apostrophe(self):
+        """Curly/smart apostrophe should also be detected."""
+        assert detect_negation("Don\u2019t deploy auth.py")
+
+    # -- Split negations ---
+    def test_do_not_build(self):
+        assert detect_negation("Do not build the auth.py module")
+
+    def test_does_not_work(self):
+        assert detect_negation("Does not work properly")
+
+    def test_will_not_deploy(self):
+        assert detect_negation("Will not deploy to staging")
+
+    def test_should_not_merge(self):
+        assert detect_negation("Should not merge this code")
+
+    def test_must_not_delete(self):
+        assert detect_negation("Must not delete state files")
+
+    # -- "never" ---
+    def test_never_deploy(self):
+        assert detect_negation("Never deploy without testing")
+
+    def test_never_in_sentence(self):
+        assert detect_negation("We should never deploy untested code")
+
+    # -- Anti-action verbs (imperative position) ---
+    def test_stop_deploying(self):
+        assert detect_negation("Stop deploying broken code")
+
+    def test_avoid_building(self):
+        assert detect_negation("Avoid building untested modules")
+
+    def test_prevent_merging(self):
+        assert detect_negation("Prevent merging conflicting PRs")
+
+    def test_cease_operations(self):
+        assert detect_negation("Cease operations on the old API")
+
+    # -- Subordinate clause exemptions (should NOT detect) ---
+    def test_fix_module_that_doesnt_compile(self):
+        """Negation in subordinate clause should NOT trigger."""
+        assert not detect_negation("Fix the module that doesn't compile")
+
+    def test_build_thing_which_wont_break(self):
+        assert not detect_negation("Build the component which won't break")
+
+    def test_deploy_because_it_doesnt_exist(self):
+        assert not detect_negation("Deploy auth.py because it doesn't exist yet")
+
+    def test_fix_where_it_doesnt_work(self):
+        assert not detect_negation("Fix the function where it doesn't work")
+
+    # -- Fronted subordinate clause (negation in main clause AFTER subordinate) ---
+    def test_if_tests_fail_dont_deploy(self):
+        """Fronted subordinate: negation is in the main clause."""
+        assert detect_negation("If tests fail, don't deploy auth.py")
+
+    def test_although_exists_never_update(self):
+        assert detect_negation("Although README exists, never update docs.md manually")
+
+    # -- Question exemptions for anti-action (should NOT detect) ---
+    def test_should_we_stop(self):
+        """Anti-action in a question should NOT trigger."""
+        assert not detect_negation("Should we stop deploying broken code?")
+
+    def test_could_we_avoid(self):
+        assert not detect_negation("Could we avoid building this?")
+
+    # -- Non-negated text (should NOT detect) ---
+    def test_build_auth_py(self):
+        assert not detect_negation("Build auth.py module")
+
+    def test_fix_the_bug(self):
+        assert not detect_negation("Fix the bug in thermal.py")
+
+    def test_deploy_to_staging(self):
+        assert not detect_negation("Deploy auth module to staging")
+
+    def test_build_not_only(self):
+        """'not only' is additive, not negation."""
+        assert not detect_negation("Build not only auth.py but also state_io.py")
+
+    def test_disable_is_valid_verb(self):
+        """'disable' is a valid action verb, not negation."""
+        assert not detect_negation("Disable telemetry in config.py")
+
+    def test_remove_is_valid_verb(self):
+        assert not detect_negation("Remove parser.py from the build")
+
+    def test_empty_text(self):
+        assert not detect_negation("")
+
+    def test_whitespace_only(self):
+        assert not detect_negation("   ")
+
+
+class TestNegationGateIntegration:
+    """Negated proposals should FAIL the gate."""
+
+    def test_dont_deploy_fails(self):
+        result = _v("Don't deploy auth.py")
+        assert not result["passed"]
+        assert result["negated"]
+
+    def test_never_build_fails(self):
+        result = _v("Never build water_mining.py directly")
+        assert not result["passed"]
+        assert result["negated"]
+
+    def test_stop_deploying_fails(self):
+        result = _v("Stop deploying broken builds to production")
+        assert not result["passed"]
+        assert result["negated"]
+
+    def test_do_not_merge_fails(self):
+        result = _v("Do not merge this PR into main")
+        assert not result["passed"]
+        assert result["negated"]
+
+    def test_negated_reason_in_reasons(self):
+        result = _v("Don't deploy auth.py")
+        assert any("negat" in r.lower() for r in result["reasons"])
+
+    def test_subordinate_negation_passes(self):
+        """Fix auth.py that doesn't compile → positive action with target, should pass."""
+        result = _v("Fix auth.py that doesn't compile")
+        assert result["passed"]
+        assert not result["negated"]
+
+    def test_negated_in_purge_mode(self):
+        """Purge mode should not reject negated text."""
+        result = _v("Don't deploy auth.py", mode="purge")
+        assert result["passed"]
+
+
+class TestExtractMainClause:
+    """Tests for _extract_main_clause() helper."""
+
+    def test_simple_sentence(self):
+        assert _extract_main_clause("Build auth.py") == "Build auth.py"
+
+    def test_trailing_subordinate(self):
+        result = _extract_main_clause("Fix the module that doesn't compile")
+        assert "that" not in result.lower()
+
+    def test_fronted_subordinate(self):
+        result = _extract_main_clause("If tests fail, don't deploy auth.py")
+        assert "don" in result.lower()
+
+    def test_although_fronted(self):
+        result = _extract_main_clause("Although it works, never deploy manually")
+        assert "never" in result.lower()
+
+
+class TestCommitPrefixImpliedVerb:
+    """Tests for commit-prefix implied verb as fallback."""
+
+    def test_feat_prefix_implies_build(self):
+        body, verb = _strip_commit_prefix("feat: add water_mining.py")
+        assert verb == "build"
+
+    def test_fix_prefix_implies_fix(self):
+        body, verb = _strip_commit_prefix("fix: patch state_io.py")
+        assert verb == "fix"
+
+    def test_docs_prefix_implies_document(self):
+        body, verb = _strip_commit_prefix("docs: update README")
+        assert verb == "document"
+
+    def test_perf_prefix_implies_optimize(self):
+        body, verb = _strip_commit_prefix("perf: speed up compute_score")
+        assert verb == "optimize"
+
+    def test_ci_prefix_implies_configure(self):
+        body, verb = _strip_commit_prefix("ci: add test workflow")
+        assert verb == "configure"
+
+    def test_body_verb_wins_over_prefix(self):
+        """If body has its own verb, prefix verb is fallback only."""
+        result = _v("feat: refactor compute_score in seed_gate.py")
+        assert result["passed"]
+        assert result["verb_found"] == "refactor"
+
+    def test_prefix_verb_as_fallback(self):
+        """If body has no verb, prefix verb becomes the verb."""
+        result = _v("fix: the auth.py module issue with validation")
+        assert result["passed"]
+
+    def test_commit_prefix_in_to_dict(self):
+        result = _vs("feat: add auth.py handler")
+        d = result.to_dict()
+        assert "commit_prefix_verb" in d
+        assert d["commit_prefix_verb"] == "build"
+
+    def test_all_prefix_mappings(self):
+        """Every prefix should map to an implied verb."""
+        for prefix, expected_verb in _COMMIT_PREFIX_VERBS.items():
+            body, verb = _strip_commit_prefix(f"{prefix}: do something")
+            assert verb == expected_verb, f"Prefix '{prefix}' mapped to '{verb}', expected '{expected_verb}'"
+
+    def test_scope_with_implied_verb(self):
+        body, verb = _strip_commit_prefix("feat(auth): add JWT tokens")
+        assert verb == "build"
+        assert body == "Add JWT tokens"
+
+    def test_bang_with_implied_verb(self):
+        body, verb = _strip_commit_prefix("fix!: critical patch for state_io.py")
+        assert verb == "fix"
+
+
+class TestEnrichedSeedGateResult:
+    """Tests for new fields on SeedGateResult."""
+
+    def test_target_kind_field(self):
+        result = _vs("Build auth.py module")
+        assert result.target_kind == "file"
+
+    def test_target_kind_tool(self):
+        result = _vs("Optimize state_io for performance")
+        assert result.target_kind in ("tool", "module")
+
+    def test_target_kind_discussion(self):
+        result = _vs("Review the changes in #12345")
+        assert result.target_kind == "discussion"
+
+    def test_negated_field_true(self):
+        result = _vs("Don't deploy auth.py")
+        assert result.negated is True
+
+    def test_negated_field_false(self):
+        result = _vs("Build auth.py module")
+        assert result.negated is False
+
+    def test_verb_position_imperative(self):
+        result = _vs("Build auth.py module")
+        assert result.verb_position == 0
+
+    def test_verb_position_non_imperative(self):
+        result = _vs("We should build auth.py module")
+        assert result.verb_position > 0
+
+    def test_verb_position_inferred(self):
+        """Tag-implied verbs have position -1."""
+        result = _vs("The auth.py module is complex", tags=["code"])
+        assert result.verb_position == -1
+
+    def test_starts_with_verb_property(self):
+        result = _vs("Build auth.py module")
+        assert result.starts_with_verb is True
+
+    def test_starts_with_verb_false(self):
+        result = _vs("We should build auth.py module")
+        assert result.starts_with_verb is False
+
+    def test_strength_high(self):
+        result = _vs("Build auth.py and deploy config.yaml to staging server")
+        assert result.strength == "high"
+
+    def test_strength_none_on_failure(self):
+        result = _vs("vibes and energy everywhere")
+        assert result.strength is None
+
+    def test_strength_equals_confidence(self):
+        """strength and confidence should always agree."""
+        result = _vs("Build auth.py module")
+        assert result.strength == result.confidence
+
+    def test_score_components_tuple(self):
+        result = _vs("Build auth.py module")
+        assert isinstance(result.score_components, tuple)
+        components_dict = dict(result.score_components)
+        assert "verb" in components_dict
+        assert components_dict["verb"] == 2.5
+
+    def test_to_dict_has_new_fields(self):
+        result = _vs("Build auth.py module")
+        d = result.to_dict()
+        assert "target_kind" in d
+        assert "negated" in d
+        assert "starts_with_verb" in d
+        assert "verb_position" in d
+        assert "strength" in d
+        assert "commit_prefix_verb" in d
+        # Backward compat
+        assert "confidence" in d
+
+    def test_to_dict_confidence_and_strength_agree(self):
+        result = _vs("Build auth.py module")
+        d = result.to_dict()
+        assert d["confidence"] == d["strength"]
+
+
+class TestAnalyzePipeline:
+    """Tests for the shared _analyze() pipeline."""
+
+    def test_analyze_returns_dict(self):
+        a = _analyze("Build auth.py module")
+        assert isinstance(a, dict)
+        assert "passed" in a
+        assert "verb" in a
+        assert "target" in a
+        assert "negated" in a
+        assert "score_data" in a
+
+    def test_analyze_consistent_with_validate_seed(self):
+        text = "Build auth.py module"
+        a = _analyze(text)
+        result = _vs(text)
+        assert a["passed"] == result.passed
+        assert a["verb"] == result.verb_found
+        assert a["target"] == result.target_found
+
+    def test_analyze_junk_detection(self):
+        a = _analyze("")
+        assert a["junk_reason"]
+        assert not a["passed"]
+
+    def test_analyze_negation_integration(self):
+        a = _analyze("Don't deploy auth.py")
+        assert a["negated"] is True
+        assert not a["passed"]
+
+    def test_analyze_commit_prefix(self):
+        a = _analyze("feat: add auth.py handler")
+        assert a["commit_prefix_verb"] == "build"
+        assert a["passed"]
+
+    def test_analyze_exempt_tags(self):
+        a = _analyze("Explore consciousness deeply", tags=["philosophy"])
+        assert a["is_exempt"]
+        assert a["passed"]
+
+    def test_analyze_purge_mode(self):
+        a = _analyze("Some random text about things", mode="purge")
+        assert a["passed"]
+
+    def test_analyze_score_data_structure(self):
+        a = _analyze("Build auth.py module")
+        assert "components" in a["score_data"]
+        assert "score" in a["score_data"]
+        assert "raw_total" in a["score_data"]
+
+
+class TestNegationAwareSuggest:
+    """Tests for negation-aware suggest()."""
+
+    def test_negated_gets_rewrite_suggestion(self):
+        tips = suggest("Don't deploy auth.py")
+        assert any("positive action" in t.lower() for t in tips)
+
+    def test_non_negated_no_rewrite_suggestion(self):
+        tips = suggest("Make everything better and amazing")
+        assert not any("positive action" in t.lower() for t in tips)
+
+    def test_passed_proposal_no_suggestions(self):
+        tips = suggest("Build auth.py module")
+        assert tips == []
+
+
+class TestNegationAwareExplain:
+    """Tests for negation-aware explain()."""
+
+    def test_negated_shows_in_explain(self):
+        result = explain("Don't deploy auth.py")
+        assert "negated" in result.lower()
+
+    def test_non_negated_no_negation_in_explain(self):
+        result = explain("Build auth.py module")
+        assert "negated" not in result.lower()
+
+    def test_commit_prefix_in_explain(self):
+        result = explain("feat: add auth.py handler")
+        assert "commit_prefix" in result.lower()
+
+
+class TestScoreBreakdownEnriched:
+    """Extended tests for score_breakdown with _compute_score_components."""
+
+    def test_breakdown_keys(self):
+        bd = score_breakdown("Build auth.py module")
+        for key in ("verb", "target", "length", "multi_target", "imperative", "total"):
+            assert key in bd
+
+    def test_breakdown_verb_score(self):
+        bd = score_breakdown("Build auth.py")
+        assert bd["verb"] == 2.5
+
+    def test_breakdown_no_verb(self):
+        bd = score_breakdown("The auth.py module needs work")
+        assert bd["verb"] == 0.0
+
+    def test_breakdown_file_target(self):
+        bd = score_breakdown("Build auth.py")
+        assert bd["target"] == 4.0
+
+    def test_breakdown_imperative_bonus(self):
+        bd = score_breakdown("Build auth.py module now")
+        assert bd["imperative"] == 0.5
+
+    def test_breakdown_non_imperative_no_bonus(self):
+        bd = score_breakdown("We should build auth.py")
+        assert bd["imperative"] == 0.0
+
+    def test_breakdown_multi_target(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd["multi_target"] == 1.0
+
+    def test_breakdown_total_is_sum(self):
+        bd = score_breakdown("Build auth.py module")
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["total"] - expected) < 0.001
+
+
+class TestPropertyInvariantsExtended:
+    """Extended property-based invariants for enriched SeedGateResult."""
+
+    SAMPLES = [
+        "Build auth.py module",
+        "Don't deploy auth.py",
+        "fix: build seed_gate.py",
+        "Explore consciousness deeply",
+        "vibes and energy everywhere",
+        "Never deploy untested code to production",
+        "",
+        "Fix the module that doesn't compile",
+        "If tests fail, don't deploy auth.py",
+    ]
+
+    def test_negated_always_fails(self):
+        """If negated is True, passed must be False (in admission mode)."""
+        for text in self.SAMPLES:
+            if not text.strip():
+                continue
+            result = _vs(text)
+            if result.negated:
+                assert not result.passed, f"Negated but passed: {text}"
+
+    def test_strength_none_when_failed(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            if not result.passed:
+                assert result.strength is None
+                assert result.confidence is None
+
+    def test_score_in_range(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            assert 0.0 <= result.score <= 1.0
+
+    def test_target_kind_matches_target(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            if result.target_found:
+                assert result.target_kind != ""
+            else:
+                assert result.target_kind == ""
+
+    def test_to_dict_roundtrips_new_fields(self):
+        for text in self.SAMPLES:
+            if not text.strip():
+                continue
+            result = _vs(text)
+            d = result.to_dict()
+            assert d["negated"] == result.negated
+            assert d["target_kind"] == result.target_kind
+            assert d["verb_position"] == result.verb_position
+            assert d["starts_with_verb"] == result.starts_with_verb
+            assert d["strength"] == result.strength
