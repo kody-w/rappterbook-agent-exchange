@@ -17,6 +17,7 @@ from propose_seed import (
     propose,
     purge_junk,
     save_seeds,
+    similarity,
     unvote,
     vote,
     withdraw,
@@ -71,6 +72,33 @@ class TestProposalId:
         assert make_proposal_id("Build X").startswith("prop-")
 
 
+class TestSimilarity:
+    def test_identical(self):
+        assert similarity("Build auth.py module", "Build auth.py module") > 0.9
+
+    def test_different_targets(self):
+        assert similarity("Build auth.py module", "Build config.py module") == 0.0
+
+    def test_opposing_verbs(self):
+        assert similarity("Build auth.py module", "Remove auth.py module") == 0.0
+
+    def test_similar_proposals(self):
+        a = "Build water_mining.py optimizer for drilling"
+        b = "Build water_mining.py optimizer for extraction"
+        assert similarity(a, b) > 0.5
+
+    def test_completely_different(self):
+        a = "Build auth.py validator module"
+        b = "Fix state/agents.json integrity bug"
+        assert similarity(a, b) < 0.5
+
+    def test_empty(self):
+        assert similarity("", "") == 0.0
+
+    def test_enable_disable_opposing(self):
+        assert similarity("Enable auth.py caching", "Disable auth.py caching") == 0.0
+
+
 class TestPropose:
     def test_valid_accepted(self, sp):
         r = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
@@ -89,6 +117,21 @@ class TestPropose:
         r2 = propose(text, author="a2", seeds_path=sp)
         assert r1["id"] == r2["id"]
 
+    def test_near_duplicate_returns_existing(self, sp):
+        t1 = "Build water_mining.py optimizer for drilling operations"
+        t2 = "Build water_mining.py optimizer for drilling procedures"
+        r1 = propose(t1, author="a1", seeds_path=sp)
+        r2 = propose(t2, author="a2", seeds_path=sp)
+        # Near-duplicate should return existing
+        assert r2["id"] == r1["id"]
+
+    def test_different_targets_not_deduped(self, sp):
+        t1 = "Build water_mining.py optimizer for drilling"
+        t2 = "Build solar_array.py controller for power grid"
+        r1 = propose(t1, author="a1", seeds_path=sp)
+        r2 = propose(t2, author="a2", seeds_path=sp)
+        assert r1["id"] != r2["id"]
+
     def test_author_auto_votes(self, sp):
         r = propose("Build solar_array.py controller power grid", author="eng1", seeds_path=sp)
         assert "eng1" in r["votes"]
@@ -106,6 +149,10 @@ class TestPropose:
     def test_score_stored(self, sp):
         r = propose("Build water_mining.py and solar_array.py pipe", author="eng3", seeds_path=sp)
         assert isinstance(r["score"], float)
+
+    def test_negated_rejected(self, sp):
+        r = propose("Don't build auth.py ever again please", author="a1", seeds_path=sp)
+        assert r == {}
 
 
 class TestVoting:

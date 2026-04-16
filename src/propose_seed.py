@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -85,6 +86,51 @@ def make_proposal_id(text):
     return "prop-" + hashlib.sha256(text.encode()).hexdigest()[:8]
 
 
+def similarity(a: str, b: str) -> float:
+    """Compute Jaccard token similarity between two proposals.
+
+    Returns 0.0 if proposals have different concrete targets (files,
+    tools, paths) since they address different work even if phrased
+    similarly.  Returns 0.0 for opposing verb families (build/remove,
+    enable/disable).
+    """
+    from seed_gate import find_target, find_verb, canonicalize_target
+
+    # Different concrete targets -> not duplicates
+    ta, _ = find_target(a)
+    tb, _ = find_target(b)
+    if ta and tb:
+        ca = canonicalize_target(ta)
+        cb = canonicalize_target(tb)
+        if ca != cb:
+            return 0.0
+
+    # Opposing verb families -> not duplicates
+    _OPPOSING = [
+        {"build", "remove"}, {"enable", "disable"},
+        {"add", "delete"}, {"create", "remove"},
+        {"install", "deprecate"},
+    ]
+    va = find_verb(a)
+    vb = find_verb(b)
+    if va and vb:
+        for pair in _OPPOSING:
+            if va in pair and vb in pair and va != vb:
+                return 0.0
+
+    # Jaccard on lowercased tokens
+    tokens_a = set(re.findall(r"[a-z0-9_]+", a.lower()))
+    tokens_b = set(re.findall(r"[a-z0-9_]+", b.lower()))
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    return len(intersection) / len(union)
+
+
+_SIMILARITY_THRESHOLD = 0.70
+
+
 def propose(text, author, context="", tags=None, seeds_path=None):
     """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
     text = text.strip()
@@ -99,9 +145,14 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Duplicate check (exact)
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
+            return p
+
+    # Near-duplicate check (Jaccard similarity)
+    for p in seeds.get("proposals", []):
+        if similarity(text, p.get("text", "")) >= _SIMILARITY_THRESHOLD:
             return p
 
     proposal = {
