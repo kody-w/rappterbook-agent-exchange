@@ -482,6 +482,18 @@ class BatchResult:
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
 
+    def summary(self) -> str:
+        """Return a human-readable one-line summary of the batch.
+
+        Example: '42 proposals: 30 passed, 8 failed, 4 junk (71.4% pass rate)'
+        """
+        s = self.stats
+        rate = f"{s.pass_rate * 100:.1f}%" if s.total else "N/A"
+        return (
+            f"{s.total} proposals: {s.passed} passed, "
+            f"{s.failed} failed, {s.junk} junk ({rate} pass rate)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Negation constants
@@ -920,6 +932,32 @@ def canonicalize_target(target: str) -> str:
     return t.lower().strip()
 
 
+def _trigram_shingles(text: str) -> set[str]:
+    """Return the set of character 3-gram shingles from *text*."""
+    normalized = text.lower().strip()
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {normalized[i:i + 3] for i in range(len(normalized) - 2)}
+
+
+def similarity(a: str, b: str) -> float:
+    """Jaccard similarity between two texts using character 3-gram shingles.
+
+    Returns a float in [0.0, 1.0].  Useful for near-duplicate detection
+    in propose_seed.py -- catches rephrasings that share the same core
+    intent but differ in wording.
+    """
+    sa = _trigram_shingles(a)
+    sb = _trigram_shingles(b)
+    if not sa and not sb:
+        return 1.0
+    if not sa or not sb:
+        return 0.0
+    intersection = len(sa & sb)
+    union = len(sa | sb)
+    return intersection / union if union else 0.0
+
+
 def count_unique_targets(text: str) -> int:
     """Count distinct concrete targets in *text* after canonicalization.
 
@@ -944,6 +982,21 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _multi_target_bonus(unique: int) -> float:
+    """Graduated bonus for multiple concrete targets in a proposal.
+
+    2 targets -> +1.0, 3 targets -> +1.5, 4+ targets -> +2.0.
+    Shared by compute_score() and _score_parts() to prevent drift.
+    """
+    if unique >= 4:
+        return 2.0
+    if unique >= 3:
+        return 1.5
+    if unique >= 2:
+        return 1.0
+    return 0.0
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -962,8 +1015,9 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
+
+    raw += _multi_target_bonus(unique)
+
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
         raw += 0.5
@@ -1073,8 +1127,11 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
-        components["multi_target"] = 1.0
+
+    bonus = _multi_target_bonus(unique)
+    if bonus:
+        components["multi_target"] = bonus
+
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
     return components

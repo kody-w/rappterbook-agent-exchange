@@ -2520,3 +2520,237 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# T+1 evolution: graduated scoring, similarity, BatchResult.summary()
+# ===================================================================
+
+from seed_gate import similarity, _trigram_shingles, _multi_target_bonus
+
+
+class TestMultiTargetBonus:
+    """Dedicated tests for _multi_target_bonus() helper."""
+
+    def test_zero_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(0) == 0.0
+
+    def test_one_target(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(1) == 0.0
+
+    def test_two_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(2) == 1.0
+
+    def test_three_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(3) == 1.5
+
+    def test_four_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(4) == 2.0
+
+    def test_many_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(100) == 2.0
+
+    def test_compute_score_and_parts_agree(self):
+        """compute_score and _score_parts now use the same graduated helper."""
+        from seed_gate import compute_score, _score_parts
+        text = "Build auth.py, config.yaml, and README.md for the deployment"
+        verb, target, kind = "build", "auth.py", "file"
+        score = compute_score(text, verb, target, kind)
+        parts = _score_parts(text, verb, target, kind)
+        parts_raw = sum(parts.values())
+        assert abs(score - min(parts_raw / 10.0, 1.0)) < 0.01
+
+    def test_three_target_score_higher_than_two(self):
+        r2 = validate_seed("Build auth.py and config.yaml together")
+        r3 = validate_seed("Build auth.py, config.yaml, and README.md together")
+        assert r3.score > r2.score
+
+    def test_four_target_score_higher_than_three(self):
+        r3 = validate_seed("Build auth.py, config.yaml, and README.md module")
+        r4 = validate_seed("Build auth.py, config.yaml, README.md, and router.js module")
+        assert r4.score >= r3.score
+
+    def test_graduated_score_in_breakdown(self):
+        bd = score_breakdown("Build auth.py, config.yaml, and README.md module")
+        assert bd["multi_target"] == 1.5
+
+    def test_four_target_breakdown(self):
+        bd = score_breakdown("Build auth.py, config.yaml, README.md, and router.js module")
+        assert bd["multi_target"] == 2.0
+
+
+class TestSimilarityEdgeCases:
+    """Edge cases for similarity() trigram Jaccard function."""
+
+    def test_identical(self):
+        assert similarity("Build auth.py", "Build auth.py") == 1.0
+
+    def test_empty_both(self):
+        assert similarity("", "") == 1.0
+
+    def test_empty_one(self):
+        assert similarity("", "Build auth.py") == 0.0
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_completely_different(self):
+        s = similarity("Build auth.py", "ZZZZZZZZZZZ QQQQQQQQQQ")
+        assert s < 0.2
+
+    def test_similar_proposals(self):
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Build water_mining.py optimiser",
+        )
+        assert s > 0.7
+
+    def test_rephrased(self):
+        s = similarity(
+            "Build the water_mining.py optimizer module",
+            "Build water_mining.py optimization system",
+        )
+        assert s > 0.4  # trigram Jaccard conservative for rephrasings
+
+    def test_very_different_topics(self):
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Fix greenhouse.py temperature controller",
+        )
+        assert s < 0.5
+
+    def test_case_insensitive(self):
+        assert similarity("BUILD AUTH.PY", "build auth.py") == 1.0
+
+    def test_returns_float_in_range(self):
+        result = similarity("Build auth.py", "Fix config.yaml")
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0
+
+    def test_short_strings(self):
+        assert similarity("ab", "ab") == 1.0
+
+    def test_single_char(self):
+        assert similarity("a", "a") == 1.0
+
+    def test_symmetry(self):
+        a, b = "Build water_mining.py", "Fix solar_array.py"
+        assert similarity(a, b) == similarity(b, a)
+
+
+class TestBatchResultSummary:
+    """Tests for BatchResult.summary() method."""
+
+    def test_summary_format(self):
+        br = validate_batch(["Build auth.py module", "bad", "Fix config.yaml now"])
+        summary = br.summary()
+        assert "proposals" in summary
+        assert "passed" in summary
+        assert "failed" in summary
+        assert "junk" in summary
+        assert "pass rate" in summary
+
+    def test_summary_all_pass(self):
+        texts = ["Build auth.py module", "Fix config.yaml now", "Test rover.py output"]
+        br = validate_batch(texts)
+        assert f"{br.stats.passed} passed" in br.summary()
+
+    def test_summary_empty(self):
+        br = validate_batch([])
+        assert "0 proposals" in br.summary()
+        assert "N/A" in br.summary()
+
+    def test_summary_all_junk(self):
+        br = validate_batch(["x", "y", "z"])
+        assert "3 junk" in br.summary()
+        assert "0.0% pass rate" in br.summary()
+
+    def test_summary_mixed(self):
+        texts = [
+            "Build auth.py module for login",
+            "bad",
+            "Make everything better please now",
+            "Fix config.yaml deployment",
+        ]
+        br = validate_batch(texts)
+        assert str(br.stats.total) in br.summary()
+
+    def test_summary_is_string(self):
+        br = validate_batch(["Build auth.py module"])
+        assert isinstance(br.summary(), str)
+
+
+class TestScoreConsistencyInvariant:
+    """Invariant: compute_score and _score_parts always agree."""
+
+    def _check(self, text):
+        from seed_gate import compute_score, _score_parts, find_verb, find_target
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        score = compute_score(text, verb, target, kind)
+        parts = _score_parts(text, verb, target, kind)
+        expected = min(sum(parts.values()) / 10.0, 1.0)
+        assert abs(score - expected) < 0.001, f"Drift: {text!r}"
+
+    def test_single_target(self):
+        self._check("Build auth.py module for login")
+
+    def test_two_targets(self):
+        self._check("Build auth.py and config.yaml together")
+
+    def test_three_targets(self):
+        self._check("Build auth.py, config.yaml, and README.md now")
+
+    def test_four_targets(self):
+        self._check("Build auth.py, config.yaml, README.md, and router.js")
+
+    def test_no_verb(self):
+        self._check("The auth.py module for login system")
+
+    def test_no_target(self):
+        self._check("Build something great and amazing today")
+
+    def test_long_text(self):
+        self._check(
+            "Build auth.py and configure config.yaml and update README.md "
+            "and deploy router.js and test helpers.py for production"
+        )
+
+
+class TestSimilarityInvariants:
+    """Property-based invariants for similarity()."""
+
+    def test_self_similarity_always_one(self):
+        for t in ["Build auth.py", "Fix config.yaml", "", "A" * 1000]:
+            assert similarity(t, t) == 1.0, f"Self-sim failed for {t!r}"
+
+    def test_always_in_range(self):
+        pairs = [
+            ("Build auth.py", "Fix config.yaml"),
+            ("", "something"),
+            ("abc", "xyz"),
+            ("Build water_mining.py", "Build water_mining.py optimizer"),
+        ]
+        for a, b in pairs:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0, f"Out of range: {a!r} vs {b!r} = {s}"
+
+    def test_symmetry_multiple(self):
+        pairs = [
+            ("Build auth.py", "Fix auth.py"),
+            ("Hello world", "World hello"),
+            ("abc", "def"),
+        ]
+        for a, b in pairs:
+            assert similarity(a, b) == similarity(b, a)
+
+    def test_monotonic_with_overlap(self):
+        base = "Build water_mining.py optimizer"
+        s_same = similarity(base, base)
+        s_partial = similarity(base, "Build water_mining.py")
+        s_different = similarity(base, "ZZZZZZZZZ QQQQQQQQ")
+        assert s_same >= s_partial >= s_different
