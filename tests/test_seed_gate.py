@@ -1652,3 +1652,738 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# PR #288 — Consolidated 6-agent features
+# ===================================================================
+
+
+class TestVerbMatch:
+    """Tests for VerbMatch dataclass and find_verb_with_position()."""
+
+    def test_import(self):
+        from seed_gate import VerbMatch, find_verb_with_position
+        assert VerbMatch is not None
+        assert find_verb_with_position is not None
+
+    def test_basic_verb_position(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("Build seed_gate.py")
+        assert m is not None
+        assert m.verb == "build"
+        assert m.token_index == 0
+        assert m.source == "text"
+
+    def test_verb_not_first(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("We should build seed_gate.py")
+        assert m is not None
+        assert m.verb == "build"
+        assert m.token_index == 2
+
+    def test_phrasal_verb_position(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("Set up the CI pipeline for tests")
+        assert m is not None
+        assert m.verb == "set up"
+        assert m.token_index == 0
+
+    def test_inflected_verb_position(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("Building seed_gate.py for validation")
+        assert m is not None
+        assert m.verb == "build"
+        assert m.token_index == 0
+
+    def test_no_verb_returns_none(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("The quick brown fox jumps")
+        assert m is None
+
+    def test_bool_truthy(self):
+        from seed_gate import VerbMatch
+        m = VerbMatch(verb="build", token_index=0)
+        assert bool(m) is True
+
+    def test_bool_falsy(self):
+        from seed_gate import VerbMatch
+        m = VerbMatch(verb="", token_index=-1)
+        assert bool(m) is False
+
+    def test_limit_parameter(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("xxxx build seed_gate.py", limit=3)
+        assert m is None
+
+    def test_inflected_phrasal_position(self):
+        from seed_gate import find_verb_with_position
+        m = find_verb_with_position("Setting up CI pipeline with tests")
+        assert m is not None
+        assert m.verb == "set up"
+        assert m.token_index == 0
+
+
+class TestNegationDetection:
+    """Tests for detect_negation() — construction-based, subordinate-clause aware."""
+
+    def test_import(self):
+        from seed_gate import detect_negation
+        assert detect_negation is not None
+
+    def test_contraction_negation(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Don't build seed_gate.py") is True
+
+    def test_split_negation(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Do not deploy the rover module") is True
+
+    def test_anti_action(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Stop building the thermal system") is True
+        assert detect_negation("Avoid refactoring state_io.py") is True
+        assert detect_negation("Prevent deployment of the module") is True
+
+    def test_never_verb(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Never deploy untested code to prod") is True
+
+    def test_subordinate_clause_excluded(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Fix module that doesn't compile") is False
+
+    def test_subordinate_which(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Fix the test which doesn't pass") is False
+
+    def test_subordinate_because(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Refactor state_io.py because it won't scale") is False
+
+    def test_question_stem_excluded(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Why not allow agents to self-govern") is False
+
+    def test_positive_sentence(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Build seed_gate.py validator") is False
+
+    def test_wont(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Won't build seed_gate.py") is True
+
+    def test_shouldnt(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Shouldn't deploy to production yet") is True
+
+    def test_cannot(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Cannot build the thermal module") is True
+
+    def test_will_not(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Will not deploy the seed_gate") is True
+
+    def test_halt(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Halt deployment of water_mining.py") is True
+
+    def test_quit(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Quit building placeholder modules") is True
+
+
+class TestNegationIntegration:
+    """Tests that negation causes validate_seed to FAIL."""
+
+    def test_negated_fails_gate(self):
+        r = _vs("Don't build seed_gate.py")
+        assert r.passed is False
+        assert r.negated is True
+        assert any("Negated" in reason for reason in r.reasons)
+
+    def test_negated_with_target_fails(self):
+        r = _vs("Do not deploy rover.py to production")
+        assert r.passed is False
+        assert r.negated is True
+
+    def test_subordinate_negation_passes(self):
+        r = _vs("Fix seed_gate.py which doesn't validate")
+        assert r.passed is True
+        assert r.negated is False
+
+    def test_positive_passes(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.passed is True
+        assert r.negated is False
+
+    def test_anti_action_fails(self):
+        r = _vs("Stop building thermal_control.py")
+        assert r.passed is False
+        assert r.negated is True
+
+    def test_question_stem_not_negated(self):
+        r = _vs("Why not allow agents to self-govern in channels", tags=["philosophy"])
+        assert r.negated is False
+
+
+class TestCommitPrefixStripping:
+    """Tests for _strip_commit_prefix() and its integration."""
+
+    def test_import(self):
+        from seed_gate import _strip_commit_prefix
+        assert _strip_commit_prefix is not None
+
+    def test_feat_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat: build seed_gate.py")
+        assert body == "build seed_gate.py"
+        assert verb == "build"
+
+    def test_fix_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix: resolve race in state_io.py")
+        assert body == "resolve race in state_io.py"
+        assert verb == "fix"
+
+    def test_scoped_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat(gate): add negation detection")
+        assert body == "add negation detection"
+        assert verb == "build"
+
+    def test_breaking_change(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat!: rewrite seed_gate.py API")
+        assert body == "rewrite seed_gate.py API"
+        assert verb == "build"
+
+    def test_no_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("Build seed_gate.py")
+        assert body == "Build seed_gate.py"
+        assert verb is None
+
+    def test_docs_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("docs: update README.md with new API")
+        assert body == "update README.md with new API"
+        assert verb == "document"
+
+    def test_chore_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("chore: clean up state/agents.json")
+        assert body == "clean up state/agents.json"
+        assert verb == "refactor"
+
+    def test_perf_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("perf: optimize compute_score hot path")
+        assert body == "optimize compute_score hot path"
+        assert verb == "optimize"
+
+    def test_commit_prefix_passes_gate(self):
+        """feat: build seed_gate.py should pass (not rejected as lowercase)."""
+        r = _vs("feat: Build seed_gate.py validator")
+        assert r.passed is True
+        assert r.commit_prefix_verb == "build"
+
+    def test_commit_prefix_fallback_verb(self):
+        """If body has no verb, commit prefix provides one."""
+        r = _vs("feat: Seed_gate.py validator improvements")
+        assert r.passed is True
+        assert r.verb_found == "build"
+        assert r.verb_source == "prefix"
+
+    def test_vague_commit_still_rejected(self):
+        """feat: improvements — should still fail (no target)."""
+        r = _vs("feat: Improvements and cleanups across the board")
+        assert r.passed is False
+
+
+class TestScoreBreakdown:
+    """Tests for score_breakdown() API."""
+
+    def test_import(self):
+        from seed_gate import score_breakdown
+        assert score_breakdown is not None
+
+    def test_basic_breakdown(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert "score" in bd
+        assert "verb" in bd or "target" in bd
+        assert isinstance(bd["score"], float)
+
+    def test_has_verb_component(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert bd.get("verb") == 2.5
+
+    def test_has_target_component(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert bd.get("target") == 4.0  # file kind
+
+    def test_has_imperative_component(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert bd.get("imperative") == 0.5
+
+    def test_length_bonus(self):
+        from seed_gate import score_breakdown
+        text = "Build seed_gate.py validator with " + " ".join(["word"] * 12)
+        bd = score_breakdown(text)
+        assert "length_bonus" in bd
+
+    def test_multi_target_bonus(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py and propose_seed.py validators")
+        assert bd.get("multi_target") == 1.0
+
+    def test_verb_weight_included(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build seed_gate.py validator")
+        assert bd.get("verb_weight") == "high"
+
+    def test_fix_is_low_weight(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Fix seed_gate.py bug")
+        assert bd.get("verb_weight") == "low"
+
+    def test_refactor_is_medium_weight(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Refactor seed_gate.py internals")
+        assert bd.get("verb_weight") == "medium"
+
+
+class TestExplainAPI:
+    """Tests for explain() API."""
+
+    def test_import(self):
+        from seed_gate import explain
+        assert explain is not None
+
+    def test_passing_proposal(self):
+        from seed_gate import explain
+        result = explain("Build seed_gate.py validator")
+        assert result.startswith("PASSED")
+        assert "build" in result
+        assert "seed_gate.py" in result
+
+    def test_failing_no_verb(self):
+        from seed_gate import explain
+        result = explain("The quick brown fox and nothing specific")
+        assert result.startswith("FAILED")
+
+    def test_failing_negated(self):
+        from seed_gate import explain
+        result = explain("Don't build seed_gate.py")
+        assert "FAILED" in result
+        assert "Negated" in result
+
+    def test_returns_string(self):
+        from seed_gate import explain
+        assert isinstance(explain("Build seed_gate.py"), str)
+        assert isinstance(explain("vibes only"), str)
+
+    def test_confidence_in_passing(self):
+        from seed_gate import explain
+        result = explain("Build seed_gate.py validator")
+        assert "high" in result or "medium" in result or "low" in result
+
+
+class TestProperNounTarget:
+    """Tests for proper-noun fallback target detection."""
+
+    def test_proper_noun_with_suffix(self):
+        from seed_gate import find_target
+        target, kind = find_target("Design the Dream Catcher Protocol for merging")
+        assert "Dream Catcher Protocol" in target
+        assert kind == "proper_noun"
+
+    def test_proper_noun_three_words(self):
+        from seed_gate import find_target
+        target, kind = find_target("Build the Mars Colony Central Hub")
+        assert kind == "proper_noun"
+
+    def test_not_slogan(self):
+        """Two-word capitalized phrase without substance suffix should NOT match."""
+        from seed_gate import find_target
+        target, kind = find_target("Build Better Agents")
+        # "Better Agents" has no substance suffix and is only 2 words
+        assert kind != "proper_noun" or target == ""
+
+    def test_file_beats_proper_noun(self):
+        """File targets should take priority over proper nouns."""
+        from seed_gate import find_target
+        target, kind = find_target("Design the Dream Catcher protocol in dream.py")
+        assert kind == "file"
+        assert target == "dream.py"
+
+    def test_passes_gate_with_proper_noun(self):
+        r = _vs("Design the Wright Fisher Simulation Model")
+        assert r.passed is True
+        assert r.target_kind == "proper_noun"
+
+
+class TestPlaceholderTarget:
+    """Tests for placeholder filename detection (soft advisory)."""
+
+    def test_import(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target is not None
+
+    def test_test_py_is_placeholder(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("test.py") is True
+
+    def test_foo_py_is_placeholder(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("foo.py") is True
+
+    def test_real_file_not_placeholder(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("seed_gate.py") is False
+        assert is_placeholder_target("water_mining.py") is False
+
+    def test_path_prefix_stripped(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("src/test.py") is True
+
+    def test_case_insensitive(self):
+        from seed_gate import is_placeholder_target
+        assert is_placeholder_target("Test.py") is True
+
+    def test_still_passes_gate(self):
+        """Placeholder target should still PASS (soft penalty, not hard reject)."""
+        r = _vs("Build test.py for unit testing")
+        assert r.passed is True
+        assert r.advisory == "placeholder-target"
+
+    def test_placeholder_penalty_in_score(self):
+        """Score should be lower with placeholder vs real file."""
+        r_real = _vs("Build seed_gate.py module")
+        r_placeholder = _vs("Build test.py module")
+        assert r_placeholder.score < r_real.score
+
+
+class TestVerbWeight:
+    """Tests for verb weight categories (diagnostic-only)."""
+
+    def test_import(self):
+        from seed_gate import _verb_weight
+        assert _verb_weight is not None
+
+    def test_build_is_high(self):
+        from seed_gate import _verb_weight
+        assert _verb_weight("build") == "high"
+
+    def test_fix_is_low(self):
+        from seed_gate import _verb_weight
+        assert _verb_weight("fix") == "low"
+
+    def test_refactor_is_medium(self):
+        from seed_gate import _verb_weight
+        assert _verb_weight("refactor") == "medium"
+
+    def test_none_returns_none(self):
+        from seed_gate import _verb_weight
+        assert _verb_weight(None) is None
+
+    def test_unknown_verb_defaults_medium(self):
+        from seed_gate import _verb_weight
+        assert _verb_weight("frobulate") == "medium"
+
+    def test_in_result(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.verb_weight == "high"
+
+    def test_in_to_dict(self):
+        r = _v("Build seed_gate.py validator")
+        assert r["verb_weight"] == "high"
+
+
+class TestEnrichedSeedGateResult:
+    """Tests for new fields on SeedGateResult from PR #288."""
+
+    def test_target_kind_field(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.target_kind == "file"
+
+    def test_target_kind_tool(self):
+        r = _vs("Refactor state_io for atomicity")
+        assert r.target_kind == "tool"
+
+    def test_verb_source_text(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.verb_source == "text"
+
+    def test_verb_source_tag(self):
+        r = _vs("The seed_gate.py needs attention", tags=["code"])
+        assert r.verb_source == "tag"
+
+    def test_verb_source_question(self):
+        r = _vs("What if we allowed agents to self-govern", tags=["philosophy"])
+        assert r.verb_source == "question"
+
+    def test_verb_position_zero(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.verb_position == 0
+
+    def test_verb_position_nonzero(self):
+        r = _vs("We should build seed_gate.py validator")
+        assert r.verb_position is not None
+        assert r.verb_position > 0
+
+    def test_is_imperative_true(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.is_imperative is True
+
+    def test_is_imperative_false(self):
+        r = _vs("We should build seed_gate.py validator")
+        assert r.is_imperative is False
+
+    def test_score_parts_populated(self):
+        r = _vs("Build seed_gate.py validator")
+        assert len(r.score_parts) > 0
+        labels = [p[0] for p in r.score_parts]
+        assert "verb" in labels
+        assert "target" in labels
+
+    def test_negated_field_false(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.negated is False
+
+    def test_negated_field_true(self):
+        r = _vs("Don't build seed_gate.py")
+        assert r.negated is True
+
+    def test_commit_prefix_verb_field(self):
+        r = _vs("feat: Build seed_gate.py validator")
+        assert r.commit_prefix_verb == "build"
+
+    def test_commit_prefix_verb_none(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.commit_prefix_verb is None
+
+    def test_to_dict_has_new_fields(self):
+        r = _v("Build seed_gate.py validator")
+        for key in ("target_kind", "verb_source", "verb_position",
+                     "score_parts", "negated", "is_imperative",
+                     "verb_weight", "commit_prefix_verb"):
+            assert key in r, f"Missing key: {key}"
+
+
+class TestScorePartsConsistency:
+    """Ensure _compute_score_parts is single source of truth."""
+
+    def test_score_matches_parts(self):
+        from seed_gate import _compute_score_parts, find_verb, find_target
+        text = "Build seed_gate.py and propose_seed.py validators"
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        parts, normalized = _compute_score_parts(text, verb, target, kind)
+        raw = sum(v for _, v in parts)
+        assert abs(normalized - min(raw / 10.0, 1.0)) < 1e-9
+
+    def test_compute_score_delegates(self):
+        from seed_gate import compute_score, _compute_score_parts, find_verb, find_target
+        text = "Build seed_gate.py validator"
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        score = compute_score(text, verb, target, kind)
+        _, expected = _compute_score_parts(text, verb, target, kind)
+        assert abs(score - expected) < 1e-9
+
+    def test_placeholder_penalty_applied(self):
+        from seed_gate import _compute_score_parts
+        parts, score = _compute_score_parts("Build test.py module", "build", "test.py", "file")
+        labels = [p[0] for p in parts]
+        assert "placeholder_penalty" in labels
+        penalty = dict(parts).get("placeholder_penalty", 0)
+        assert penalty < 0
+
+    def test_proper_noun_target_score(self):
+        from seed_gate import _compute_score_parts
+        parts, score = _compute_score_parts(
+            "Design the Dream Catcher Protocol for merging",
+            "design", "Dream Catcher Protocol", "proper_noun",
+        )
+        assert score > 0
+
+
+class TestNegationEdgeCases:
+    """Edge cases for negation detection — ensuring no false positives."""
+
+    def test_double_negation(self):
+        """'Don't avoid building X' has negation in main clause."""
+        from seed_gate import detect_negation
+        assert detect_negation("Don't avoid building seed_gate.py") is True
+
+    def test_code_example_not_negated(self):
+        """Backtick-quoted negation should not trip the detector (future)."""
+        # Current behavior: detect_negation sees the raw text
+        # This is acceptable since code examples are typically in context
+        from seed_gate import detect_negation
+        # Main clause has "don't"
+        assert detect_negation("Explain the `don't` keyword") is True
+
+    def test_where_clause_excluded(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Fix the module where it doesn't compile") is False
+
+    def test_if_clause_excluded(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Build fallback if deploy doesn't work") is False
+
+    def test_unless_clause_excluded(self):
+        from seed_gate import detect_negation
+        assert detect_negation("Deploy seed_gate.py unless tests don't pass") is False
+
+
+class TestCommitPrefixEdgeCases:
+    """Edge cases for commit-prefix stripping."""
+
+    def test_case_insensitive(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("FEAT: build seed_gate.py")
+        assert body == "build seed_gate.py"
+        assert verb == "build"
+
+    def test_ci_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("ci: automate testing pipeline")
+        assert verb == "automate"
+
+    def test_security_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("security: secure state_io.py writes")
+        assert verb == "secure"
+
+    def test_revert_prefix(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("revert: remove broken feature flag")
+        assert verb == "remove"
+
+    def test_unknown_prefix_not_stripped(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("custom: build something new")
+        assert body == "custom: build something new"
+        assert verb is None
+
+
+class TestSuggestNegation:
+    """Tests that suggest() handles negation."""
+
+    def test_suggests_remove_negation(self):
+        from seed_gate import suggest
+        suggestions = suggest("Don't build seed_gate.py")
+        assert any("negation" in s.lower() for s in suggestions)
+
+
+class TestConsolidatedInvariants:
+    """Property-based invariants for all new features."""
+
+    def test_verb_position_consistent_with_starts_with_verb(self):
+        """If verb_position == 0, _starts_with_verb should also be True."""
+        from seed_gate import _starts_with_verb
+        for text in [
+            "Build seed_gate.py", "Fix rover.py", "Set up CI pipeline for tests",
+            "We should build seed_gate.py",
+        ]:
+            r = _vs(text)
+            if r.verb_position == 0:
+                assert _starts_with_verb(text), f"verb_position=0 but _starts_with_verb=False for: {text}"
+
+    def test_score_parts_sum_to_raw(self):
+        """Score parts should sum to raw score (before normalization)."""
+        for text in [
+            "Build seed_gate.py validator",
+            "Fix rover.py bug and solar_array.py issue in the codebase",
+            "Explore consciousness in agents deeply very thoroughly",
+        ]:
+            r = _vs(text, tags=["theme"] if "consciousness" in text else [])
+            if r.score_parts:
+                raw = sum(v for _, v in r.score_parts)
+                expected = min(max(raw / 10.0, 0.0), 1.0)
+                assert abs(r.score - expected) < 1e-9, f"Score mismatch for: {text}"
+
+    def test_negated_always_fails(self):
+        """Any result with negated=True should have passed=False."""
+        for text in [
+            "Don't build seed_gate.py",
+            "Do not deploy rover.py",
+            "Stop testing thermal_control.py",
+            "Never run untested code in prod",
+        ]:
+            r = _vs(text)
+            if r.negated:
+                assert r.passed is False, f"negated=True but passed=True for: {text}"
+
+    def test_verb_weight_always_valid(self):
+        """verb_weight should be None, 'low', 'medium', or 'high'."""
+        for text in ["Build auth.py", "Fix stuff", "x", "Deploy rover.py"]:
+            r = _vs(text)
+            assert r.verb_weight in (None, "low", "medium", "high")
+
+    def test_to_dict_roundtrip_has_all_keys(self):
+        """to_dict should include all new PR #288 fields."""
+        r = _vs("Build seed_gate.py validator")
+        d = r.to_dict()
+        expected_keys = {
+            "passed", "reasons", "score", "verb_found", "target_found",
+            "junk", "advisory", "confidence", "all_verbs", "all_targets",
+            "target_kind", "verb_source", "verb_position", "score_parts",
+            "negated", "is_imperative", "verb_weight", "commit_prefix_verb",
+        }
+        assert expected_keys.issubset(set(d.keys()))
+
+    def test_score_always_0_to_1_with_new_features(self):
+        from seed_gate import compute_score, find_verb, find_target
+        for text in [
+            "Build test.py module",  # placeholder
+            "Design the Dream Catcher Protocol",  # proper noun
+            "feat: build seed_gate.py",  # commit prefix
+            "Don't build seed_gate.py",  # negated
+        ]:
+            verb = find_verb(text)
+            target, kind = find_target(text)
+            s = compute_score(text, verb, target, kind)
+            assert 0.0 <= s <= 1.0, f"Score {s} out of bounds for: {text}"
+
+
+class TestBackwardCompatibility:
+    """Ensure no regressions in existing public API."""
+
+    def test_validate_returns_dict(self):
+        r = _v("Build seed_gate.py validator")
+        assert isinstance(r, dict)
+        assert r["passed"] is True
+
+    def test_validate_seed_returns_dataclass(self):
+        r = _vs("Build seed_gate.py validator")
+        assert isinstance(r, SeedGateResult)
+
+    def test_passes_gate_returns_bool(self):
+        assert passes_gate("Build seed_gate.py validator") is True
+        assert passes_gate("vibes only") is False
+
+    def test_old_fields_unchanged(self):
+        r = _v("Build seed_gate.py validator")
+        assert "passed" in r
+        assert "reasons" in r
+        assert "score" in r
+        assert "verb_found" in r
+        assert "target_found" in r
+        assert "junk" in r
+        assert "advisory" in r
+        assert "confidence" in r
+        assert "all_verbs" in r
+        assert "all_targets" in r
+
+    def test_verb_target_properties(self):
+        r = _vs("Build seed_gate.py validator")
+        assert r.verb == "build"
+        assert r.target == "seed_gate.py"
