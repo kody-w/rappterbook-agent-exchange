@@ -41,9 +41,19 @@ from seed_gate import (
 from seed_gate import (
     _strip_commit_prefix,
     _COMMIT_PREFIX_RE,
+    _COMMIT_TYPE_VERBS,
     _KIND_SCORES,
+    _NEGATION_WORDS,
+    _CONTRACTIONS,
+    _ABBREV_REF_RE,
+    _expand_contractions,
+    _has_negation_before,
+    _is_false_file_match,
+    VerbMatch,
     compute_score,
+    detect_negation,
     find_verb,
+    find_verb_match,
     find_target,
     find_verb_with_position,
     score_breakdown,
@@ -1677,35 +1687,48 @@ class TestCommitPrefix:
     """Tests for _strip_commit_prefix() and _COMMIT_PREFIX_RE."""
 
     def test_strip_fix_prefix(self):
-        assert _strip_commit_prefix("fix: build seed_gate.py") == "build seed_gate.py"
+        body, verb = _strip_commit_prefix("fix: build seed_gate.py")
+        assert body == "build seed_gate.py"
+        assert verb == "fix"
 
     def test_strip_feat_scope_prefix(self):
-        assert _strip_commit_prefix("feat(auth): add JWT tokens") == "add JWT tokens"
+        body, verb = _strip_commit_prefix("feat(auth): add JWT tokens")
+        assert body == "add JWT tokens"
+        assert verb == "build"
 
     def test_strip_chore_bang_prefix(self):
-        assert _strip_commit_prefix("chore!: remove deprecated API") == "remove deprecated API"
+        body, verb = _strip_commit_prefix("chore!: remove deprecated API")
+        assert body == "remove deprecated API"
+        assert verb == "clean"
 
     def test_strip_refactor_prefix(self):
-        assert _strip_commit_prefix("refactor: optimize compute_score") == "optimize compute_score"
+        body, verb = _strip_commit_prefix("refactor: optimize compute_score")
+        assert body == "optimize compute_score"
+        assert verb == "refactor"
 
     def test_no_strip_capitalized(self):
         """Capital 'Build:' is natural prose, not a commit prefix."""
-        assert _strip_commit_prefix("Build: the reactor core") == "Build: the reactor core"
+        body, verb = _strip_commit_prefix("Build: the reactor core")
+        assert body == "Build: the reactor core"
+        assert verb is None
 
     def test_no_strip_plain_text(self):
-        assert _strip_commit_prefix("Build auth.py module") == "Build auth.py module"
+        body, verb = _strip_commit_prefix("Build auth.py module")
+        assert body == "Build auth.py module"
+        assert verb is None
 
     def test_all_prefixes(self):
         """All conventional commit types should be stripped."""
         for prefix in ("fix", "feat", "chore", "docs", "style", "refactor",
                        "perf", "test", "build", "ci", "revert"):
-            result = _strip_commit_prefix(f"{prefix}: do something")
-            assert result == "do something", f"Failed for {prefix}:"
+            body, verb = _strip_commit_prefix(f"{prefix}: do something")
+            assert body == "do something", f"Failed for {prefix}:"
+            assert verb is not None, f"No verb for {prefix}:"
 
     def test_scope_variants(self):
         for scope in ("auth", "core", "ui", "seed-gate"):
-            result = _strip_commit_prefix(f"fix({scope}): patch it")
-            assert result == "patch it", f"Failed for scope {scope}"
+            body, verb = _strip_commit_prefix(f"fix({scope}): patch it")
+            assert body == "patch it", f"Failed for scope {scope}"
 
     def test_regex_matches_lowercase_only(self):
         assert _COMMIT_PREFIX_RE.match("fix: something")
@@ -1983,3 +2006,464 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PR #289 — negation, VerbMatch, abbreviated refs, commit-prefix verbs
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestExpandContractions:
+    """_expand_contractions() normalizes contractions for negation detection."""
+
+    def test_dont_expands(self):
+        assert "do not" in _expand_contractions("don't")
+
+    def test_cant_expands(self):
+        assert "can not" in _expand_contractions("can't")
+
+    def test_wont_expands(self):
+        assert "will not" in _expand_contractions("won't")
+
+    def test_shouldnt_expands(self):
+        assert "should not" in _expand_contractions("shouldn't")
+
+    def test_couldnt_expands(self):
+        assert "could not" in _expand_contractions("couldn't")
+
+    def test_wouldnt_expands(self):
+        assert "would not" in _expand_contractions("wouldn't")
+
+    def test_doesnt_expands(self):
+        assert "does not" in _expand_contractions("doesn't")
+
+    def test_cannot_expands(self):
+        assert "can not" in _expand_contractions("cannot")
+
+    def test_case_insensitive(self):
+        assert "do not" in _expand_contractions("Don't").lower()
+
+    def test_no_contractions_unchanged(self):
+        text = "Build the auth module now"
+        assert _expand_contractions(text) == text
+
+    def test_multiple_contractions(self):
+        result = _expand_contractions("Don't and can't").lower()
+        assert "do not" in result
+        assert "can not" in result
+
+    def test_preserves_surrounding_text(self):
+        result = _expand_contractions("We don't build this")
+        assert result.startswith("We ")
+        assert "do not" in result
+        assert result.endswith(" build this")
+
+
+class TestDetectNegation:
+    """detect_negation() returns True when all verbs are negated."""
+
+    def test_dont_build(self):
+        assert detect_negation("Don't build auth.py") is True
+
+    def test_never_deploy(self):
+        assert detect_negation("Never deploy untested code to prod") is True
+
+    def test_avoid_deploying(self):
+        assert detect_negation("Avoid deploying to staging today") is True
+
+    def test_do_not_test(self):
+        assert detect_negation("Do not test the reactor module") is True
+
+    def test_cannot_ship(self):
+        assert detect_negation("We can't ship this module yet") is True
+
+    def test_without_building(self):
+        assert detect_negation("Without building auth.py we fail") is True
+
+    def test_positive_build(self):
+        assert detect_negation("Build auth.py from scratch") is False
+
+    def test_positive_imperative(self):
+        assert detect_negation("Fix the login module immediately") is False
+
+    def test_no_verbs(self):
+        assert detect_negation("The quick brown fox jumps") is False
+
+    def test_mixed_polarity_passes(self):
+        """If one verb is negated but another is not, returns False."""
+        assert detect_negation("Don't build auth.py, fix login.py instead") is False
+
+    def test_safe_secondary_negation(self):
+        assert detect_negation("Build auth.py without external deps") is False
+
+    def test_wont_fix(self):
+        assert detect_negation("Won't fix the thermal module") is True
+
+    def test_shouldnt_deploy(self):
+        assert detect_negation("Shouldn't deploy to production") is True
+
+    def test_negation_with_inflected_verb(self):
+        assert detect_negation("Don't start building auth.py") is True
+
+    def test_positive_despite_negative_clause(self):
+        assert detect_negation("Build auth.py, but don't deploy yet") is False
+
+
+class TestNegationGate:
+    """Negated proposals should fail the gate."""
+
+    def test_dont_build_fails(self):
+        result = validate_seed("Don't build auth.py")
+        assert result.passed is False
+        assert result.negated is True
+
+    def test_never_deploy_fails(self):
+        result = validate_seed("Never deploy water_mining.py to prod")
+        assert result.passed is False
+        assert result.negated is True
+
+    def test_negated_reason_message(self):
+        result = validate_seed("Don't build auth.py")
+        assert any("negated" in r.lower() for r in result.reasons)
+
+    def test_positive_build_passes(self):
+        result = validate_seed("Build auth.py from scratch")
+        assert result.passed is True
+        assert result.negated is False
+
+    def test_mixed_polarity_passes(self):
+        result = validate_seed("Don't build auth.py, fix login.py instead")
+        assert result.passed is True
+        assert result.negated is False
+
+    def test_negated_in_dict_api(self):
+        result = validate("Don't build auth.py")
+        assert result["negated"] is True
+        assert result["passed"] is False
+
+    def test_positive_in_dict_api(self):
+        result = validate("Build auth.py from scratch")
+        assert result["negated"] is False
+
+    def test_negated_explain(self):
+        output = explain("Don't build auth.py")
+        assert "negated=true" in output
+
+    def test_negated_suggest(self):
+        tips = suggest("Don't build auth.py")
+        assert any("negation" in t.lower() or "avoid" in t.lower() for t in tips)
+
+    def test_avoid_deploying_fails(self):
+        result = validate_seed("Avoid deploying seed_gate.py changes")
+        assert result.passed is False
+        assert result.negated is True
+
+    def test_passes_gate_false_when_negated(self):
+        assert passes_gate("Don't build auth.py") is False
+
+    def test_passes_gate_true_when_positive(self):
+        assert passes_gate("Build auth.py from scratch") is True
+
+
+class TestVerbMatch:
+    """find_verb_match() returns a VerbMatch with verb, position, source."""
+
+    def test_base_verb(self):
+        vm = find_verb_match("Build auth.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "base"
+
+    def test_inflected_verb(self):
+        vm = find_verb_match("Building the new module")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.source == "inflected"
+
+    def test_phrasal_verb(self):
+        vm = find_verb_match("Set up the test environment")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.source == "phrasal"
+
+    def test_phrasal_inflected_verb(self):
+        vm = find_verb_match("Setting up the test harness")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.source == "phrasal-inflected"
+
+    def test_no_verb_returns_none(self):
+        vm = find_verb_match("The quick brown fox")
+        assert vm is None
+
+    def test_position_is_word_index(self):
+        vm = find_verb_match("Please build the module")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 1
+
+    def test_str_representation(self):
+        vm = find_verb_match("Build auth.py")
+        assert "build" in str(vm)
+        assert "pos=0" in str(vm)
+        assert "base" in str(vm)
+
+    def test_limit_parameter(self):
+        vm = find_verb_match("Build auth.py and deploy to prod", limit=10)
+        assert vm is not None
+        assert vm.verb == "build"
+
+    def test_agrees_with_find_verb(self):
+        texts = [
+            "Build auth.py", "Creating the module", "Set up testing",
+            "Deploy to production", "No verbs here at all",
+        ]
+        for text in texts:
+            vm = find_verb_match(text)
+            fv = find_verb(text)
+            if vm:
+                assert vm.verb == fv
+            else:
+                assert fv is None
+
+    def test_dataclass_frozen(self):
+        vm = find_verb_match("Build auth.py")
+        try:
+            vm.verb = "test"
+            assert False, "Should be frozen"
+        except (AttributeError, TypeError):
+            pass
+
+
+class TestAbbreviatedReferenceFilter:
+    """fig.1, sec.2, no.5, etc. should NOT match as file targets."""
+
+    def test_fig_1_is_false_match(self):
+        assert _is_false_file_match("fig.1") is True
+
+    def test_sec_2_is_false_match(self):
+        assert _is_false_file_match("sec.2") is True
+
+    def test_no_5_is_false_match(self):
+        assert _is_false_file_match("no.5") is True
+
+    def test_vol_3_is_false_match(self):
+        assert _is_false_file_match("vol.3") is True
+
+    def test_eq_7_is_false_match(self):
+        assert _is_false_file_match("eq.7") is True
+
+    def test_ch_4_is_false_match(self):
+        assert _is_false_file_match("ch.4") is True
+
+    def test_pt_2_is_false_match(self):
+        assert _is_false_file_match("pt.2") is True
+
+    def test_ex_1_is_false_match(self):
+        assert _is_false_file_match("ex.1") is True
+
+    def test_app_3_is_false_match(self):
+        assert _is_false_file_match("app.3") is True
+
+    def test_case_insensitive(self):
+        assert _is_false_file_match("Fig.1") is True
+        assert _is_false_file_match("SEC.2") is True
+
+    def test_real_file_not_filtered(self):
+        assert _is_false_file_match("auth.py") is False
+
+    def test_dotfile_not_filtered(self):
+        assert _is_false_file_match(".gitignore") is False
+
+    def test_abbrev_ref_regex_direct(self):
+        assert _ABBREV_REF_RE.match("fig.1")
+        assert _ABBREV_REF_RE.match("sec.2")
+        assert not _ABBREV_REF_RE.match("auth.py")
+        assert not _ABBREV_REF_RE.match("fig.py")
+
+
+class TestCommitPrefixInference:
+    """_strip_commit_prefix returns (body, implied_verb)."""
+
+    def test_fix_prefix(self):
+        body, verb = _strip_commit_prefix("fix: auth.py broken")
+        assert body == "auth.py broken"
+        assert verb == "fix"
+
+    def test_feat_prefix(self):
+        body, verb = _strip_commit_prefix("feat: new reactor module")
+        assert body == "new reactor module"
+        assert verb == "build"
+
+    def test_chore_prefix(self):
+        body, verb = _strip_commit_prefix("chore: clean up old files")
+        assert body == "clean up old files"
+        assert verb == "clean"
+
+    def test_docs_prefix(self):
+        body, verb = _strip_commit_prefix("docs: update README")
+        assert body == "update README"
+        assert verb == "document"
+
+    def test_scoped_prefix(self):
+        body, verb = _strip_commit_prefix("feat(core): add reactor")
+        assert body == "add reactor"
+        assert verb == "build"
+
+    def test_breaking_prefix(self):
+        body, verb = _strip_commit_prefix("feat!: redesign API")
+        assert body == "redesign API"
+        assert verb == "build"
+
+    def test_no_prefix(self):
+        body, verb = _strip_commit_prefix("Build the auth module")
+        assert body == "Build the auth module"
+        assert verb is None
+
+    def test_natural_prose_not_stripped(self):
+        body, verb = _strip_commit_prefix("Build: the reactor core")
+        assert body == "Build: the reactor core"
+        assert verb is None
+
+    def test_all_commit_types_have_verbs(self):
+        for ct in ("fix", "feat", "chore", "docs", "test",
+                    "refactor", "style", "ci", "build", "perf", "revert"):
+            assert ct in _COMMIT_TYPE_VERBS
+
+    def test_commit_prefix_as_gate_fallback(self):
+        result = validate_seed("feat: add auth.py module")
+        assert result.passed is True
+
+    def test_explicit_verb_takes_priority(self):
+        result = validate_seed("fix: build auth.py")
+        assert result.passed is True
+        # "fix" is the first verb found in the text (it IS an action verb)
+        assert result.verb_found == "fix"
+
+
+class TestNegationCommitPrefixInteraction:
+
+    def test_fix_dont_deploy(self):
+        # "fix" is the first verb found (from prefix), it's NOT negated
+        # so the overall result is not negated — "fix" is a positive action
+        result = validate_seed("fix: don't deploy prod.py")
+        assert result.passed is True
+        assert result.negated is False
+
+    def test_negated_body_no_prefix_verb(self):
+        # "chore: don't touch prod.py" → after prefix strip, "don't touch"
+        # but "clean" (from chore) is a commit-prefix fallback verb, not in text
+        # detect_negation runs on original text which has no unnegated verb
+        result = validate_seed("chore: don't touch prod.py")
+        # "touch" is not in ACTION_VERBS, so detect_negation finds no verbs → False
+        assert result.negated is False
+
+    def test_fix_positive_body(self):
+        result = validate_seed("fix: deploy prod.py")
+        assert result.passed is True
+        assert result.negated is False
+
+
+class TestNegationExemptTags:
+
+    def test_exempt_negated_still_has_tag_verb(self):
+        result = validate_seed(
+            "What if we don't build anything new?",
+            tags=["philosophy"],
+        )
+        assert result.passed is True
+
+
+class TestPR289Invariants:
+
+    def test_negated_always_bool(self):
+        for text in [
+            "Build auth.py", "Don't build auth.py", "",
+            "Never deploy", "Fix login.py",
+        ]:
+            result = validate(text)
+            assert isinstance(result["negated"], bool)
+
+    def test_verb_match_agrees_with_find_verb(self):
+        texts = [
+            "Build auth.py", "Deploy to prod", "Setting up tests",
+            "The weather is nice", "Ran the benchmarks",
+        ]
+        for text in texts:
+            vm = find_verb_match(text)
+            fv = find_verb(text)
+            if vm is not None:
+                assert vm.verb == fv, f"Mismatch on: {text}"
+            else:
+                assert fv is None, f"find_verb={fv} but find_verb_match=None: {text}"
+
+    def test_detect_negation_pure_function(self):
+        text = "Don't build auth.py"
+        r1 = detect_negation(text)
+        r2 = detect_negation(text)
+        assert r1 == r2
+
+    def test_negated_proposals_score_zero(self):
+        result = validate("Don't build auth.py")
+        assert result["score"] == 0.0 or not result["passed"]
+
+    def test_abbreviated_refs_not_targets(self):
+        target, kind = find_target("See fig.1 and sec.2 for details")
+        assert target != "fig.1"
+        assert target != "sec.2"
+
+    def test_contraction_expansion_idempotent(self):
+        text = "Don't build auth.py"
+        assert _expand_contractions(text) == _expand_contractions(_expand_contractions(text))
+
+    def test_score_breakdown_total_still_matches(self):
+        bd = score_breakdown("Build auth.py from scratch")
+        assert "total" in bd
+        assert isinstance(bd["total"], float)
+
+    def test_explain_mentions_negation_when_present(self):
+        output = explain("Never deploy auth.py")
+        assert "negated" in output.lower()
+
+    def test_explain_no_negation_when_positive(self):
+        output = explain("Build auth.py from scratch")
+        assert "negated" not in output.lower()
+
+
+class TestPR289Regressions:
+
+    def test_build_seed_gate_still_passes(self):
+        assert passes_gate("Build seed_gate.py validator") is True
+
+    def test_fix_colon_build_still_passes(self):
+        assert passes_gate("fix: build seed_gate.py") is True
+
+    def test_feat_colon_still_passes(self):
+        assert passes_gate("feat: add water_mining.py optimizer") is True
+
+    def test_vague_still_fails(self):
+        assert passes_gate("Make everything better somehow") is False
+
+    def test_junk_still_fails(self):
+        result = validate("` some garbage")
+        assert result["junk"] is True
+
+    def test_exempt_tag_still_works(self):
+        assert passes_gate("What if consciousness emerged?", tags=["philosophy"]) is True
+
+    def test_inflected_verb_still_works(self):
+        assert find_verb("Building the module") == "build"
+
+    def test_phrasal_verb_still_works(self):
+        assert find_verb("Set up the test environment") == "set up"
+
+    def test_batch_api_still_works(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build auth.py from scratch",
+            "vague nonsense that is also too short",
+            "` junk artifact code block",
+        ])
+        assert br.stats.total == 3
+        assert br.stats.passed >= 1
