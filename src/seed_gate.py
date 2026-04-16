@@ -1319,10 +1319,23 @@ def validate_batch(
 def _cli() -> None:
     if len(sys.argv) < 2:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --explain '<proposal text>'")
+        print("       python -m seed_gate --batch < proposals.json")
         sys.exit(1)
+    import json as _json
+    if sys.argv[1] == "--batch":
+        data = _json.loads(sys.stdin.read())
+        results = [validate(t, []) for t in data]
+        print(_json.dumps(results, indent=2))
+        sys.exit(0)
+    if sys.argv[1] == "--explain":
+        text = sys.argv[2] if len(sys.argv) > 2 else ""
+        tags = sys.argv[3:] if len(sys.argv) > 3 else []
+        result = explain_dict(text, tags)
+        print(_json.dumps(result, indent=2))
+        sys.exit(0)
     text = sys.argv[1]
     tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
     result = validate(text, tags)
     print(_json.dumps(result, indent=2))
     sys.exit(0 if result["passed"] else 1)

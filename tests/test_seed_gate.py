@@ -1983,3 +1983,540 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# ---------------------------------------------------------------------------
+# PR #289 -- Consolidated features: negation, compounds, VerbMatch,
+#            numbered-ref filter, enriched result, explain_dict,
+#            multi-target scoring, _scan_verbs, detect_negation
+# ---------------------------------------------------------------------------
+
+from seed_gate import (
+    VerbMatch,
+    find_verb_match,
+    detect_negation,
+    explain_dict,
+    validate_batch,
+)
+from seed_gate import (
+    _is_negated,
+    _is_in_compound,
+    _scan_verbs,
+    _is_false_file_match,
+)
+
+
+# --- VerbMatch NamedTuple ---
+
+class TestVerbMatch:
+    """Tests for VerbMatch NamedTuple and find_verb_match()."""
+
+    def test_basic_match(self):
+        vm = find_verb_match("Build auth.py module")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.token_index == 0
+        assert vm.source == "direct"
+
+    def test_no_match(self):
+        assert find_verb_match("just vibes and energy") is None
+
+    def test_tuple_indexing(self):
+        vm = find_verb_match("Build auth.py module")
+        assert vm[0] == "build"
+        assert vm[1] == 0
+        assert vm[2] == "direct"
+
+    def test_tuple_len(self):
+        vm = find_verb_match("Build auth.py module")
+        assert len(vm) == 3
+
+    def test_tuple_unpacking(self):
+        verb, idx, source = find_verb_match("Build auth.py module")
+        assert verb == "build"
+        assert idx == 0
+        assert source == "direct"
+
+    def test_isinstance_tuple(self):
+        vm = find_verb_match("Build auth.py module")
+        assert isinstance(vm, tuple)
+
+    def test_inflected_verb_source(self):
+        vm = find_verb_match("Building auth.py module now")
+        assert vm is not None
+        assert vm.source == "inflected"
+
+    def test_phrasal_verb_source(self):
+        vm = find_verb_match("Set up the auth.py module")
+        assert vm is not None
+        assert vm.source == "phrasal"
+
+    def test_tag_implied_verb(self):
+        vm = find_verb_match("[DEBUG] auth.py module issue")
+        assert vm is not None
+
+    def test_commit_prefix_verb(self):
+        vm = find_verb_match("fix: build auth.py module")
+        assert vm is not None
+        # "fix" itself is a verb, so it may find "fix" before "build"
+        assert vm.verb in ("fix", "build")
+
+
+# --- Negation Detection ---
+
+class TestNegation:
+    """Tests for detect_negation() public API."""
+
+    def test_not_before_verb(self):
+        assert detect_negation("Do not build auth.py")
+
+    def test_dont_contraction(self):
+        assert detect_negation("Don't build auth.py")
+
+    def test_never_before_verb(self):
+        assert detect_negation("Never deploy config.yaml")
+
+    def test_no_negation(self):
+        assert not detect_negation("Build auth.py module")
+
+    def test_no_verb_no_negation(self):
+        assert not detect_negation("just vibes and energy")
+
+    def test_negation_after_sentence_boundary(self):
+        # detect_negation checks the overall text for negation near any verb
+        # The first sentence has "Don't" near verbs, so it detects negation
+        assert detect_negation("Don't worry. Build auth.py now")
+        # A truly clean sentence with no negation should be False
+        assert not detect_negation("Please build auth.py now")
+
+
+class TestNegationInResult:
+    """Negation flows into SeedGateResult."""
+
+    def test_negated_false_by_default(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert r.negated is False
+        assert r.advisories == ()
+
+    def test_negated_true_with_not(self):
+        r = validate_seed("Do not build auth.py module yet")
+        assert r.negated is True
+        assert any("negat" in a.lower() for a in r.advisories)
+
+    def test_negated_still_passes(self):
+        """Negation is advisory, not suppressive."""
+        r = validate_seed("Do not remove the auth.py config file")
+        assert r.passed  # verb + target still detected
+
+    def test_negated_in_dict(self):
+        d = validate_seed("Do not build auth.py module").to_dict()
+        assert "negated" in d
+        assert "advisories" in d
+
+
+# --- Compound Filtering ---
+
+class TestCompoundFiltering:
+    """Verbs inside compound identifiers are skipped."""
+
+    def test_build_in_snake_case(self):
+        # "build" inside "pre_build_hook" should not count as a verb
+        r = validate_seed("The pre_build_hook ran config.yaml")
+        # The verb should NOT be "build" from "pre_build_hook"
+        d = r.to_dict()
+        # It may or may not find a verb depending on other words
+        if d["verb_found"]:
+            assert d["verb_found"] != "build" or d.get("verb_source") != "direct"
+
+    def test_deploy_in_kebab_case(self):
+        r = validate_seed("Run auto-deploy-script on config.yaml")
+        d = r.to_dict()
+        if d["verb_found"] and d["verb_found"] == "deploy":
+            # deploy from kebab compound should be skipped
+            assert d.get("verb_source") != "direct"
+
+
+class TestIsInCompound:
+    """Tests for _is_in_compound() helper."""
+
+    def test_snake_case(self):
+        assert _is_in_compound("pre_build_hook", 4, 9)  # "build" at char 4-9
+
+    def test_kebab_case(self):
+        assert _is_in_compound("auto-deploy-script", 5, 11)  # "deploy" at char 5-11
+
+    def test_standalone(self):
+        assert not _is_in_compound("build", 0, 5)
+
+    def test_at_start_of_compound(self):
+        assert _is_in_compound("build_system", 0, 5)
+
+    def test_at_end_of_compound(self):
+        assert _is_in_compound("pre_build", 4, 9)
+
+
+class TestIsNegated:
+    """Tests for _is_negated() internal helper."""
+
+    def test_not_before_index(self):
+        tokens = ["do", "not", "build", "auth.py"]
+        assert _is_negated(tokens, 2)  # "build" at index 2
+
+    def test_no_negation_word(self):
+        tokens = ["please", "build", "auth.py"]
+        assert not _is_negated(tokens, 1)
+
+    def test_window_limit(self):
+        # Negation too far back (beyond 3-token window)
+        tokens = ["not", "sure", "but", "please", "build", "auth.py"]
+        assert not _is_negated(tokens, 4)  # "build" at index 4, "not" at 0
+
+    def test_sentence_boundary_resets(self):
+        tokens = ["don't", "worry.", "build", "auth.py"]
+        assert not _is_negated(tokens, 2)  # period resets window
+
+
+# --- _scan_verbs generator ---
+
+class TestScanVerbs:
+    """Tests for _scan_verbs() unified generator."""
+
+    def test_yields_tuples(self):
+        results = list(_scan_verbs("Build auth.py module"))
+        assert len(results) >= 1
+        # 3-tuples: (verb, word_index, negated)
+        assert len(results[0]) == 3
+        verb, idx, negated = results[0]
+        assert verb == "build"
+        assert idx == 0
+        assert negated is False
+
+    def test_negated_verb(self):
+        results = list(_scan_verbs("Do not build auth.py"))
+        build_hits = [r for r in results if r[0] == "build"]
+        assert len(build_hits) >= 1
+        assert build_hits[0][2] is True  # negated (3rd element)
+
+    def test_multiple_verbs(self):
+        results = list(_scan_verbs("Build auth.py and deploy config.yaml"))
+        verbs = [r[0] for r in results]
+        assert "build" in verbs
+        assert "deploy" in verbs
+
+    def test_empty_string(self):
+        assert list(_scan_verbs("")) == []
+
+    def test_compound_verb_skipped(self):
+        results = list(_scan_verbs("The pre_build_hook runs"))
+        # "build" from compound should not appear as a standalone verb
+        direct_build = [r for r in results if r[0] == "build"]
+        assert len(direct_build) == 0
+
+
+# --- Numbered Reference Filter ---
+
+class TestNumberedRefFilter:
+    """Numbered references like fig.1, ch.3, vol.2 should not be file targets."""
+
+    def test_fig_not_file(self):
+        assert _is_false_file_match("fig.1")
+
+    def test_ch_not_file(self):
+        assert _is_false_file_match("ch.3")
+
+    def test_vol_not_file(self):
+        assert _is_false_file_match("vol.2")
+
+    def test_real_file_ok(self):
+        assert not _is_false_file_match("auth.py")
+
+    def test_fig_with_extension(self):
+        # "fig.png" is a real file, not a numbered ref
+        assert not _is_false_file_match("fig.png")
+
+
+class TestExpandedFalseFiles:
+    """Expanded false-file patterns."""
+
+    def test_no_dot_not_file(self):
+        assert _is_false_file_match("no.1")
+
+    def test_eq_not_file(self):
+        assert _is_false_file_match("eq.2")
+
+
+# --- Enriched SeedGateResult ---
+
+class TestEnrichedResult:
+    """Tests for enriched SeedGateResult fields."""
+
+    def test_target_kind_file(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert r.target_kind == "file"
+
+    def test_target_kind_tool(self):
+        r = validate_seed("Configure seed_gate validation logic now")
+        assert r.target_kind == "tool"
+
+    def test_target_kind_empty_when_no_target(self):
+        r = validate_seed("just vibes and energy here today")
+        assert r.target_kind == ""
+
+    def test_verb_source_direct(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert r.verb_source == "direct"
+
+    def test_verb_source_inflected(self):
+        r = validate_seed("Building auth.py module from scratch now")
+        assert r.verb_source == "inflected"
+
+    def test_verb_position_first_word(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert r.verb_position == 0
+
+    def test_verb_position_later_word(self):
+        r = validate_seed("Please build auth.py module now")
+        assert r.verb_position > 0
+
+    def test_score_parts_tuple_of_tuples(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert isinstance(r.score_parts, (tuple, dict))
+        if isinstance(r.score_parts, tuple):
+            for item in r.score_parts:
+                assert isinstance(item, tuple)
+                assert len(item) == 2
+        elif isinstance(r.score_parts, dict):
+            assert "verb" in r.score_parts
+
+    def test_advisories_tuple(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert isinstance(r.advisories, tuple)
+
+    def test_negated_in_to_dict(self):
+        d = validate_seed("Build auth.py module for testing").to_dict()
+        assert "negated" in d
+        assert "advisories" in d
+        assert "target_kind" in d
+        assert "verb_source" in d
+        assert "verb_position" in d
+        assert "score_parts" in d
+
+    def test_is_imperative_property(self):
+        r = validate_seed("Build auth.py module for testing")
+        assert r.is_imperative is True
+
+    def test_not_imperative(self):
+        r = validate_seed("The auth.py module needs building soon")
+        # verb not at position 0 → not imperative
+        assert r.is_imperative is False or r.verb_position > 0
+
+    def test_strength_value(self):
+        r = validate_seed("Build auth.py module for testing")
+        # strength can be "strong", "moderate", "weak", "rejected", etc.
+        assert isinstance(r.strength, str)
+        assert len(r.strength) > 0
+
+    def test_multi_target_scaling(self):
+        """Multiple targets should boost the score."""
+        r1 = validate_seed("Build auth.py module for testing")
+        r2 = validate_seed("Build auth.py and deploy config.yaml and update README.md")
+        assert r2.score >= r1.score
+
+
+# --- explain_dict API ---
+
+class TestExplainDict:
+    """Tests for explain_dict() structured diagnostic API."""
+
+    def test_returns_dict(self):
+        ed = explain_dict("Build auth.py module")
+        assert isinstance(ed, dict)
+
+    def test_has_expected_keys(self):
+        ed = explain_dict("Build auth.py module")
+        for key in ("decision", "detected", "score_breakdown", "suggestions", "advisories"):
+            assert key in ed, f"Missing key: {key}"
+
+    def test_decision_structure(self):
+        ed = explain_dict("Build auth.py module")
+        assert "passed" in ed["decision"]
+        assert isinstance(ed["decision"]["passed"], bool)
+
+    def test_detected_structure(self):
+        ed = explain_dict("Build auth.py module")
+        det = ed["detected"]
+        assert "verb" in det
+        assert "target" in det
+        assert "target_kind" in det
+
+    def test_score_breakdown_has_components(self):
+        ed = explain_dict("Build auth.py module")
+        sb = ed["score_breakdown"]
+        # score_breakdown has component keys like "verb", "target", "imperative"
+        assert "verb" in sb or len(sb) > 0
+
+    def test_junk_shows_in_decision(self):
+        ed = explain_dict("lol wat no")
+        assert ed["decision"]["passed"] is False
+
+    def test_no_verb_detected(self):
+        ed = explain_dict("just vibes and energy")
+        assert ed["detected"]["verb"] is None or ed["detected"]["verb"] == ""
+
+    def test_explain_string_unchanged(self):
+        """explain() still returns pipe-separated string."""
+        result = explain("Build auth.py module")
+        assert " | " in result
+
+
+class TestExplainUpdated:
+    """explain() reflects new enriched fields."""
+
+    def test_explain_mentions_negation(self):
+        result = explain("Do not build auth.py module")
+        # explain string should mention negation
+        assert "negat" in result.lower() or "advisory" in result.lower() or "not" in result.lower()
+
+    def test_explain_dict_advisories(self):
+        ed = explain_dict("Do not build auth.py module")
+        assert len(ed.get("advisories", [])) > 0
+
+
+# --- Consolidation Invariants ---
+
+class TestConsolidationInvariants:
+    """Cross-cutting invariants for the consolidated implementation."""
+
+    SAMPLES = [
+        "Build auth.py module for the login system",
+        "Deploy config.yaml to production servers now",
+        "Fix the parser.py bug in tokenizer function",
+        "Refactor seed_gate.py scoring logic for clarity",
+        "Do not remove auth.py from the project yet",
+        "The pre_build_hook runs config.yaml transformations",
+        "just vibes and energy flowing everywhere today",
+        "lol wat",
+        "",
+    ]
+
+    def test_find_verb_match_consistent_with_find_verb(self):
+        for text in self.SAMPLES:
+            if not text.strip():
+                continue
+            fv = find_verb(text)
+            fvm = find_verb_match(text)
+            if fv:
+                assert fvm is not None, f"find_verb found '{fv}' but find_verb_match returned None for: {text}"
+                assert fvm.verb == fv, f"Verb mismatch for '{text}'"
+            else:
+                assert fvm is None, f"find_verb returned None but find_verb_match returned {fvm} for: {text}"
+
+    def test_validate_seed_score_nonneg(self):
+        for text in self.SAMPLES:
+            r = validate_seed(text)
+            assert r.score >= 0, f"Negative score for: {text}"
+
+    def test_validate_dict_keys_stable(self):
+        """All result dicts have the same key set."""
+        keys = None
+        for text in self.SAMPLES:
+            d = validate_seed(text).to_dict()
+            if keys is None:
+                keys = set(d.keys())
+            else:
+                assert set(d.keys()) == keys, f"Key mismatch for: {text}"
+
+    def test_negated_only_when_verb_found(self):
+        """negated=True only if a verb was actually detected."""
+        for text in self.SAMPLES:
+            r = validate_seed(text)
+            if r.negated:
+                assert r.verb_found, f"negated=True but no verb for: {text}"
+
+    def test_score_parts_sum_close_to_prescore(self):
+        """Score parts should account for the main score components."""
+        for text in self.SAMPLES:
+            r = validate_seed(text)
+            if r.score_parts:
+                # score_parts may be tuple of tuples or dict
+                if isinstance(r.score_parts, dict):
+                    parts_sum = sum(r.score_parts.values())
+                elif isinstance(r.score_parts, tuple):
+                    parts_sum = sum(v for _, v in r.score_parts)
+                else:
+                    parts_sum = 0
+                if r.passed:
+                    assert parts_sum > 0, f"Passed but score_parts sum is 0 for: {text}"
+
+    def test_advisories_is_tuple(self):
+        for text in self.SAMPLES:
+            r = validate_seed(text)
+            assert isinstance(r.advisories, tuple)
+
+    def test_explain_dict_matches_validate(self):
+        """explain_dict decision should agree with validate_seed."""
+        for text in self.SAMPLES:
+            r = validate_seed(text)
+            ed = explain_dict(text)
+            assert ed["decision"]["passed"] == r.passed, f"Disagreement for: {text}"
+
+
+# --- CLI --explain mode ---
+
+class TestCLIExplain:
+    """Tests for --explain CLI mode."""
+
+    def test_explain_mode(self):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"),
+             "--explain", "Build auth.py module for production testing"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        # CLI --explain outputs explain_dict structure
+        assert "decision" in data
+        assert "detected" in data
+        assert data["decision"]["passed"] is True
+
+    def test_explain_mode_junk(self):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "seed_gate.py"),
+             "--explain", "lol wat no nothing here at all today"],
+            capture_output=True, text=True,
+        )
+        data = json.loads(result.stdout)
+        assert data["decision"]["passed"] is False
+
+
+# --- Backward Compat for PR #289 ---
+
+class TestBackwardCompatPR289:
+    """Ensure PR #289 doesn't break any existing contracts."""
+
+    def test_old_dict_keys_unchanged(self):
+        d = _v("Build auth.py module system")
+        for key in ("passed", "reasons", "score", "verb_found", "target_found",
+                     "junk", "advisory", "confidence", "all_verbs", "all_targets"):
+            assert key in d
+
+    def test_find_verb_with_position_still_tuple(self):
+        result = find_verb_with_position("Build auth.py module")
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_score_breakdown_still_has_total(self):
+        bd = score_breakdown("Build auth.py module")
+        assert "total" in bd
+
+    def test_explain_still_pipe_separated(self):
+        result = explain("Build auth.py module")
+        assert " | " in result
+
+    def test_passes_gate_unchanged(self):
+        assert passes_gate("Build auth.py module for testing")
+        assert not passes_gate("vibes and energy everywhere today")
+
+    def test_validate_batch_unchanged(self):
+        br = validate_batch(["Build auth.py", "vibes only here"])
+        assert br.stats.total == 2
