@@ -42,15 +42,28 @@ from seed_gate import (
     _strip_commit_prefix,
     _COMMIT_PREFIX_RE,
     _KIND_SCORES,
+    _CONTRACTIONS,
+    _NEGATION_WORDS,
+    _PLACEHOLDER_FILES,
+    _PLACEHOLDER_PENALTY,
+    _ABBREV_REF_RE,
+    _expand_contractions,
+    _is_negated_at,
+    _find_verb_negation_aware,
+    _is_false_file_match,
+    VerbMatch,
+    BatchResult,
     compute_score,
     find_verb,
     find_target,
     find_verb_with_position,
+    find_verb_match,
     score_breakdown,
     explain,
     suggest,
     is_junk,
     _starts_with_verb,
+    validate_batch,
 )
 
 
@@ -1803,7 +1816,7 @@ class TestScoreBreakdown:
 
     def test_has_all_keys(self):
         bd = score_breakdown("Build auth.py")
-        expected_keys = {"verb", "target", "length", "multi_target", "imperative", "total"}
+        expected_keys = {"verb", "target", "length", "multi_target", "imperative", "placeholder", "total"}
         assert set(bd.keys()) == expected_keys
 
     def test_verb_component(self):
@@ -1983,3 +1996,664 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# ===================================================================
+# Consolidation PR #289 — new test classes
+# ===================================================================
+
+
+# ===================================================================
+# Consolidation PR #289 — new test classes
+# ===================================================================
+
+# Long-form text helpers (>= 15 chars to pass junk check)
+_BUILD_AUTH = "Build the auth.py module now"
+_BUILD_TEST = "Build the test.py module for CI"
+_BUILD_FOO = "Build the foo.py placeholder module"
+_DEPLOY_CONFIG = "Deploy the config.yaml to production"
+_BUILD_SEED = "Build the seed_gate.py validator"
+_REFACTOR_SRC = "Refactor the src/thermal/ module"
+
+
+class TestNegationContractions:
+    """Test contraction expansion for negation detection."""
+
+    def test_dont_expands(self):
+        assert "do not" in _expand_contractions("Don't build auth.py")
+
+    def test_curly_apostrophe_dont(self):
+        assert "do not" in _expand_contractions("Don\u2019t build auth.py")
+
+    def test_wont_expands(self):
+        assert "will not" in _expand_contractions("Won't deploy config.yaml")
+
+    def test_cant_expands(self):
+        assert "cannot" in _expand_contractions("Can't test seed_gate.py")
+
+    def test_shouldnt_expands(self):
+        assert "should not" in _expand_contractions("Shouldn't refactor this")
+
+    def test_wasnt_expands(self):
+        assert "was not" in _expand_contractions("Wasn't building it")
+
+    def test_werent_expands(self):
+        assert "were not" in _expand_contractions("Weren't testing it")
+
+    def test_no_contraction_untouched(self):
+        text = "Build auth.py and deploy config.yaml"
+        assert _expand_contractions(text) == text
+
+    def test_multiple_contractions(self):
+        result = _expand_contractions("Don't build and can't deploy")
+        assert "do not" in result
+        assert "cannot" in result
+
+    def test_contractions_map_completeness(self):
+        assert len(_CONTRACTIONS) >= 30  # straight + curly variants
+
+
+class TestNegationDetection:
+    """Test _is_negated_at() — clause-aware backward scan."""
+
+    def _words(self, text):
+        return _expand_contractions(text).split()
+
+    def test_not_before_verb(self):
+        words = self._words("do not build auth.py")
+        assert _is_negated_at(words, 2) is True
+
+    def test_never_before_verb(self):
+        words = self._words("Never deploy the config.yaml now")
+        assert _is_negated_at(words, 1) is True
+
+    def test_no_negation(self):
+        words = self._words("Build the auth.py module now")
+        assert _is_negated_at(words, 0) is False
+
+    def test_comma_resets_negation(self):
+        words = self._words("do not build X, test the config.yaml")
+        test_idx = None
+        for i, w in enumerate(words):
+            if w.lower() == "test":
+                test_idx = i
+                break
+        assert test_idx is not None
+        assert _is_negated_at(words, test_idx) is False
+
+    def test_semicolon_resets_negation(self):
+        words = self._words("do not build X; test the config.yaml")
+        test_idx = None
+        for i, w in enumerate(words):
+            if w.lower() == "test":
+                test_idx = i
+                break
+        assert test_idx is not None
+        assert _is_negated_at(words, test_idx) is False
+
+    def test_not_only_exception(self):
+        words = self._words("Not only build auth.py but test it")
+        assert _is_negated_at(words, 2) is False
+
+    def test_not_just_exception(self):
+        words = self._words("Not just test auth.py but deploy it")
+        assert _is_negated_at(words, 2) is False
+
+    def test_window_limit(self):
+        words = ["not", "the", "big", "long", "build"]
+        assert _is_negated_at(words, 4) is False
+
+    def test_negation_words_set(self):
+        assert "not" in _NEGATION_WORDS
+        assert "never" in _NEGATION_WORDS
+        assert "cannot" in _NEGATION_WORDS
+
+
+class TestNegationAwareVerbDetection:
+    """Test _find_verb_negation_aware() — skips negated verbs."""
+
+    def test_dont_build_fails(self):
+        match, negated = _find_verb_negation_aware(
+            "Don't build the auth.py module"
+        )
+        assert match is None
+        assert negated is True
+
+    def test_never_deploy_fails(self):
+        match, negated = _find_verb_negation_aware(
+            "Never deploy the config.yaml to production"
+        )
+        assert match is None
+        assert negated is True
+
+    def test_cannot_test_fails(self):
+        match, negated = _find_verb_negation_aware(
+            "Cannot test the seed_gate.py module"
+        )
+        assert match is None
+        assert negated is True
+
+    def test_normal_build_passes(self):
+        match, negated = _find_verb_negation_aware(_BUILD_AUTH)
+        assert match is not None
+        assert match.verb == "build"
+        assert negated is False
+
+    def test_dont_build_but_test(self):
+        match, negated = _find_verb_negation_aware(
+            "Don't build the auth.py module, test the config.yaml instead"
+        )
+        assert match is not None
+        assert match.verb == "test"
+        assert negated is True
+
+    def test_not_only_build(self):
+        match, negated = _find_verb_negation_aware(
+            "Not only build the auth.py module but test it too"
+        )
+        assert match is not None
+        assert match.verb == "build"
+        assert negated is False
+
+    def test_curly_apostrophe(self):
+        match, negated = _find_verb_negation_aware(
+            "Don\u2019t build the auth.py module"
+        )
+        assert match is None
+        assert negated is True
+
+    def test_wont_deploy(self):
+        match, negated = _find_verb_negation_aware(
+            "Won't deploy the config.yaml to production"
+        )
+        assert match is None
+        assert negated is True
+
+    def test_returns_verb_match(self):
+        match, _ = _find_verb_negation_aware(_BUILD_AUTH)
+        assert isinstance(match, VerbMatch)
+        assert match.verb == "build"
+        assert match.position == 0
+        assert match.source == "direct"
+
+    def test_inflected_verb_match(self):
+        match, _ = _find_verb_negation_aware(
+            "Building the auth.py module now"
+        )
+        assert match is not None
+        assert match.verb == "build"
+        assert match.source == "inflected"
+
+    def test_phrasal_verb_match(self):
+        match, _ = _find_verb_negation_aware(
+            "Set up the CI pipeline for the tests/ directory"
+        )
+        assert match is not None
+        assert match.verb == "set up"
+        assert match.source == "phrasal"
+
+
+class TestNegationInValidateSeed:
+    """Test negation detection in the full validate_seed() pipeline."""
+
+    def test_dont_build_rejected(self):
+        result = _v("Don't build the auth.py module now")
+        assert result["passed"] is False
+        assert result["negated"] is True
+
+    def test_never_deploy_rejected(self):
+        result = _v("Never deploy the config.yaml to production")
+        assert result["passed"] is False
+        assert result["negated"] is True
+
+    def test_cannot_test_rejected(self):
+        result = _v("Cannot test the seed_gate.py module properly")
+        assert result["passed"] is False
+        assert result["negated"] is True
+
+    def test_dont_build_reason_message(self):
+        result = _v("Don't build the auth.py module now")
+        reasons = result["reasons"]
+        assert any("negated" in r.lower() for r in reasons)
+
+    def test_normal_build_not_negated(self):
+        result = _v(_BUILD_AUTH)
+        assert result["passed"] is True
+        assert result["negated"] is False
+
+    def test_dont_build_test_passes(self):
+        result = _v(
+            "Don't build the auth.py module, test the config.yaml instead"
+        )
+        assert result["passed"] is True
+        assert result["negated"] is True
+        assert result["verb_found"] == "test"
+
+    def test_not_only_build_passes(self):
+        result = _v("Not only build the auth.py module but test it too")
+        assert result["passed"] is True
+        assert result["verb_found"] == "build"
+
+    def test_negated_field_in_dict(self):
+        result = _v(_BUILD_AUTH)
+        assert "negated" in result
+
+    def test_curly_apostrophe_negation(self):
+        result = _v("Don\u2019t build the auth.py module now")
+        assert result["passed"] is False
+
+
+class TestVerbMatchDataclass:
+    """Test VerbMatch dataclass."""
+
+    def test_creation(self):
+        vm = VerbMatch(verb="build", position=0, source="direct")
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "direct"
+
+    def test_frozen(self):
+        vm = VerbMatch(verb="build", position=0, source="direct")
+        with pytest.raises(AttributeError):
+            vm.verb = "test"  # type: ignore
+
+    def test_surface_property(self):
+        vm = VerbMatch(verb="build", position=0, source="direct")
+        assert vm.surface == "build"
+
+    def test_source_direct(self):
+        match, _ = _find_verb_negation_aware(_BUILD_AUTH)
+        assert match.source == "direct"
+
+    def test_source_inflected(self):
+        match, _ = _find_verb_negation_aware("Building the module now")
+        assert match.source == "inflected"
+
+    def test_source_phrasal(self):
+        match, _ = _find_verb_negation_aware(
+            "Set up the CI pipeline now"
+        )
+        assert match.source == "phrasal"
+
+    def test_find_verb_match_returns_verb_match(self):
+        vm = find_verb_match(_BUILD_AUTH)
+        assert isinstance(vm, VerbMatch)
+        assert vm.verb == "build"
+
+    def test_find_verb_match_none(self):
+        vm = find_verb_match("The quick brown fox jumped over")
+        assert vm is None
+
+
+class TestVerbMatchInResult:
+    """Test verb_match field on SeedGateResult."""
+
+    def test_verb_match_present(self):
+        result = _vs(_BUILD_AUTH)
+        assert result.verb_match is not None
+        assert isinstance(result.verb_match, VerbMatch)
+
+    def test_verb_match_verb_agrees(self):
+        result = _vs(_BUILD_AUTH)
+        assert result.verb_match.verb == result.verb_found
+
+    def test_verb_match_none_when_no_verb(self):
+        result = _vs("The quick brown fox jumps over the lazy dog forever")
+        if result.verb_found is None:
+            assert result.verb_match is None
+
+    def test_tag_implied_verb_match(self):
+        result = _vs("Explore new patterns in the auth.py module", tags=["code"])
+        if result.verb_match and result.verb_match.source == "tag":
+            assert result.verb_match.verb in ("build", "test", "debug")
+
+
+class TestIsImperativeProperty:
+    """Test is_imperative property on SeedGateResult."""
+
+    def test_imperative_build(self):
+        result = _vs(_BUILD_AUTH)
+        assert result.is_imperative is True
+
+    def test_not_imperative_middle_verb(self):
+        result = _vs("The team should build the auth.py module")
+        assert result.is_imperative is False
+
+    def test_not_imperative_no_verb(self):
+        result = _vs("The auth.py module needs significant work and attention")
+        assert result.is_imperative is False
+
+    def test_imperative_in_dict(self):
+        result = _v(_BUILD_AUTH)
+        assert "is_imperative" in result
+        assert result["is_imperative"] is True
+
+    def test_inflected_at_start_is_imperative(self):
+        result = _vs("Building the auth.py module right now")
+        assert result.is_imperative is True
+
+    def test_phrasal_at_start_is_imperative(self):
+        result = _vs("Set up the CI pipeline for the tests/ directory")
+        assert result.is_imperative is True
+
+
+class TestStrengthProperty:
+    """Test strength property on SeedGateResult."""
+
+    def test_strong(self):
+        result = _vs(
+            "Build the auth.py module and deploy the config.yaml"
+        )
+        assert result.passed
+        assert result.strength == "strong"
+
+    def test_weak_or_moderate(self):
+        result = _vs(
+            "What if we explored new patterns in auth.py module",
+            tags=["philosophy"],
+        )
+        if result.passed:
+            assert result.strength in ("weak", "moderate", "strong")
+
+    def test_none_when_failed(self):
+        result = _vs("vibes and energy everywhere today")
+        if not result.passed:
+            assert result.strength is None
+
+    def test_strength_in_dict(self):
+        result = _v(_BUILD_AUTH)
+        assert "strength" in result
+
+    def test_strength_aligns_with_confidence(self):
+        result = _vs(
+            "Build the auth.py module and test the config.yaml file"
+        )
+        if result.passed:
+            assert (result.strength == "strong") == (result.confidence == "high")
+            assert (result.strength == "moderate") == (result.confidence == "medium")
+
+
+class TestTargetKindField:
+    """Test target_kind field on SeedGateResult."""
+
+    def test_file_target_kind(self):
+        result = _vs(_BUILD_AUTH)
+        assert result.target_kind == "file"
+
+    def test_tool_target_kind(self):
+        result = _vs("Deploy the state_io module to production")
+        assert result.target_kind == "tool"
+
+    def test_path_target_kind(self):
+        result = _vs(_REFACTOR_SRC)
+        assert result.target_kind == "path"
+
+    def test_target_kind_in_dict(self):
+        result = _v(_BUILD_AUTH)
+        assert "target_kind" in result
+        assert result["target_kind"] == "file"
+
+    def test_empty_when_no_target(self):
+        result = _vs(
+            "What if we explored the deep universe today",
+            tags=["philosophy"],
+        )
+        if not result.target_found:
+            assert result.target_kind == ""
+
+
+class TestAbbrevRefFilter:
+    """Test abbreviation reference false-positive filter."""
+
+    def test_fig_1_is_false_match(self):
+        assert _is_false_file_match("fig.1") is True
+
+    def test_sec_2_is_false_match(self):
+        assert _is_false_file_match("sec.2") is True
+
+    def test_ch_4_is_false_match(self):
+        assert _is_false_file_match("ch.4") is True
+
+    def test_vol_3_is_false_match(self):
+        assert _is_false_file_match("vol.3") is True
+
+    def test_eq_7_is_false_match(self):
+        assert _is_false_file_match("eq.7") is True
+
+    def test_pt_2_is_false_match(self):
+        assert _is_false_file_match("pt.2") is True
+
+    def test_ex_3_is_false_match(self):
+        assert _is_false_file_match("ex.3") is True
+
+    def test_app_1_is_false_match(self):
+        assert _is_false_file_match("app.1") is True
+
+    def test_no_5_is_false_match(self):
+        assert _is_false_file_match("no.5") is True
+
+    def test_real_file_not_filtered(self):
+        assert _is_false_file_match("auth.py") is False
+
+    def test_case_insensitive(self):
+        assert _is_false_file_match("Fig.1") is True
+        assert _is_false_file_match("SEC.2") is True
+
+    def test_abbrev_ref_regex(self):
+        assert _ABBREV_REF_RE.match("fig.1")
+        assert _ABBREV_REF_RE.match("ch.4")
+        assert not _ABBREV_REF_RE.match("auth.py")
+
+    def test_fig_1_not_as_target(self):
+        _, kind = find_target(
+            "See fig.1 for details, build the auth.py module"
+        )
+        assert kind == "file"
+
+    def test_abbrev_not_in_unique_count(self):
+        text = "See fig.1 and sec.2 and build the auth.py module"
+        count = count_unique_targets(text)
+        assert count >= 1  # auth.py counted, fig.1 and sec.2 not
+
+
+class TestPlaceholderPenalty:
+    """Test placeholder file scoring penalty."""
+
+    def test_placeholder_files_defined(self):
+        assert "test.py" in _PLACEHOLDER_FILES
+        assert "foo.py" in _PLACEHOLDER_FILES
+        assert "example.json" in _PLACEHOLDER_FILES
+        assert "demo.py" in _PLACEHOLDER_FILES
+
+    def test_real_file_not_placeholder(self):
+        assert "auth.py" not in _PLACEHOLDER_FILES
+        assert "seed_gate.py" not in _PLACEHOLDER_FILES
+
+    def test_placeholder_still_passes(self):
+        result = _v(_BUILD_TEST)
+        assert result["passed"] is True
+
+    def test_placeholder_scores_lower(self):
+        real_score = _v(_BUILD_AUTH)["score"]
+        placeholder_score = _v(_BUILD_TEST)["score"]
+        assert placeholder_score < real_score
+
+    def test_placeholder_in_breakdown(self):
+        bd = score_breakdown(_BUILD_TEST)
+        assert bd["placeholder"] == -_PLACEHOLDER_PENALTY
+
+    def test_real_file_no_penalty(self):
+        bd = score_breakdown(_BUILD_AUTH)
+        assert bd["placeholder"] == 0.0
+
+    def test_score_never_negative(self):
+        result = _v(_BUILD_FOO)
+        assert result["score"] >= 0.0
+
+
+class TestBatchSummary:
+    """Test BatchResult.summary() method."""
+
+    def test_summary_format(self):
+        br = validate_batch([
+            _BUILD_AUTH,
+            "vibes and energy today wow",
+            _DEPLOY_CONFIG,
+        ])
+        s = br.summary()
+        assert "batch:" in s
+        assert "total" in s
+        assert "passed" in s
+
+    def test_summary_counts(self):
+        br = validate_batch([_BUILD_AUTH, _DEPLOY_CONFIG])
+        s = br.summary()
+        assert "2 total" in s
+        assert "2 passed" in s
+
+    def test_summary_with_junk(self):
+        br = validate_batch([_BUILD_AUTH, "", "x"])
+        s = br.summary()
+        assert "junk" in s
+
+    def test_empty_batch(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 total" in s
+
+
+class TestExplainEnhanced:
+    """Test enhanced explain() output with new fields."""
+
+    def test_explain_shows_verb_pos(self):
+        e = explain(_BUILD_AUTH)
+        assert "verb_pos=" in e
+
+    def test_explain_shows_verb_src(self):
+        e = explain(_BUILD_AUTH)
+        assert "verb_src=" in e
+
+    def test_explain_shows_target_kind(self):
+        e = explain(_BUILD_AUTH)
+        assert "target_kind=" in e
+
+    def test_explain_shows_strength(self):
+        e = explain(_BUILD_AUTH)
+        assert "strength=" in e
+
+    def test_explain_shows_imperative(self):
+        e = explain(_BUILD_AUTH)
+        assert "imperative=true" in e
+
+    def test_explain_shows_negated(self):
+        e = explain("Don't build the auth.py module now")
+        assert "negated=true" in e
+
+    def test_explain_no_negated_when_false(self):
+        e = explain(_BUILD_AUTH)
+        assert "negated=" not in e
+
+
+class TestConsolidationInvariants:
+    """Cross-cutting invariants — new fields are always consistent."""
+
+    SAMPLES = [
+        _BUILD_AUTH,
+        "Don't build the auth.py module now",
+        "Don't build the auth.py module, test the config.yaml instead",
+        "Never deploy the config.yaml to production",
+        "Not only build the auth.py module but test it too",
+        "Set up the CI pipeline for the tests/ directory",
+        "Building the auth.py module right now",
+        _BUILD_TEST,
+        "See fig.1 and build the auth.py module today",
+        "fix: build the seed_gate.py validator module",
+        "Deploy config.yaml and test auth.py with full coverage for all modules",
+        "What if we explored the deep universe today",
+        "vibes and energy everywhere today",
+    ]
+
+    def test_verb_match_agrees_with_verb_found(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            if result.verb_match and result.verb_found:
+                assert result.verb_match.verb == result.verb_found, (
+                    f"verb_match.verb != verb_found for '{text}'"
+                )
+
+    def test_target_kind_agrees_with_find_target(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            if result.target_found:
+                _, kind = find_target(text)
+                assert result.target_kind == kind, (
+                    f"target_kind mismatch for '{text}'"
+                )
+
+    def test_negated_false_when_no_negation(self):
+        for text in (_BUILD_AUTH, _DEPLOY_CONFIG):
+            result = _vs(text)
+            assert result.negated is False
+
+    def test_strength_none_when_failed(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            if not result.passed:
+                assert result.strength is None
+
+    def test_is_imperative_only_when_verb_at_zero(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            if result.is_imperative:
+                assert result.verb_match is not None
+                assert result.verb_match.position == 0
+
+    def test_score_breakdown_placeholder_component(self):
+        bd = score_breakdown(_BUILD_TEST)
+        assert bd["placeholder"] < 0
+        bd2 = score_breakdown(_BUILD_AUTH)
+        assert bd2["placeholder"] == 0.0
+
+    def test_dict_has_all_new_fields(self):
+        result = _v(_BUILD_AUTH)
+        for field in ("target_kind", "negated", "is_imperative", "strength"):
+            assert field in result, f"Missing field: {field}"
+
+    def test_score_never_negative(self):
+        for text in self.SAMPLES:
+            result = _vs(text)
+            assert result.score >= 0.0
+
+
+class TestNegationEdgeCases:
+    """Edge cases for negation detection."""
+
+    def test_double_negation(self):
+        result = _v("Not not build the auth.py module now")
+        assert isinstance(result["passed"], bool)
+
+    def test_negation_at_start_of_text(self):
+        result = _v("No build the auth.py module needed here")
+        assert result["negated"] is True
+
+    def test_negation_far_from_verb(self):
+        result = _v(
+            "Not the best way to approach building the auth.py module"
+        )
+        assert result["verb_found"] is not None
+
+    def test_semicolon_clause_boundary(self):
+        result = _v(
+            "Don't touch the X module; Build the auth.py module instead"
+        )
+        assert result["passed"] is True
+        assert result["verb_found"] == "build"
+
+    def test_empty_text_no_crash(self):
+        match, negated = _find_verb_negation_aware("")
+        assert match is None
+        assert negated is False
+
+    def test_only_negation_words(self):
+        match, negated = _find_verb_negation_aware("Not never no not")
+        assert match is None
