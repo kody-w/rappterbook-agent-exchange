@@ -2520,3 +2520,108 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# Graduated multi-target scoring (PR #304)
+# ===================================================================
+
+class TestGraduatedMultiTarget:
+    """Graduated scoring: 2 targets = +1.0, 3 = +1.5, 4+ = +2.0."""
+
+    def test_two_targets_score(self):
+        bd = score_breakdown("Build water_mining.py and solar_array.py pipe")
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets_score(self):
+        bd = score_breakdown(
+            "Build water_mining.py, solar_array.py, and thermal.py integration"
+        )
+        assert bd["multi_target"] == 1.5
+
+    def test_four_targets_score(self):
+        bd = score_breakdown(
+            "Build water_mining.py, solar_array.py, thermal.py, and rover.py system"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_five_targets_still_capped(self):
+        bd = score_breakdown(
+            "Build water_mining.py, solar_array.py, thermal.py, rover.py, "
+            "and drill.py full integration"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_one_target_no_bonus(self):
+        bd = score_breakdown("Build water_mining.py optimizer carefully")
+        assert bd.get("multi_target", 0.0) == 0.0
+
+    def test_zero_targets_no_bonus(self):
+        bd = score_breakdown("Explore consciousness in agents deeply")
+        assert bd.get("multi_target", 0.0) == 0.0
+
+    def test_graduated_ordering(self):
+        s2 = _v("Build water_mining.py and solar_array.py pipe")["score"]
+        s3 = _v("Build water_mining.py, solar_array.py, and thermal.py thing")["score"]
+        s4 = _v(
+            "Build water_mining.py, solar_array.py, thermal.py, and rover.py sys"
+        )["score"]
+        assert s4 >= s3 >= s2
+
+    def test_still_capped_at_one(self):
+        text = "Build " + ", ".join(f"mod_{i}.py" for i in range(20)) + " system"
+        assert _v(text)["score"] <= 1.0
+
+    def test_score_parts_has_multi_target(self):
+        r = _vs("Build water_mining.py and solar_array.py pipe")
+        parts = dict(r.score_parts)
+        assert "multi_target" in parts
+
+
+# ===================================================================
+# BatchResult.summary() (PR #304)
+# ===================================================================
+
+class TestBatchSummary:
+    """BatchResult.summary() returns a human-readable one-liner."""
+
+    def test_mixed_batch(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build water_mining.py optimizer for drilling",
+            "vibes and energy everywhere today",
+            "",
+        ])
+        s = br.summary()
+        assert "3 total" in s
+        assert "1 passed" in s
+        assert "junk" in s
+
+    def test_all_passed(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build water_mining.py optimizer for drilling",
+            "Fix thermal.py bug in pressure system module",
+        ])
+        s = br.summary()
+        assert "100%" in s
+
+    def test_empty_batch(self):
+        from seed_gate import validate_batch
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 total" in s
+        assert "0%" in s
+
+    def test_all_junk(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["", "x", "---"])
+        s = br.summary()
+        assert "0 passed" in s
+        assert "0%" in s
+
+    def test_format_string(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build auth.py module for testing"])
+        s = br.summary()
+        assert s.startswith("Batch: ")

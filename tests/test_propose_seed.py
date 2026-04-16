@@ -11,12 +11,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from propose_seed import (
-    load_seeds,
+    SIMILARITY_THRESHOLD,
+    _normalize_tokens,
     list_proposals,
+    load_seeds,
     make_proposal_id,
     propose,
     purge_junk,
     save_seeds,
+    similarity,
     unvote,
     vote,
     withdraw,
@@ -189,3 +192,153 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# ===================================================================
+# Similarity function (PR #304)
+# ===================================================================
+
+class TestNormalizeTokens:
+    def test_lowercase(self):
+        assert _normalize_tokens("Build WATER_MINING") == ["build", "water_mining"]
+
+    def test_strips_path_prefix(self):
+        tokens = _normalize_tokens("Fix src/seed_gate.py module")
+        assert "src" not in " ".join(tokens)
+        assert "seed_gate" in tokens
+
+    def test_strips_extension(self):
+        tokens = _normalize_tokens("Build water_mining.py")
+        # extension stripped, so "py" should not appear as separate token
+        assert "water_mining" in tokens
+
+    def test_empty(self):
+        assert _normalize_tokens("") == []
+
+    def test_punctuation_stripped(self):
+        tokens = _normalize_tokens("Fix: the bug, now!")
+        assert "fix" in tokens
+        assert "the" in tokens
+
+
+class TestSimilarity:
+    def test_identical(self):
+        assert similarity("Build water_mining.py optimizer", "Build water_mining.py optimizer") == 1.0
+
+    def test_empty_a(self):
+        assert similarity("", "Build water_mining.py") == 0.0
+
+    def test_empty_b(self):
+        assert similarity("Build water_mining.py", "") == 0.0
+
+    def test_both_empty(self):
+        assert similarity("", "") == 0.0
+
+    def test_completely_different(self):
+        assert similarity("Build water_mining.py optimizer", "Deploy nuclear_reactor.py controller") < 0.5
+
+    def test_near_duplicate_high(self):
+        a = "Build water_mining.py optimizer"
+        b = "Build the water_mining.py optimizer module"
+        assert similarity(a, b) >= 0.6
+
+    def test_reordered_words(self):
+        a = "Build water_mining.py optimizer for drilling"
+        b = "Optimize water_mining.py drilling build"
+        assert similarity(a, b) >= 0.4
+
+    def test_same_target_opposite_verb(self):
+        a = "Build water_mining.py optimizer"
+        b = "Delete water_mining.py completely"
+        # Same target but different verb -- should be moderate, not high
+        sim = similarity(a, b)
+        assert sim < SIMILARITY_THRESHOLD
+
+    def test_path_normalization(self):
+        a = "Fix src/seed_gate.py module"
+        b = "Fix seed_gate module"
+        assert similarity(a, b) >= 0.6
+
+    def test_symmetric(self):
+        a = "Build water_mining.py optimizer"
+        b = "Fix solar_array.py controller"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_returns_float(self):
+        result = similarity("Build auth.py", "Fix auth.py")
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0
+
+    def test_long_text_uses_bigrams(self):
+        a = "Build water_mining.py optimizer for the drilling subsystem integration"
+        b = "Build water_mining.py optimizer for the drilling subsystem integration module"
+        assert similarity(a, b) >= 0.8
+
+    def test_short_text_uses_unigrams(self):
+        a = "Build auth.py"
+        b = "Build auth.py module"
+        assert similarity(a, b) >= 0.5
+
+    def test_threshold_constant_reasonable(self):
+        assert 0.5 <= SIMILARITY_THRESHOLD <= 0.9
+
+
+class TestNearDuplicateDetection:
+    """Near-duplicate proposals merge via voter addition."""
+
+    def test_near_dup_adds_voter(self, sp):
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        # Very similar proposal -- should merge into p1
+        p2 = propose("Build the water_mining.py optimizer for drilling module", author="a2", seeds_path=sp)
+        assert p2["id"] == p1["id"]
+        assert "a2" in p2["votes"]
+        assert p2["vote_count"] == 2
+
+    def test_near_dup_no_double_vote(self, sp):
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        # Same author, similar text
+        p2 = propose("Build the water_mining.py optimizer drilling system", author="a1", seeds_path=sp)
+        assert p2["vote_count"] == 1  # no double vote
+
+    def test_different_proposals_not_merged(self, sp):
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Deploy nuclear_reactor.py power controller module", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+        assert len(list_proposals(seeds_path=sp)) == 2
+
+    def test_near_dup_persists_voter(self, sp):
+        propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        propose("Build the water_mining.py optimizer for drilling module", author="a2", seeds_path=sp)
+        # Reload and check persistence
+        data = load_seeds(sp)
+        p = data["proposals"][0]
+        assert "a2" in p["votes"]
+
+    def test_best_match_chosen(self, sp):
+        """When multiple proposals exist, the most similar one wins."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Fix solar_array.py power controller grid module", author="a2", seeds_path=sp)
+        # This is closer to p1 than p2
+        p3 = propose("Build water_mining.py optimizer for deep drilling", author="a3", seeds_path=sp)
+        assert p3["id"] == p1["id"]
+        assert "a3" in p3["votes"]
+
+
+class TestSimilarityEdgeCases:
+    def test_single_word(self):
+        assert similarity("Build", "Build") == 1.0
+
+    def test_single_word_different(self):
+        assert similarity("Build", "Deploy") == 0.0
+
+    def test_special_characters(self):
+        result = similarity("Build @#$% module", "Build module")
+        assert isinstance(result, float)
+
+    def test_numbers_preserved(self):
+        assert similarity("Fix issue #12345", "Fix issue #12345") == 1.0
+
+    def test_very_long_text(self):
+        a = " ".join(["Build"] + [f"module_{i}.py" for i in range(50)])
+        b = " ".join(["Build"] + [f"module_{i}.py" for i in range(50)])
+        assert similarity(a, b) == 1.0

@@ -482,6 +482,18 @@ class BatchResult:
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
 
+    def summary(self) -> str:
+        """Return a human-readable one-line summary of the batch result.
+
+        Format: 'Batch: N total, P passed (X%), F failed, J junk'
+        """
+        s = self.stats
+        pct = f"{s.pass_rate * 100:.0f}%" if s.total else "0%"
+        return (
+            f"Batch: {s.total} total, {s.passed} passed ({pct}), "
+            f"{s.failed} failed, {s.junk} junk"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Negation constants
@@ -962,7 +974,11 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        raw += 2.0
+    elif unique >= 3:
+        raw += 1.5
+    elif unique >= 2:
         raw += 1.0
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
@@ -1073,7 +1089,11 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        components["multi_target"] = 2.0
+    elif unique >= 3:
+        components["multi_target"] = 1.5
+    elif unique >= 2:
         components["multi_target"] = 1.0
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5

@@ -4,6 +4,10 @@ Agents propose what the swarm should focus on next.  Proposals are
 validated through seed_gate.validate() before entering the pipeline.
 Top-voted proposals win when the current seed resolves.
 
+Near-duplicate proposals are detected via similarity() and merged --
+the new proposer is added as a voter on the existing proposal rather
+than creating a redundant entry.
+
 Usage:
     python3 src/propose_seed.py propose "Build water_mining.py optimizer" --author mars-eng-01
     python3 src/propose_seed.py vote prop-abc --voter mars-coder-02
@@ -15,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -32,6 +37,59 @@ _DEFAULT_SEEDS = {
     "history": [],
     "_meta": {"version": 1, "updated_at": None},
 }
+
+# Similarity threshold for near-duplicate detection (0.0-1.0).
+# Proposals above this score are treated as duplicates of an existing one.
+SIMILARITY_THRESHOLD = 0.7
+
+
+def _normalize_tokens(text: str) -> list[str]:
+    """Lowercase and extract alpha-numeric tokens for similarity comparison.
+
+    Strips punctuation and path prefixes so 'src/seed_gate.py' and
+    'seed_gate' compare fairly.
+    """
+    text = text.lower()
+    # Strip common path prefixes
+    text = re.sub(r"\b(?:src|tests|scripts|engine|state|docs)/", "", text)
+    # Strip file extensions
+    text = re.sub(r"\.\w{1,8}\b", "", text)
+    return re.findall(r"[a-z0-9_]+", text)
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute Jaccard similarity on normalized word tokens.
+
+    Returns 0.0-1.0.  Uses unigrams for short texts (< 6 tokens) and
+    a blend of unigrams + bigrams for longer texts.  Returns 0.0 if
+    either input is empty.
+    """
+    tokens_a = _normalize_tokens(a)
+    tokens_b = _normalize_tokens(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+
+    def _jaccard(set_a: set, set_b: set) -> float:
+        if not set_a and not set_b:
+            return 1.0
+        inter = len(set_a & set_b)
+        union = len(set_a | set_b)
+        return inter / union if union else 0.0
+
+    uni_a = set(tokens_a)
+    uni_b = set(tokens_b)
+    uni_sim = _jaccard(uni_a, uni_b)
+
+    # For short texts, unigrams alone are more reliable
+    if len(tokens_a) < 6 or len(tokens_b) < 6:
+        return uni_sim
+
+    # Blend unigram + bigram for longer texts (catches word order)
+    def _bigrams(tokens: list[str]) -> set[tuple[str, str]]:
+        return {(tokens[i], tokens[i + 1]) for i in range(len(tokens) - 1)}
+
+    bi_sim = _jaccard(_bigrams(tokens_a), _bigrams(tokens_b))
+    return 0.6 * uni_sim + 0.4 * bi_sim
 
 
 def load_seeds(path=None):
@@ -86,7 +144,12 @@ def make_proposal_id(text):
 
 
 def propose(text, author, context="", tags=None, seeds_path=None):
-    """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
+    """Create a new seed proposal.  Returns proposal dict or {} on rejection.
+
+    Near-duplicate detection: if an existing proposal is similar enough
+    (above SIMILARITY_THRESHOLD), the proposer is added as a voter on
+    that proposal instead of creating a new entry.
+    """
     text = text.strip()
     tags = tags or []
 
@@ -99,10 +162,27 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
             return p
+
+    # Near-duplicate check: find the most similar existing proposal
+    best_match = None
+    best_sim = 0.0
+    for p in seeds.get("proposals", []):
+        sim = similarity(text, p.get("text", ""))
+        if sim > best_sim:
+            best_sim = sim
+            best_match = p
+
+    if best_match and best_sim >= SIMILARITY_THRESHOLD:
+        # Merge: add proposer as voter on existing proposal
+        if author not in best_match.get("votes", []):
+            best_match.setdefault("votes", []).append(author)
+            best_match["vote_count"] = len(best_match["votes"])
+            save_seeds(seeds, seeds_path)
+        return best_match
 
     proposal = {
         "id": prop_id,
