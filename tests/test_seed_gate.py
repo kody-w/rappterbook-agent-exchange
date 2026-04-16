@@ -2520,3 +2520,230 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ---------------------------------------------------------------------------
+# Graduated multi-target scaling (PR #303 claim, now implemented)
+# ---------------------------------------------------------------------------
+
+class TestGraduatedMultiTarget:
+    """Verify graduated bonus: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_two_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(2) == 1.0
+
+    def test_three_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(3) == 1.5
+
+    def test_four_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(4) == 2.0
+
+    def test_five_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(5) == 2.0
+
+    def test_one_target(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(1) == 0.0
+
+    def test_zero_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(0) == 0.0
+
+    def test_score_increases_with_targets(self):
+        """More targets → higher score (monotonic)."""
+        r2 = validate_seed("Build auth.py and deploy config.yaml")
+        r3 = validate_seed("Build auth.py and deploy config.yaml and fix README")
+        assert r3.score >= r2.score
+
+    def test_four_target_score_higher_than_two(self):
+        r2 = validate_seed("Build auth.py and config.yaml integration")
+        r4 = validate_seed("Build auth.py, config.yaml, router.js, and setup.sh")
+        assert r4.score > r2.score
+
+    def test_score_breakdown_graduated(self):
+        bd3 = score_breakdown("Build auth.py, config.yaml, and router.js")
+        assert bd3["multi_target"] == 1.5
+
+    def test_score_breakdown_four(self):
+        bd4 = score_breakdown("Build auth.py, config.yaml, router.js, and setup.sh")
+        assert bd4["multi_target"] == 2.0
+
+    def test_total_still_sums(self):
+        """Total should equal the sum of all parts."""
+        bd = score_breakdown("Build auth.py, config.yaml, and router.js pipeline")
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["total"] - expected) < 0.01
+
+    def test_compute_score_derives_from_parts(self):
+        """compute_score should produce same result as _score_parts based."""
+        from seed_gate import compute_score, _score_parts
+        text = "Build auth.py and config.yaml"
+        verb, target_kind = "build", "file"
+        target = "auth.py"
+        parts = _score_parts(text, verb, target, target_kind)
+        raw = sum(parts.values())
+        expected = min(raw / 10.0, 1.0)
+        actual = compute_score(text, verb, target, target_kind)
+        assert abs(expected - actual) < 0.001
+
+
+# ---------------------------------------------------------------------------
+# similarity() -- word n-gram Jaccard similarity
+# ---------------------------------------------------------------------------
+
+class TestSimilarity:
+    """Tests for similarity() function."""
+
+    def test_identical(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py module", "Build auth.py module") == 1.0
+
+    def test_completely_different(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py module", "Deploy nuclear reactor") < 0.5
+
+    def test_empty_strings(self):
+        from seed_gate import similarity
+        assert similarity("", "") == 1.0
+
+    def test_one_empty(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py", "") == 0.0
+        assert similarity("", "Build auth.py") == 0.0
+
+    def test_symmetric(self):
+        from seed_gate import similarity
+        a = "Build auth.py module for testing"
+        b = "Build auth.py module for deployment"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_case_insensitive(self):
+        from seed_gate import similarity
+        assert similarity("Build Auth.py", "build auth.py") == 1.0
+
+    def test_high_similarity(self):
+        from seed_gate import similarity
+        a = "Build water_mining.py optimizer for drilling"
+        b = "Build water_mining.py optimizer for mining"
+        assert similarity(a, b) >= 0.5
+
+    def test_reworded_similar(self):
+        from seed_gate import similarity
+        a = "Build the auth.py module for user login"
+        b = "Build the auth.py module for user authentication"
+        assert similarity(a, b) > 0.5
+
+    def test_range_zero_to_one(self):
+        from seed_gate import similarity
+        import random
+        pairs = [
+            ("Build auth.py", "Build auth.py"),
+            ("Build auth.py", "completely different text entirely"),
+            ("", ""),
+            ("a", "b"),
+        ]
+        for a, b in pairs:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0, f"Out of range: {s} for ({a!r}, {b!r})"
+
+    def test_short_text_below_ngram(self):
+        from seed_gate import similarity
+        # Texts shorter than n words still work
+        assert similarity("Build auth", "Build auth") == 1.0
+        assert similarity("Build", "Build") == 1.0
+
+    def test_custom_ngram_size(self):
+        from seed_gate import similarity
+        a = "Build the complete authentication module now"
+        b = "Build the complete authentication module later"
+        s3 = similarity(a, b, n=3)
+        s2 = similarity(a, b, n=2)
+        # Smaller n-grams should yield higher similarity for similar text
+        assert s2 >= s3
+
+    def test_punctuation_robust(self):
+        from seed_gate import similarity
+        a = "Build auth.py, config.yaml, and router.js"
+        b = "Build auth.py config.yaml and router.js"
+        # Punctuation differences should not cause zero similarity
+        assert similarity(a, b) > 0.3
+
+
+# ---------------------------------------------------------------------------
+# Near-duplicate detection in propose_seed.py
+# ---------------------------------------------------------------------------
+
+class TestNearDuplicateProposal:
+    """Tests for near-duplicate detection in propose()."""
+
+    @pytest.fixture
+    def sp(self, tmp_path):
+        return tmp_path / "state" / "seeds.json"
+
+    def test_near_duplicate_returns_existing(self, sp):
+        """Slightly different wording returns existing proposal + auto-votes."""
+        from propose_seed import propose
+        p1 = propose("Build the water_mining.py optimizer module for deep drilling operations on Mars terrain now",
+                      author="a1", seeds_path=sp)
+        assert p1["id"]
+        # Nearly identical proposal (one word different)
+        p2 = propose("Build the water_mining.py optimizer module for deep drilling operations on Mars surface now",
+                      author="a2", seeds_path=sp)
+        # Should return existing, not create new
+        assert p2["id"] == p1["id"]
+        # Author a2 should have been auto-voted
+        assert "a2" in p2["votes"]
+        assert p2["vote_count"] == 2
+
+    def test_different_proposal_creates_new(self, sp):
+        """Sufficiently different proposals create separate entries."""
+        from propose_seed import propose, list_proposals
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Fix thermal_control.py module for habitat pressure", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+        assert len(list_proposals(seeds_path=sp)) == 2
+
+    def test_near_duplicate_idempotent_vote(self, sp):
+        """Same author proposing near-duplicate doesn't double-vote."""
+        from propose_seed import propose
+        p1 = propose("Build the solar_array.py controller for the power grid module on Mars base",
+                      author="a1", seeds_path=sp)
+        p2 = propose("Build the solar_array.py controller for the power grid module on Mars colony",
+                      author="a1", seeds_path=sp)
+        assert p2["vote_count"] == 1
+
+    def test_find_similar(self, sp):
+        from propose_seed import propose, find_similar
+        propose("Build the water_mining.py optimizer for deep drilling on Mars surface",
+                author="a1", seeds_path=sp)
+        propose("Fix thermal_control.py module for pressure regulation now",
+                author="a2", seeds_path=sp)
+        results = find_similar(
+            "Build the water_mining.py optimizer for deep drilling on Mars terrain",
+            seeds_path=sp, threshold=0.4)
+        assert len(results) >= 1
+        assert results[0][1] > 0.4
+
+    def test_find_similar_empty(self, sp):
+        from propose_seed import find_similar, save_seeds
+        save_seeds({"active": None, "proposals": [], "queue": [], "history": []}, sp)
+        results = find_similar("Build auth.py module", seeds_path=sp)
+        assert results == []
+
+    def test_find_similar_threshold(self, sp):
+        from propose_seed import propose, find_similar
+        propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        # Very different text should not match at high threshold
+        results = find_similar("Deploy nuclear reactor core module now", seeds_path=sp, threshold=0.6)
+        assert len(results) == 0
+
+    def test_find_similar_custom_threshold(self, sp):
+        from propose_seed import propose, find_similar
+        propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        # Low threshold should find more matches
+        results = find_similar("Build water_mining.py optimizer for mining", seeds_path=sp, threshold=0.1)
+        assert len(results) >= 1

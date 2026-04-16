@@ -944,6 +944,21 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _multi_target_bonus(unique: int) -> float:
+    """Graduated bonus for multiple concrete targets.
+
+    2 targets → 1.0, 3 targets → 1.5, 4+ targets → 2.0.
+    Single source of truth -- used by compute_score and _score_parts.
+    """
+    if unique >= 4:
+        return 2.0
+    if unique >= 3:
+        return 1.5
+    if unique >= 2:
+        return 1.0
+    return 0.0
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -951,22 +966,8 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        raw += _KIND_SCORES.get(target_kind, 1.5)
-    words = text.split()
-    if len(words) >= 8:
-        raw += 0.5
-    if len(words) >= 15:
-        raw += 1.0
-    unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
+    parts = _score_parts(text, verb, target, target_kind)
+    raw = sum(parts.values())
     return min(raw / 10.0, 1.0)
 
 
@@ -994,6 +995,31 @@ def suggest(text: str, tags: list = None) -> list[str]:
             "Rewrite as a complete sentence starting with a capital letter"
         )
     return suggestions
+
+
+def similarity(a: str, b: str, n: int = 3) -> float:
+    """Jaccard similarity on word n-gram shingles.
+
+    Returns 0.0 (completely different) to 1.0 (identical).
+    Uses *word* n-grams rather than character n-grams so similarity
+    is robust to casing differences. Punctuation is stripped from
+    word boundaries for robustness.
+    """
+    def _shingles(text: str) -> set[tuple[str, ...]]:
+        words = [w.strip(".,;:!?()[]{}\"'") for w in text.lower().split()]
+        words = [w for w in words if w]
+        if len(words) < n:
+            return {tuple(words)} if words else set()
+        return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
+
+    sa, sb = _shingles(a), _shingles(b)
+    if not sa and not sb:
+        return 1.0
+    if not sa or not sb:
+        return 0.0
+    intersection = len(sa & sb)
+    union = len(sa | sb)
+    return intersection / union if union else 0.0
 
 
 # Backward-compat aliases
@@ -1073,8 +1099,9 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
-        components["multi_target"] = 1.0
+    mt_bonus = _multi_target_bonus(unique)
+    if mt_bonus:
+        components["multi_target"] = mt_bonus
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
     return components

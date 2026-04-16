@@ -99,9 +99,20 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
+            return p
+
+    # Near-duplicate check: if an existing proposal is >60% similar,
+    # treat the new proposal as a vote for the existing one.
+    from seed_gate import similarity as _similarity
+    for p in seeds.get("proposals", []):
+        if _similarity(text, p.get("text", "")) > 0.6:
+            if author not in p["votes"]:
+                p["votes"].append(author)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
             return p
 
     proposal = {
@@ -191,6 +202,23 @@ def purge_junk(seeds_path=None):
     seeds["proposals"] = [p for p in proposals if p["id"] not in junk_ids]
     save_seeds(seeds, seeds_path)
     return len(junk_ids)
+
+
+def find_similar(text, seeds_path=None, threshold=0.6):
+    """Find proposals similar to *text*.
+
+    Returns list of (proposal_dict, similarity_score) sorted by score desc.
+    Useful for showing users near-matches before they propose.
+    """
+    from seed_gate import similarity as _similarity
+    seeds = load_seeds(seeds_path)
+    results = []
+    for p in seeds.get("proposals", []):
+        score = _similarity(text, p.get("text", ""))
+        if score >= threshold:
+            results.append((p, score))
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
 
 
 if __name__ == "__main__":
