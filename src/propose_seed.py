@@ -9,14 +9,17 @@ Usage:
     python3 src/propose_seed.py vote prop-abc --voter mars-coder-02
     python3 src/propose_seed.py list
     python3 src/propose_seed.py withdraw prop-abc
+    python3 src/propose_seed.py purge
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +28,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 SEEDS_FILE = REPO_ROOT / "state" / "seeds.json"
 
+SIMILARITY_THRESHOLD = 0.75
+
 _DEFAULT_SEEDS = {
     "active": None,
     "queue": [],
@@ -32,6 +37,24 @@ _DEFAULT_SEEDS = {
     "history": [],
     "_meta": {"version": 1, "updated_at": None},
 }
+
+
+@contextmanager
+def _seeds_lock(path: Path):
+    """Advisory file lock for concurrent state safety.
+
+    Uses fcntl.flock -- safe on macOS and Linux.  Lock file is
+    co-located with the state file to share the same filesystem.
+    """
+    lock_path = path.parent / ".seeds.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def load_seeds(path=None):
@@ -85,67 +108,137 @@ def make_proposal_id(text):
     return "prop-" + hashlib.sha256(text.encode()).hexdigest()[:8]
 
 
+def _find_near_duplicate(text, proposals, threshold=SIMILARITY_THRESHOLD):
+    """Check if *text* is semantically near-duplicate of any existing proposal.
+
+    Returns (proposal, similarity_score) if found, else (None, 0.0).
+    Uses seed_gate.similarity() for parsed target+verb comparison.
+    """
+    from seed_gate import similarity as _similarity
+    best_match = None
+    best_score = 0.0
+    for p in proposals:
+        score = _similarity(text, p.get("text", ""))
+        if score > best_score:
+            best_score = score
+            best_match = p
+    if best_score >= threshold:
+        return best_match, best_score
+    return None, 0.0
+
+
 def propose(text, author, context="", tags=None, seeds_path=None):
-    """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
+    """Create a new seed proposal.  Returns proposal dict or {} on rejection.
+
+    Backward-compatible: returns empty dict on failure, proposal dict on
+    success.  Use propose_verbose() for structured rejection info.
+    """
+    result = propose_verbose(text, author, context, tags, seeds_path)
+    if not result.get("accepted"):
+        return {}
+    return result["proposal"]
+
+
+def propose_verbose(text, author, context="", tags=None, seeds_path=None):
+    """Create a new seed proposal with structured feedback.
+
+    Returns:
+        {"accepted": True, "proposal": {...}} on success.
+        {"accepted": False, "reasons": [...], "suggestions": [...],
+         "near_duplicate": {...} | None} on rejection.
+    """
     text = text.strip()
     tags = tags or []
+    target = seeds_path or SEEDS_FILE
 
     # Specificity gate
     from seed_gate import validate as validate_seed
+    from seed_gate import suggest as _suggest
     gate = validate_seed(text, tags)
     if not gate["passed"]:
-        return {}
+        return {
+            "accepted": False,
+            "reasons": gate.get("reasons", []),
+            "suggestions": _suggest(text, tags),
+            "near_duplicate": None,
+        }
 
-    seeds = load_seeds(seeds_path)
-    prop_id = make_proposal_id(text)
+    with _seeds_lock(target):
+        seeds = load_seeds(seeds_path)
+        prop_id = make_proposal_id(text)
 
-    # Duplicate check
-    for p in seeds.get("proposals", []):
-        if p["id"] == prop_id:
-            return p
+        # Exact duplicate check
+        for p in seeds.get("proposals", []):
+            if p["id"] == prop_id:
+                return {"accepted": True, "proposal": p}
 
-    proposal = {
-        "id": prop_id,
-        "text": text,
-        "context": context,
-        "author": author,
-        "tags": tags,
-        "proposed_at": datetime.now(timezone.utc).isoformat(),
-        "votes": [author],
-        "vote_count": 1,
-        "score": gate["score"],
-    }
+        # Near-duplicate check (across proposals, queue, and active)
+        all_existing = list(seeds.get("proposals", []))
+        all_existing.extend(seeds.get("queue", []))
+        if seeds.get("active") and isinstance(seeds["active"], dict):
+            all_existing.append(seeds["active"])
 
-    seeds.setdefault("proposals", []).append(proposal)
-    save_seeds(seeds, seeds_path)
-    return proposal
+        dup, dup_score = _find_near_duplicate(text, all_existing)
+        if dup:
+            return {
+                "accepted": False,
+                "reasons": [
+                    "Near-duplicate of existing proposal %r (similarity=%.2f)"
+                    % (dup.get("id", "?"), dup_score)
+                ],
+                "suggestions": [
+                    "Vote on the existing proposal instead: %s" % dup.get("id", "?")
+                ],
+                "near_duplicate": dup,
+            }
+
+        proposal = {
+            "id": prop_id,
+            "text": text,
+            "context": context,
+            "author": author,
+            "tags": tags,
+            "proposed_at": datetime.now(timezone.utc).isoformat(),
+            "votes": [author],
+            "vote_count": 1,
+            "score": gate["score"],
+        }
+
+        seeds.setdefault("proposals", []).append(proposal)
+        save_seeds(seeds, seeds_path)
+
+    return {"accepted": True, "proposal": proposal}
 
 
 def vote(proposal_id, voter_id, seeds_path=None):
     """Vote for a seed proposal.  Returns the proposal or None."""
-    seeds = load_seeds(seeds_path)
-    for p in seeds.get("proposals", []):
-        if p["id"] == proposal_id:
-            if voter_id in p["votes"]:
+    target = seeds_path or SEEDS_FILE
+    with _seeds_lock(target):
+        seeds = load_seeds(seeds_path)
+        for p in seeds.get("proposals", []):
+            if p["id"] == proposal_id:
+                if voter_id in p["votes"]:
+                    return p
+                p["votes"].append(voter_id)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
                 return p
-            p["votes"].append(voter_id)
-            p["vote_count"] = len(p["votes"])
-            save_seeds(seeds, seeds_path)
-            return p
     return None
 
 
 def unvote(proposal_id, voter_id, seeds_path=None):
     """Remove a vote from a seed proposal."""
-    seeds = load_seeds(seeds_path)
-    for p in seeds.get("proposals", []):
-        if p["id"] == proposal_id:
-            if voter_id not in p["votes"]:
+    target = seeds_path or SEEDS_FILE
+    with _seeds_lock(target):
+        seeds = load_seeds(seeds_path)
+        for p in seeds.get("proposals", []):
+            if p["id"] == proposal_id:
+                if voter_id not in p["votes"]:
+                    return p
+                p["votes"].remove(voter_id)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
                 return p
-            p["votes"].remove(voter_id)
-            p["vote_count"] = len(p["votes"])
-            save_seeds(seeds, seeds_path)
-            return p
     return None
 
 
@@ -158,13 +251,15 @@ def list_proposals(seeds_path=None):
 
 def withdraw(proposal_id, seeds_path=None):
     """Remove a proposal entirely.  Returns True if removed."""
-    seeds = load_seeds(seeds_path)
-    proposals = seeds.get("proposals", [])
-    original = len(proposals)
-    seeds["proposals"] = [p for p in proposals if p["id"] != proposal_id]
-    if len(seeds["proposals"]) < original:
-        save_seeds(seeds, seeds_path)
-        return True
+    target = seeds_path or SEEDS_FILE
+    with _seeds_lock(target):
+        seeds = load_seeds(seeds_path)
+        proposals = seeds.get("proposals", [])
+        original = len(proposals)
+        seeds["proposals"] = [p for p in proposals if p["id"] != proposal_id]
+        if len(seeds["proposals"]) < original:
+            save_seeds(seeds, seeds_path)
+            return True
     return False
 
 
@@ -175,23 +270,127 @@ def purge_junk(seeds_path=None):
     from vague-but-salvageable proposals.  Only junk gets purged.
     """
     from seed_gate import validate_batch as _validate_batch
-    seeds = load_seeds(seeds_path)
-    proposals = seeds.get("proposals", [])
-    if not proposals:
-        return 0
-    texts = [p.get("text", "") for p in proposals]
-    batch = _validate_batch(texts)
-    junk_texts = {text for text, _result in batch.junk_items}
-    junk_ids = [
-        p["id"] for p in proposals
-        if p.get("text", "") in junk_texts
-    ]
-    if not junk_ids:
-        return 0
-    seeds["proposals"] = [p for p in proposals if p["id"] not in junk_ids]
-    save_seeds(seeds, seeds_path)
+    target = seeds_path or SEEDS_FILE
+    with _seeds_lock(target):
+        seeds = load_seeds(seeds_path)
+        proposals = seeds.get("proposals", [])
+        if not proposals:
+            return 0
+        texts = [p.get("text", "") for p in proposals]
+        batch = _validate_batch(texts)
+        junk_texts = {text for text, _result in batch.junk_items}
+        junk_ids = [
+            p["id"] for p in proposals
+            if p.get("text", "") in junk_texts
+        ]
+        if not junk_ids:
+            return 0
+        seeds["proposals"] = [p for p in proposals if p["id"] not in junk_ids]
+        save_seeds(seeds, seeds_path)
     return len(junk_ids)
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _cli() -> None:
+    """Working CLI for propose/vote/list/withdraw/purge subcommands."""
+    if len(sys.argv) < 2:
+        print("Usage: python3 src/propose_seed.py <command> [args]")
+        print("Commands:")
+        print("  propose <text> --author <id> [--tag <tag>...]")
+        print("  vote <proposal-id> --voter <id>")
+        print("  unvote <proposal-id> --voter <id>")
+        print("  list")
+        print("  withdraw <proposal-id>")
+        print("  purge")
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+
+    if cmd == "propose":
+        text = sys.argv[2] if len(sys.argv) > 2 else ""
+        author = ""
+        tags: list[str] = []
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i] == "--author" and i + 1 < len(sys.argv):
+                author = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--tag" and i + 1 < len(sys.argv):
+                tags.append(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+        if not author:
+            print("Error: --author required", file=sys.stderr)
+            sys.exit(1)
+        result = propose_verbose(text, author, tags=tags)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if result.get("accepted") else 1)
+
+    elif cmd == "vote":
+        prop_id = sys.argv[2] if len(sys.argv) > 2 else ""
+        voter = ""
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i] == "--voter" and i + 1 < len(sys.argv):
+                voter = sys.argv[i + 1]
+                i += 2
+            else:
+                i += 1
+        if not prop_id or not voter:
+            print("Error: proposal-id and --voter required", file=sys.stderr)
+            sys.exit(1)
+        result = vote(prop_id, voter)
+        if result:
+            print(json.dumps(result, indent=2))
+        else:
+            print("Proposal not found: %s" % prop_id, file=sys.stderr)
+            sys.exit(1)
+
+    elif cmd == "unvote":
+        prop_id = sys.argv[2] if len(sys.argv) > 2 else ""
+        voter = ""
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i] == "--voter" and i + 1 < len(sys.argv):
+                voter = sys.argv[i + 1]
+                i += 2
+            else:
+                i += 1
+        if not prop_id or not voter:
+            print("Error: proposal-id and --voter required", file=sys.stderr)
+            sys.exit(1)
+        result = unvote(prop_id, voter)
+        if result:
+            print(json.dumps(result, indent=2))
+        else:
+            print("Proposal not found: %s" % prop_id, file=sys.stderr)
+            sys.exit(1)
+
+    elif cmd == "list":
+        proposals = list_proposals()
+        print(json.dumps(proposals, indent=2))
+
+    elif cmd == "withdraw":
+        prop_id = sys.argv[2] if len(sys.argv) > 2 else ""
+        if not prop_id:
+            print("Error: proposal-id required", file=sys.stderr)
+            sys.exit(1)
+        removed = withdraw(prop_id)
+        print(json.dumps({"removed": removed, "id": prop_id}))
+        sys.exit(0 if removed else 1)
+
+    elif cmd == "purge":
+        count = purge_junk()
+        print(json.dumps({"purged": count}))
+
+    else:
+        print("Unknown command: %s" % cmd, file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    print("Usage: python3 src/propose_seed.py propose|vote|list|withdraw")
+    _cli()

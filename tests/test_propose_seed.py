@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,11 +16,14 @@ from propose_seed import (
     list_proposals,
     make_proposal_id,
     propose,
+    propose_verbose,
     purge_junk,
     save_seeds,
     unvote,
     vote,
     withdraw,
+    _find_near_duplicate,
+    SIMILARITY_THRESHOLD,
 )
 
 
@@ -189,3 +193,170 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# ===================================================================
+# propose_verbose() API (PR #304)
+# ===================================================================
+
+class TestProposeVerbose:
+    def test_accepted_shape(self, sp):
+        r = propose_verbose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        assert r["accepted"] is True
+        assert "proposal" in r
+        assert r["proposal"]["id"].startswith("prop-")
+
+    def test_rejected_shape(self, sp):
+        r = propose_verbose("Make everything better and amazing", author="a1", seeds_path=sp)
+        assert r["accepted"] is False
+        assert "reasons" in r
+        assert "suggestions" in r
+        assert len(r["reasons"]) > 0
+        assert len(r["suggestions"]) > 0
+
+    def test_rejected_has_no_proposal(self, sp):
+        r = propose_verbose("vibes only everywhere today", author="a1", seeds_path=sp)
+        assert "proposal" not in r
+
+    def test_junk_rejected(self, sp):
+        r = propose_verbose("", author="a1", seeds_path=sp)
+        assert r["accepted"] is False
+
+    def test_near_duplicate_key(self, sp):
+        r = propose_verbose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        assert r["accepted"] is True
+        assert r.get("near_duplicate") is None  # not applicable on accepted
+
+    def test_backward_compat_propose_still_dict(self, sp):
+        """propose() returns empty dict on rejection (backward compat)."""
+        result = propose("vibes only no targets here", author="a1", seeds_path=sp)
+        assert result == {}
+
+    def test_backward_compat_propose_returns_proposal(self, sp):
+        """propose() returns proposal dict on success (backward compat)."""
+        result = propose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        assert "id" in result
+        assert result["id"].startswith("prop-")
+
+
+# ===================================================================
+# Near-duplicate detection (PR #304)
+# ===================================================================
+
+class TestNearDuplicate:
+    def test_exact_duplicate_still_returns_existing(self, sp):
+        text = "Build water_mining.py optimizer drilling here"
+        r1 = propose("Build water_mining.py optimizer drilling here", author="a1", seeds_path=sp)
+        r2 = propose("Build water_mining.py optimizer drilling here", author="a2", seeds_path=sp)
+        assert r1["id"] == r2["id"]
+
+    def test_near_duplicate_rejected(self, sp):
+        propose_verbose("Build water_mining.py optimizer for the colony", author="a1", seeds_path=sp)
+        r = propose_verbose("Build water_mining.py optimizer for the base", author="a2", seeds_path=sp)
+        assert r["accepted"] is False
+        assert "near_duplicate" in r
+        assert r["near_duplicate"] is not None
+
+    def test_different_target_accepted(self, sp):
+        propose_verbose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        r = propose_verbose("Fix solar_array.py efficiency for base", author="a2", seeds_path=sp)
+        assert r["accepted"] is True
+
+    def test_find_near_duplicate_helper(self):
+        proposals = [
+            {"text": "Build water_mining.py optimizer", "id": "prop-111"},
+            {"text": "Fix solar_array.py output", "id": "prop-222"},
+        ]
+        match, score = _find_near_duplicate(
+            "Build water_mining.py optimizer for colony", proposals
+        )
+        assert match is not None
+        assert match["id"] == "prop-111"
+        assert score >= SIMILARITY_THRESHOLD
+
+    def test_find_near_duplicate_no_match(self):
+        proposals = [
+            {"text": "Build water_mining.py optimizer", "id": "prop-111"},
+        ]
+        match, score = _find_near_duplicate(
+            "Fix drill.py subsurface sampling system", proposals
+        )
+        assert match is None
+        assert score < SIMILARITY_THRESHOLD
+
+    def test_near_duplicate_checks_queue_and_active(self, sp):
+        """Near-duplicate detection spans proposals, queue, and active seed."""
+        seeds = {
+            "active": {
+                "text": "Build water_mining.py optimizer",
+                "id": "active-1",
+            },
+            "queue": [],
+            "proposals": [],
+            "history": [],
+        }
+        save_seeds(seeds, sp)
+        r = propose_verbose("Build water_mining.py optimizer for colony", author="a1", seeds_path=sp)
+        assert r["accepted"] is False
+        assert r["near_duplicate"] is not None
+
+
+# ===================================================================
+# File-locking smoke test (PR #304)
+# ===================================================================
+
+class TestConcurrentSafety:
+    def test_lock_file_created(self, sp):
+        """After a propose, a lock file should exist alongside seeds.json."""
+        propose("Build dust_filter.py cleaner system habitat", author="eng1", seeds_path=sp)
+        lock_path = sp.parent / ".seeds.lock"
+        assert lock_path.exists()
+
+    def test_serial_operations_no_deadlock(self, sp):
+        """Multiple serial operations should not deadlock."""
+        for i in range(5):
+            propose(f"Build module_{i:02d}.py system for habitat testing", author=f"a{i}", seeds_path=sp)
+        assert len(list_proposals(seeds_path=sp)) == 5
+
+
+# ===================================================================
+# CLI smoke test (PR #304)
+# ===================================================================
+
+class TestCLI:
+    def test_list_runs(self, sp):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "propose_seed.py"), "list"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert isinstance(data, list)
+
+    def test_propose_cli(self, sp):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "propose_seed.py"),
+             "propose", "Build water_mining.py optimizer drilling",
+             "--author", "cli-test"],
+            capture_output=True, text=True,
+        )
+        data = json.loads(result.stdout)
+        assert data["accepted"] is True
+
+    def test_propose_cli_rejected(self, sp):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "propose_seed.py"),
+             "propose", "vibes and energy everywhere",
+             "--author", "cli-test"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 1
+        data = json.loads(result.stdout)
+        assert data["accepted"] is False
+
+    def test_unknown_command(self):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "propose_seed.py"), "nonsense"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 1

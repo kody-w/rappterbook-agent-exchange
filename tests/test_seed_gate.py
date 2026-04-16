@@ -2520,3 +2520,144 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# 20. Graduated multi-target scoring (PR #304)
+# ===================================================================
+
+class TestGraduatedMultiTarget:
+    """Verify graduated scoring: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_single_target_no_bonus(self):
+        bd = score_breakdown("Build water_mining.py optimizer")
+        assert bd.get("multi_target", 0.0) == 0.0
+
+    def test_two_targets_1_0(self):
+        bd = score_breakdown("Build water_mining.py and solar_array.py together")
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets_1_5(self):
+        bd = score_breakdown("Build water_mining.py solar_array.py and drill.py system")
+        assert bd["multi_target"] == 1.5
+
+    def test_four_targets_2_0(self):
+        bd = score_breakdown(
+            "Refactor water_mining.py solar_array.py drill.py and fuel_cell.py modules"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_five_targets_still_2_0(self):
+        bd = score_breakdown(
+            "Audit water_mining.py solar_array.py drill.py fuel_cell.py and rover.py"
+        )
+        assert bd["multi_target"] == 2.0
+
+    def test_graduated_increases_total_score(self):
+        bd2 = score_breakdown("Build water_mining.py and solar_array.py together")
+        bd3 = score_breakdown("Build water_mining.py solar_array.py and drill.py system")
+        bd4 = score_breakdown(
+            "Build water_mining.py solar_array.py drill.py and fuel_cell.py system"
+        )
+        assert bd3["total"] > bd2["total"]
+        assert bd4["total"] > bd3["total"]
+
+    def test_compute_score_consistent_with_breakdown(self):
+        text = "Build water_mining.py solar_array.py and drill.py system"
+        r = validate_seed(text)
+        bd = score_breakdown(text)
+        # Both should agree on the final score (within float tolerance)
+        expected = min(bd["total"] / 10.0, 1.0)
+        assert abs(r.score - expected) < 0.01
+
+
+# ===================================================================
+# 21. Similarity function (PR #304)
+# ===================================================================
+
+from seed_gate import similarity, _graduated_multi_target
+
+
+class TestSimilarity:
+    """Fuzzy duplicate detection between proposals."""
+
+    def test_identical(self):
+        assert similarity("Build water_mining.py optimizer", "Build water_mining.py optimizer") == 1.0
+
+    def test_empty_inputs(self):
+        assert similarity("", "Build auth.py") == 0.0
+        assert similarity("Build auth.py", "") == 0.0
+        assert similarity("", "") == 0.0
+
+    def test_same_target_same_verb(self):
+        score = similarity(
+            "Build water_mining.py optimizer",
+            "Build water_mining.py refactoring"
+        )
+        assert score > 0.7
+
+    def test_same_target_different_verb(self):
+        score = similarity(
+            "Build water_mining.py optimizer",
+            "Fix water_mining.py null handling"
+        )
+        assert score > 0.5  # Target overlap dominates
+
+    def test_different_target_same_verb(self):
+        score = similarity(
+            "Build water_mining.py optimizer",
+            "Build solar_array.py optimizer"
+        )
+        assert score < 0.5  # Different targets → low similarity
+
+    def test_completely_different(self):
+        score = similarity(
+            "Build water_mining.py optimizer",
+            "Fix fuel_cell.py thermal leak"
+        )
+        assert score < 0.3
+
+    def test_near_duplicate_synonym_verb(self):
+        score = similarity(
+            "Build water_mining.py optimizer",
+            "Create water_mining.py optimizer"
+        )
+        assert score > 0.6  # Same target, different but related verb
+
+    def test_no_targets_low_similarity(self):
+        score = similarity(
+            "Build something cool for the team to use together",
+            "Create amazing features for everyone to enjoy now"
+        )
+        assert score < 0.4
+
+    def test_symmetric(self):
+        a = "Build water_mining.py optimizer"
+        b = "Fix solar_array.py efficiency"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_returns_float_in_range(self):
+        score = similarity("Build water_mining.py", "Test solar_array.py")
+        assert 0.0 <= score <= 1.0
+
+
+class TestGraduatedMultiTargetHelper:
+    """Direct tests for _graduated_multi_target()."""
+
+    def test_zero(self):
+        assert _graduated_multi_target(0) == 0.0
+
+    def test_one(self):
+        assert _graduated_multi_target(1) == 0.0
+
+    def test_two(self):
+        assert _graduated_multi_target(2) == 1.0
+
+    def test_three(self):
+        assert _graduated_multi_target(3) == 1.5
+
+    def test_four(self):
+        assert _graduated_multi_target(4) == 2.0
+
+    def test_hundred(self):
+        assert _graduated_multi_target(100) == 2.0

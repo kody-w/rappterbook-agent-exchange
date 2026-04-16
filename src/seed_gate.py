@@ -58,6 +58,11 @@ Evolution log:
                   enriched SeedGateResult (target_kind, verb_source,
                   verb_position, score_parts, is_imperative, negated,
                   advisories, strength); explain_dict() structured API.
+    PR #304  -- graduated multi-target scoring (2→+1.0, 3→+1.5,
+                  4+→+2.0); similarity() function for fuzzy duplicate
+                  detection in propose_seed.py; propose_verbose() API
+                  with structured rejection info; file-locking for
+                  concurrent safety; working propose_seed CLI.
 """
 from __future__ import annotations
 
@@ -944,6 +949,87 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _graduated_multi_target(unique_count: int) -> float:
+    """Graduated score bonus for multiple concrete targets.
+
+    2 targets → +1.0, 3 → +1.5, 4+ → +2.0.  Single target → 0.
+    """
+    if unique_count >= 4:
+        return 2.0
+    if unique_count >= 3:
+        return 1.5
+    if unique_count >= 2:
+        return 1.0
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Similarity (fuzzy duplicate detection for propose_seed.py)
+# ---------------------------------------------------------------------------
+
+_STOP_WORDS: frozenset[str] = frozenset({
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "it", "its", "this", "that", "as",
+    "be", "are", "was", "were", "been", "being", "have", "has", "had",
+    "do", "does", "did", "will", "would", "could", "should", "may",
+    "might", "shall", "can", "so", "if", "then", "than", "when", "while",
+    "into", "about", "up", "out", "over", "under", "again", "further",
+    "once", "here", "there", "all", "each", "every", "both", "few",
+    "more", "most", "other", "some", "such", "no", "not", "only", "same",
+    "very", "just", "also", "now", "new",
+})
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute semantic similarity between two proposals (0.0-1.0).
+
+    Uses parsed gate output (targets + verb) rather than raw tokens:
+    - Target overlap weighted 0.6 (canonicalized, all targets)
+    - Verb match weighted 0.2
+    - Residual meaningful token overlap weighted 0.2
+
+    Returns 0.0 for empty inputs, 1.0 for identical proposals.
+    """
+    if not a.strip() or not b.strip():
+        return 0.0
+    if a.strip() == b.strip():
+        return 1.0
+
+    # Parse both through the gate
+    targets_a = {canonicalize_target(t) for t, _k in _find_all_targets(a) if canonicalize_target(t)}
+    targets_b = {canonicalize_target(t) for t, _k in _find_all_targets(b) if canonicalize_target(t)}
+    verb_a = find_verb(a)
+    verb_b = find_verb(b)
+
+    # Target overlap (Jaccard on canonicalized targets)
+    if targets_a or targets_b:
+        target_sim = len(targets_a & targets_b) / len(targets_a | targets_b)
+    else:
+        target_sim = 0.0
+
+    # Verb match (binary)
+    verb_sim = 1.0 if (verb_a and verb_b and verb_a == verb_b) else 0.0
+
+    # Residual token overlap (meaningful tokens minus verbs and targets)
+    def _residual_tokens(text: str, verb: str | None, targets: set[str]) -> set[str]:
+        tokens = set(re.findall(r"[a-z]+", text.lower()))
+        tokens -= _STOP_WORDS
+        tokens -= ACTION_VERBS
+        tokens -= targets
+        if verb:
+            tokens.discard(verb)
+        return tokens
+
+    res_a = _residual_tokens(a, verb_a, targets_a)
+    res_b = _residual_tokens(b, verb_b, targets_b)
+    if res_a or res_b:
+        residual_sim = len(res_a & res_b) / len(res_a | res_b)
+    else:
+        residual_sim = 1.0 if not (res_a or res_b) else 0.0
+
+    return 0.6 * target_sim + 0.2 * verb_sim + 0.2 * residual_sim
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -962,8 +1048,7 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
+    raw += _graduated_multi_target(unique)
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
         raw += 0.5
@@ -1073,8 +1158,9 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
-        components["multi_target"] = 1.0
+    mt = _graduated_multi_target(unique)
+    if mt:
+        components["multi_target"] = mt
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
     return components
