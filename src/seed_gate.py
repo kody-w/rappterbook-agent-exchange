@@ -29,6 +29,12 @@ Two public APIs -- pick whichever suits the call-site:
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
+    # Diagnostics (PR #272)
+    ex = explain(text, tags)           # -> dict (structured diagnostic)
+    vm = find_verb_with_position(text) # -> VerbMatch | None
+    sb = score_breakdown(text, v, t, k)# -> dict[str, float]
+    ng = detect_negation(text)         # -> bool
+
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
@@ -45,6 +51,13 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- explain() diagnostic API; score_breakdown() decomposition;
+                  find_verb_with_position(); VerbMatch dataclass; negation
+                  awareness (don't/never/stop/avoid → advisory flag, not
+                  rejection); multi-target scaling (3→+1.5, 4+→+2.0);
+                  strength property; advisories tuple; enriched
+                  SeedGateResult (target_kind, verb_source, verb_position,
+                  score_parts).
 """
 from __future__ import annotations
 
@@ -179,6 +192,29 @@ for _inf_phrase, _inf_canonical in _INFLECTION_MAP.items():
     if " " in _inf_phrase:
         _inf_head, _inf_particle = _inf_phrase.split(maxsplit=1)
         _PHRASAL_INFLECTED.setdefault(_inf_head, {})[_inf_particle] = _inf_canonical
+
+# ---------------------------------------------------------------------------
+# VerbMatch dataclass -- structured verb detection result (PR #272)
+# ---------------------------------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class VerbMatch:
+    """Result of find_verb_with_position()."""
+
+    verb: str
+    token_index: int | None
+    source: str  # "text", "tag", "question"
+
+    def __bool__(self) -> bool:
+        return bool(self.verb)
+
+# ---------------------------------------------------------------------------
+# Negation detection (PR #272)
+# ---------------------------------------------------------------------------
+
+_NEGATION_RE = re.compile(
+    r"\b(?:don'?t|do\s+not|never|stop|avoid|skip|cancel|abort|halt)\b", re.I
+)
 
 # SCREAMING_SNAKE_CASE constants -- e.g. ACTION_VERBS, MAX_RETRIES
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
@@ -356,6 +392,12 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    target_kind: str = ""
+    verb_source: str = ""
+    verb_position: int | None = None
+    score_parts: tuple = ()
+    advisories: tuple = ()
+    negated: bool = False
 
     @property
     def verb(self) -> str:
@@ -376,6 +418,17 @@ class SeedGateResult:
             return "medium"
         return "low"
 
+    @property
+    def strength(self) -> str:
+        """Categorize proposal strength: strong/moderate/weak/rejected."""
+        if not self.passed:
+            return "rejected"
+        if self.score >= 0.70:
+            return "strong"
+        if self.score >= 0.45:
+            return "moderate"
+        return "weak"
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -386,8 +439,15 @@ class SeedGateResult:
             "junk": self.junk,
             "advisory": self.advisory,
             "confidence": self.confidence,
+            "strength": self.strength,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "target_kind": self.target_kind,
+            "verb_source": self.verb_source,
+            "verb_position": self.verb_position,
+            "score_parts": dict(self.score_parts) if self.score_parts else {},
+            "advisories": list(self.advisories),
+            "negated": self.negated,
         }
 
 
@@ -536,6 +596,42 @@ def find_all_verbs(text: str) -> list[str]:
                 seen.add(base)
                 result.append(base)
     return result
+
+
+def find_verb_with_position(text: str) -> VerbMatch | None:
+    """Return a VerbMatch with verb + token index, or None.
+
+    Unlike find_verb(), this tells callers WHERE in the text the verb
+    appeared — useful for diagnostics and imperative detection.
+    """
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    for i, word in enumerate(words):
+        if i + 1 < len(words):
+            next_word = words[i + 1]
+            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
+                return VerbMatch(verb=_PHRASAL_FIRST[word][next_word], token_index=i, source="text")
+            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
+                return VerbMatch(verb=_PHRASAL_INFLECTED[word][next_word], token_index=i, source="text")
+        if word in ACTION_VERBS:
+            return VerbMatch(verb=word, token_index=i, source="text")
+        if word in _INFLECTION_MAP:
+            return VerbMatch(verb=_INFLECTION_MAP[word], token_index=i, source="text")
+    return None
+
+
+def detect_negation(text: str) -> bool:
+    """Return True if text contains a negation pattern before the first verb."""
+    m = _NEGATION_RE.search(text)
+    if not m:
+        return False
+    vm = find_verb_with_position(text)
+    if vm is None:
+        return True
+    # Negation counts if it appears before the verb in the raw text
+    verb_start = text.lower().find(vm.verb)
+    if verb_start < 0:
+        return True
+    return m.start() < verb_start
 
 
 def find_target(text: str) -> tuple[str, str]:
@@ -711,28 +807,86 @@ def compute_score(
     target_kind: str,
 ) -> float:
     """Compute a 0.0-1.0 specificity score."""
-    raw = 0.0
-    if verb:
-        raw += 2.5
-    if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
+    return score_breakdown(text, verb, target, target_kind)["total"]
+
+
+def score_breakdown(
+    text: str,
+    verb: str | None,
+    target: str | None,
+    target_kind: str,
+) -> dict[str, float]:
+    """Return individual score components and total.
+
+    Keys: verb, target, length, multi_target, imperative, total.
+    """
+    parts: dict[str, float] = {}
+    parts["verb"] = 2.5 if verb else 0.0
+    kind_scores = {
+        "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+        "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+        "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+    }
+    parts["target"] = kind_scores.get(target_kind, 1.5) if target else 0.0
     words = text.split()
+    length_bonus = 0.0
     if len(words) >= 8:
-        raw += 0.5
+        length_bonus += 0.5
     if len(words) >= 15:
-        raw += 1.0
+        length_bonus += 1.0
+    parts["length"] = length_bonus
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
-    if verb and _starts_with_verb(text):
-        raw += 0.5
-    return min(raw / 10.0, 1.0)
+    if unique >= 4:
+        parts["multi_target"] = 2.0
+    elif unique >= 3:
+        parts["multi_target"] = 1.5
+    elif unique >= 2:
+        parts["multi_target"] = 1.0
+    else:
+        parts["multi_target"] = 0.0
+    parts["imperative"] = 0.5 if (verb and _starts_with_verb(text)) else 0.0
+    raw = sum(parts.values())
+    parts["total"] = min(raw / 10.0, 1.0)
+    return parts
+
+
+def explain(text: str, tags: list = None) -> dict:
+    """Return a structured diagnostic breakdown of a proposal.
+
+    Thin diagnostic layer over validate_seed() — runs detection even on
+    rejected inputs for maximum diagnostic value.  Never duplicates
+    decision logic.
+
+    Returns dict with keys: decision, detected, score_breakdown,
+    suggestions, advisories.
+    """
+    result = validate_seed(text, tags)
+    detected: dict = {
+        "verb": result.verb_found,
+        "verb_source": result.verb_source,
+        "verb_position": result.verb_position,
+        "all_verbs": list(result.all_verbs),
+        "target": result.target_found,
+        "target_kind": result.target_kind,
+        "all_targets": [list(t) for t in result.all_targets],
+        "negated": result.negated,
+        "unique_target_count": count_unique_targets(text),
+    }
+    parts = dict(result.score_parts) if result.score_parts else {}
+    decision: dict = {
+        "passed": result.passed,
+        "reasons": list(result.reasons),
+        "junk": result.junk,
+        "confidence": result.confidence,
+        "strength": result.strength,
+    }
+    return {
+        "decision": decision,
+        "detected": detected,
+        "score_breakdown": parts,
+        "suggestions": suggest(text, tags),
+        "advisories": list(result.advisories),
+    }
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
@@ -796,16 +950,25 @@ def validate_seed(
             verb_found=None, target_found=None, junk=True,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target with source tracking ---
     verb_limit = 200 if mode == "purge" else 0
     verb = find_verb(text, limit=verb_limit)
+    verb_source = "text" if verb else ""
+    verb_pos: int | None = None
+    if verb:
+        vm = find_verb_with_position(text[:verb_limit] if verb_limit else text)
+        verb_pos = vm.token_index if vm else None
     target, target_kind = find_target(text)
+
+    # -- Negation detection (advisory, not rejection) ---
+    negated = detect_negation(text)
 
     # -- Tag-implied verb inference (#12530) ---
     if not verb:
         for tag in tag_set:
             if tag in TAG_IMPLIED_VERBS:
                 verb = TAG_IMPLIED_VERBS[tag]
+                verb_source = "tag"
                 break
 
     # -- Question stem inference (exempt tags only) ---
@@ -813,6 +976,7 @@ def validate_seed(
         m = _QUESTION_STEM_RE.match(text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
+            verb_source = "question"
 
     # -- Rich match info (#12521) ---
     all_verbs = tuple(find_all_verbs(text))
@@ -825,18 +989,23 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            target_kind=target_kind, verb_source=verb_source,
+            verb_position=verb_pos, negated=negated,
         )
 
     # -- Decision ---
     if mode == "purge":
         passed = True
         specificity = 0.5
+        parts: dict[str, float] = {}
     else:
         passed = bool(verb) and (bool(target) or is_exempt)
-        specificity = compute_score(text, verb, target, target_kind)
+        parts = score_breakdown(text, verb, target, target_kind)
+        specificity = parts["total"]
 
     reasons: list[str] = []
     advisory = ""
+    advisories_list: list[str] = []
     if not passed:
         if not verb:
             reasons.append("No action verb found")
@@ -844,13 +1013,23 @@ def validate_seed(
             reasons.append("No concrete target (filename, tool, or reference)")
         if verb and not target and not is_exempt:
             advisory = "needs-specificity"
+            advisories_list.append("needs-specificity")
     elif verb and not target:
         advisory = "needs-specificity"
+        advisories_list.append("needs-specificity")
+
+    if negated:
+        advisories_list.append("negated-intent")
 
     return SeedGateResult(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        target_kind=target_kind, verb_source=verb_source,
+        verb_position=verb_pos,
+        score_parts=tuple(parts.items()) if parts else (),
+        advisories=tuple(advisories_list),
+        negated=negated,
     )
 
 
