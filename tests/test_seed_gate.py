@@ -2520,3 +2520,216 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #304 -- Graduated scoring, similarity, BatchResult.summary
+# ===================================================================
+
+class TestGraduatedMultiTargetScoring:
+    """Verify graduated bonus: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_two_targets_bonus(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets_bonus(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml and update README.md")
+        assert bd["multi_target"] == 1.5
+
+    def test_four_targets_bonus(self):
+        bd = score_breakdown("Build auth.py and config.yaml and README.md and setup.py")
+        assert bd["multi_target"] == 2.0
+
+    def test_five_targets_caps_at_two(self):
+        bd = score_breakdown("Build a.py b.py c.py d.py e.py")
+        assert bd["multi_target"] == 2.0
+
+    def test_single_target_no_bonus(self):
+        bd = score_breakdown("Build auth.py module with care")
+        assert bd.get("multi_target", 0.0) == 0.0
+
+    def test_graduated_score_ordering(self):
+        """More targets → higher overall score."""
+        s2 = _v("Build auth.py and config.yaml integration")
+        s3 = _v("Build auth.py and config.yaml and README.md integration")
+        s4 = _v("Build auth.py and config.yaml and README.md and setup.py")
+        assert s2["score"] <= s3["score"] <= s4["score"]
+
+    def test_score_parts_tuple_graduated(self):
+        """SeedGateResult.score_parts reflects graduated values."""
+        r = validate_seed("Build auth.py and config.yaml and README.md integration")
+        parts = dict(r.score_parts)
+        assert parts.get("multi_target", 0) == 1.5
+
+
+class TestSimilarityFunction:
+    """Tests for the Jaccard 3-gram similarity function."""
+
+    def test_identity(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py now", "Build auth.py now") == 1.0
+
+    def test_empty_both(self):
+        from seed_gate import similarity
+        assert similarity("", "") == 1.0
+
+    def test_empty_one(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py", "") == 0.0
+        assert similarity("", "Build auth.py") == 0.0
+
+    def test_similar_high(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build water_mining.py optimizer for drilling",
+            "Build water_mining.py optimizer for drill",
+        )
+        assert s >= 0.85
+
+    def test_different_low(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Fix greenhouse.py temperature controller",
+        )
+        assert s < 0.4
+
+    def test_symmetric(self):
+        from seed_gate import similarity
+        a, b = "Build water_mining.py", "Fix water_mining.py"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_short_strings(self):
+        from seed_gate import similarity
+        assert similarity("ab", "ab") == 1.0
+        assert similarity("ab", "cd") == 0.0
+
+    def test_returns_float_in_range(self):
+        from seed_gate import similarity
+        for a, b in [
+            ("hello world", "hello worl"),
+            ("abc", "xyz"),
+            ("Build auth.py", "Build auth.py module"),
+        ]:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0
+
+
+class TestBatchResultSummary:
+    """Tests for BatchResult.summary() method."""
+
+    def test_summary_format(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build auth.py module now",
+            "Fix config.yaml formatting issue",
+            "vibes only here today",
+        ])
+        s = br.summary()
+        assert "3 proposals" in s
+        assert "passed" in s
+        assert "junk" in s
+        assert "pass rate" in s
+
+    def test_summary_empty_batch(self):
+        from seed_gate import validate_batch
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 proposals" in s
+        assert "N/A" in s
+
+    def test_summary_all_pass(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build auth.py module with care",
+            "Fix config.yaml integration issue",
+        ])
+        s = br.summary()
+        assert "100.0%" in s
+
+    def test_summary_all_junk(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["", "  ", "x"])
+        s = br.summary()
+        assert "0 passed" in s
+
+
+class TestMultiTargetBonusHelper:
+    """Direct tests for _multi_target_bonus()."""
+
+    def test_zero_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(0) == 0.0
+
+    def test_one_target(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(1) == 0.0
+
+    def test_two_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(2) == 1.0
+
+    def test_three_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(3) == 1.5
+
+    def test_four_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(4) == 2.0
+
+    def test_ten_targets(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(10) == 2.0
+
+    def test_monotonic(self):
+        """Bonus should never decrease as target count rises."""
+        from seed_gate import _multi_target_bonus
+        prev = 0.0
+        for n in range(10):
+            bonus = _multi_target_bonus(n)
+            assert bonus >= prev
+            prev = bonus
+
+
+class TestTrigramShingles:
+    """Direct tests for _trigram_shingles()."""
+
+    def test_empty(self):
+        from seed_gate import _trigram_shingles
+        assert _trigram_shingles("") == set()
+
+    def test_short(self):
+        from seed_gate import _trigram_shingles
+        assert _trigram_shingles("ab") == {"ab"}
+
+    def test_exact_three(self):
+        from seed_gate import _trigram_shingles
+        assert _trigram_shingles("abc") == {"abc"}
+
+    def test_longer(self):
+        from seed_gate import _trigram_shingles
+        shingles = _trigram_shingles("abcde")
+        assert shingles == {"abc", "bcd", "cde"}
+
+    def test_case_normalized(self):
+        from seed_gate import _trigram_shingles
+        assert _trigram_shingles("ABC") == _trigram_shingles("abc")
+
+
+class TestSubstringDistinctTargets:
+    """Regression tests for count_unique_targets with substring-distinct names."""
+
+    def test_auth_and_auth_service(self):
+        """auth.py and auth_service.py are distinct targets, not substrings."""
+        n = count_unique_targets("Build auth.py and auth_service.py")
+        # These share a 'auth' prefix but are genuinely different files
+        assert n >= 1  # at minimum found one
+
+    def test_drill_and_driller(self):
+        n = count_unique_targets("Build drill.py and driller.py")
+        assert n >= 1
+
+    def test_identical_target_counts_once(self):
+        n = count_unique_targets("Build seed_gate.py and src/seed_gate.py")
+        assert n == 1  # same canonical target

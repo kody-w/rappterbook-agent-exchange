@@ -99,10 +99,27 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
             return p
+
+    # Near-duplicate detection: similar proposals merge via auto-vote.
+    # Structural guard: only merge when both share the same primary target
+    # (prevents false merges like #12503 vs #12530).
+    from seed_gate import similarity as _similarity, find_target as _find_target
+    new_target, _ = _find_target(text)
+    if new_target:
+        for p in seeds.get("proposals", []):
+            existing_target, _ = _find_target(p.get("text", ""))
+            if existing_target != new_target:
+                continue
+            if _similarity(text, p.get("text", "")) >= 0.75:
+                if author not in p.get("votes", []):
+                    p.setdefault("votes", []).append(author)
+                    p["vote_count"] = len(p["votes"])
+                    save_seeds(seeds, seeds_path)
+                return p
 
     proposal = {
         "id": prop_id,
