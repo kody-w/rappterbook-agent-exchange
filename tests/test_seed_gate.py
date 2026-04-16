@@ -38,6 +38,20 @@ from seed_gate import (
     count_unique_targets,
     is_soft_artifact,
 )
+from seed_gate import (
+    _strip_commit_prefix,
+    _COMMIT_PREFIX_RE,
+    _KIND_SCORES,
+    compute_score,
+    find_verb,
+    find_target,
+    find_verb_with_position,
+    score_breakdown,
+    explain,
+    suggest,
+    is_junk,
+    _starts_with_verb,
+)
 
 
 def _v(text, tags=None, mode="admission"):
@@ -1652,3 +1666,320 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# PR #272 — Diagnostic APIs, commit-prefix handling, score decomposition
+# ===================================================================
+
+
+class TestCommitPrefix:
+    """Tests for _strip_commit_prefix() and _COMMIT_PREFIX_RE."""
+
+    def test_strip_fix_prefix(self):
+        assert _strip_commit_prefix("fix: build seed_gate.py") == "build seed_gate.py"
+
+    def test_strip_feat_scope_prefix(self):
+        assert _strip_commit_prefix("feat(auth): add JWT tokens") == "add JWT tokens"
+
+    def test_strip_chore_bang_prefix(self):
+        assert _strip_commit_prefix("chore!: remove deprecated API") == "remove deprecated API"
+
+    def test_strip_refactor_prefix(self):
+        assert _strip_commit_prefix("refactor: optimize compute_score") == "optimize compute_score"
+
+    def test_no_strip_capitalized(self):
+        """Capital 'Build:' is natural prose, not a commit prefix."""
+        assert _strip_commit_prefix("Build: the reactor core") == "Build: the reactor core"
+
+    def test_no_strip_plain_text(self):
+        assert _strip_commit_prefix("Build auth.py module") == "Build auth.py module"
+
+    def test_all_prefixes(self):
+        """All conventional commit types should be stripped."""
+        for prefix in ("fix", "feat", "chore", "docs", "style", "refactor",
+                       "perf", "test", "build", "ci", "revert"):
+            result = _strip_commit_prefix(f"{prefix}: do something")
+            assert result == "do something", f"Failed for {prefix}:"
+
+    def test_scope_variants(self):
+        for scope in ("auth", "core", "ui", "seed-gate"):
+            result = _strip_commit_prefix(f"fix({scope}): patch it")
+            assert result == "patch it", f"Failed for scope {scope}"
+
+    def test_regex_matches_lowercase_only(self):
+        assert _COMMIT_PREFIX_RE.match("fix: something")
+        assert _COMMIT_PREFIX_RE.match("feat(scope): something")
+        assert not _COMMIT_PREFIX_RE.match("Fix: something")
+        assert not _COMMIT_PREFIX_RE.match("FIX: something")
+
+
+class TestCommitPrefixRegression:
+    """Regression: 'fix: build seed_gate.py' was rejected as junk."""
+
+    def test_fix_build_not_junk(self):
+        reason = is_junk("fix: build seed_gate.py")
+        assert reason == "", f"Should not be junk, got: {reason}"
+
+    def test_fix_build_passes_gate(self):
+        result = _v("fix: build seed_gate.py")
+        assert result["passed"], f"Should pass gate: {result}"
+
+    def test_feat_scope_not_junk(self):
+        reason = is_junk("feat(auth): add JWT handler to auth.py")
+        assert reason == ""
+
+    def test_chore_not_junk(self):
+        reason = is_junk("chore: update seed_gate.py dependencies")
+        assert reason == ""
+
+    def test_natural_prose_still_junk(self):
+        """Lowercase non-verb text without commit prefix stays junk."""
+        reason = is_junk("vibes and good energy for everyone")
+        assert reason != ""
+
+    def test_starts_with_verb_strips_punctuation(self):
+        """'fix:' should be recognized as verb 'fix' despite trailing colon."""
+        assert _starts_with_verb("fix: build something")
+
+    def test_starts_with_verb_no_colon(self):
+        assert _starts_with_verb("fix build something")
+
+    def test_refactor_colon_recognized(self):
+        assert _starts_with_verb("refactor: optimize the loop")
+
+
+class TestFindVerbWithPosition:
+    """Tests for find_verb_with_position()."""
+
+    def test_verb_at_start(self):
+        verb, pos = find_verb_with_position("Build auth.py module")
+        assert verb == "build"
+        assert pos == 0
+
+    def test_verb_not_at_start(self):
+        verb, pos = find_verb_with_position("We should build auth.py")
+        assert verb == "build"
+        assert pos == 2
+
+    def test_phrasal_verb(self):
+        verb, pos = find_verb_with_position("Set up the CI pipeline")
+        assert verb == "set up"
+        assert pos == 0
+
+    def test_inflected_verb(self):
+        verb, pos = find_verb_with_position("Currently building auth.py")
+        assert verb == "build"
+        assert pos == 1
+
+    def test_no_verb(self):
+        verb, pos = find_verb_with_position("the quick brown fox")
+        assert verb is None
+        assert pos is None
+
+    def test_empty_text(self):
+        verb, pos = find_verb_with_position("")
+        assert verb is None
+        assert pos is None
+
+    def test_limit_parameter(self):
+        verb, pos = find_verb_with_position("Build auth.py then fix bugs in config.yaml", limit=15)
+        assert verb == "build"
+        assert pos == 0
+
+    def test_colon_after_verb(self):
+        verb, pos = find_verb_with_position("fix: the broken test")
+        assert verb == "fix"
+        assert pos == 0
+
+    def test_multiple_verbs_returns_first(self):
+        verb, pos = find_verb_with_position("Build auth.py and deploy config.yaml")
+        assert verb == "build"
+        assert pos == 0
+
+
+class TestScoreBreakdown:
+    """Tests for score_breakdown()."""
+
+    def test_has_all_keys(self):
+        bd = score_breakdown("Build auth.py")
+        expected_keys = {"verb", "target", "length", "multi_target", "imperative", "total"}
+        assert set(bd.keys()) == expected_keys
+
+    def test_verb_component(self):
+        bd = score_breakdown("Build the auth.py module")
+        assert bd["verb"] == 2.5
+
+    def test_no_verb_component(self):
+        bd = score_breakdown("The auth.py module needs work")
+        assert bd["verb"] == 0.0
+
+    def test_file_target_score(self):
+        bd = score_breakdown("Build the auth.py module")
+        assert bd["target"] == 4.0  # file targets score 4.0
+
+    def test_discussion_target_score(self):
+        bd = score_breakdown("Review the changes in #12345")
+        assert bd["target"] == 2.0  # discussion targets score 2.0
+
+    def test_length_bonus_short(self):
+        bd = score_breakdown("Build the auth.py module")
+        assert bd["length"] == 0.0
+
+    def test_length_bonus_medium(self):
+        bd = score_breakdown("Build auth.py with full test coverage and error handling for edge cases")
+        assert bd["length"] >= 0.5
+
+    def test_multi_target_bonus(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd["multi_target"] == 1.0
+
+    def test_imperative_bonus(self):
+        bd = score_breakdown("Build the auth.py module now")
+        assert bd["imperative"] == 0.5
+
+    def test_no_imperative_bonus(self):
+        bd = score_breakdown("We should build auth.py")
+        assert bd["imperative"] == 0.0
+
+    def test_total_is_sum(self):
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        expected = bd["verb"] + bd["target"] + bd["length"] + bd["multi_target"] + bd["imperative"]
+        assert abs(bd["total"] - expected) < 0.01
+
+    def test_all_values_non_negative(self):
+        for text in ["Build the auth.py module", "vibes only but longer text", "", "x" * 100]:
+            bd = score_breakdown(text)
+            for key, val in bd.items():
+                assert val >= 0.0, f"Negative score for {key} in: {text}"
+
+
+class TestExplain:
+    """Tests for explain()."""
+
+    def test_passing_contains_pass(self):
+        result = explain("Build the auth.py module")
+        assert "PASS" in result
+
+    def test_failing_contains_fail(self):
+        result = explain("vibes and energy everywhere")
+        assert "FAIL" in result
+
+    def test_shows_verb(self):
+        result = explain("Build the auth.py module")
+        assert "verb=build" in result
+
+    def test_shows_target(self):
+        result = explain("Build the auth.py module")
+        assert "auth.py" in result
+
+    def test_shows_score(self):
+        result = explain("Build the auth.py module")
+        assert "score=" in result
+
+    def test_shows_confidence_when_passing(self):
+        result = explain("Build the auth.py module")
+        assert "confidence=" in result
+
+    def test_shows_suggestions_when_failing(self):
+        result = explain("vibes and energy everywhere")
+        assert "suggestions=" in result
+
+    def test_shows_junk_flag(self):
+        result = explain("x")
+        assert "junk=true" in result
+
+    def test_no_verb_shows_none(self):
+        result = explain("The auth.py module needs work")
+        assert "verb=none" in result
+
+    def test_returns_string(self):
+        assert isinstance(explain("Build the auth.py module"), str)
+
+    def test_pipe_separated(self):
+        result = explain("Build the auth.py module")
+        assert " | " in result
+
+
+class TestNewAPIInvariants:
+    """Property-based invariants for the new diagnostic APIs."""
+
+    SAMPLES = [
+        "Build the auth.py module",
+        "fix: build seed_gate.py",
+        "Set up the CI pipeline for tests/",
+        "vibes and energy everywhere today",
+        "",
+        "x",
+        "The quick brown fox jumps over",
+        "Deploy config.yaml and test auth.py with full coverage for all modules",
+        "refactor: optimize compute_score in seed_gate.py",
+        "feat(core): add validation to process_inbox.py",
+        "We should build auth.py and deploy it",
+        "Currently building something new for the platform",
+    ]
+
+    def test_find_verb_with_position_returns_tuple(self):
+        for text in self.SAMPLES:
+            result = find_verb_with_position(text)
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+
+    def test_position_valid_when_verb_found(self):
+        for text in self.SAMPLES:
+            verb, pos = find_verb_with_position(text)
+            if verb is not None:
+                assert pos is not None
+                assert pos >= 0
+                words = text.split()
+                assert pos < len(words)
+            else:
+                assert pos is None
+
+    def test_score_breakdown_total_matches_compute_score(self):
+        """score_breakdown total (pre-normalization) should be consistent."""
+        for text in self.SAMPLES:
+            if not text.strip():
+                continue
+            bd = score_breakdown(text)
+            assert bd["total"] >= 0.0
+
+    def test_explain_always_returns_string(self):
+        for text in self.SAMPLES:
+            result = explain(text)
+            assert isinstance(result, str)
+
+    def test_explain_contains_pass_or_fail(self):
+        for text in self.SAMPLES:
+            result = explain(text)
+            assert "PASS" in result or "FAIL" in result
+
+    def test_kind_scores_constant_matches(self):
+        """_KIND_SCORES must contain all target kinds."""
+        expected_kinds = {"file", "path", "func", "module", "tool", "cli",
+                         "env", "const", "discussion", "channel", "quoted"}
+        assert set(_KIND_SCORES.keys()) == expected_kinds
+
+    def test_redesign_in_action_verbs(self):
+        assert "redesign" in ACTION_VERBS
+
+    def test_commit_prefix_seeds_pass(self):
+        """Commit-prefixed seeds with verb+target should pass."""
+        cases = [
+            "fix: build seed_gate.py",
+            "feat: add auth.py handler",
+            "refactor: optimize compute_score in seed_gate.py",
+            "test: add coverage for process_inbox.py",
+        ]
+        for text in cases:
+            result = _v(text)
+            assert result["passed"], f"Should pass: {text} -> {result}"
+
+    def test_find_verb_agrees_with_find_verb_with_position(self):
+        """find_verb() and find_verb_with_position() should find the same verb."""
+        for text in self.SAMPLES:
+            if not text.strip():
+                continue
+            v1 = find_verb(text)
+            v2, _ = find_verb_with_position(text)
+            assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"

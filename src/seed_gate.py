@@ -45,6 +45,10 @@ Evolution log:
                   string false-positive filter; confidence property;
                   suggest() API; expanded KNOWN_TOOLS; env var targets;
                   imperative scoring bonus.
+    PR #272  -- diagnostic APIs: explain(), score_breakdown(),
+                  find_verb_with_position(); commit-prefix handling
+                  (fix: build → accepted); _KIND_SCORES module constant;
+                  "redesign" verb.
 """
 from __future__ import annotations
 
@@ -83,6 +87,7 @@ ACTION_VERBS: frozenset[str] = frozenset({
     "isolate", "define", "declare", "register",
     "secure", "clean", "schedule", "cache", "publish",
     "annotate", "version", "backup", "package",
+    "redesign",
 })
 
 # Phrasal verbs -- two-word engineering verbs (#12521)
@@ -200,6 +205,14 @@ _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
 
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
+
+# Conventional commit prefix: fix:, feat(scope):, chore!: etc.
+# Case-sensitive — only matches lowercase prefixes to avoid stripping
+# natural prose like "Build: the reactor".
+_COMMIT_PREFIX_RE = re.compile(
+    r"^(?:fix|feat|chore|docs|style|refactor|perf|test|build|ci|revert)"
+    r"(?:\([^)]*\))?!?:\s*"
+)
 
 # Special files without extensions (PR #246)
 SPECIAL_FILE_RE = re.compile(
@@ -447,7 +460,7 @@ def _starts_with_verb(text: str) -> bool:
     words = text.split()
     if not words:
         return False
-    first = words[0].lower()
+    first = words[0].lower().rstrip(":,;!?.")
     if len(words) > 1:
         second = words[1].lower()
         if first in _PHRASAL_FIRST and second in _PHRASAL_FIRST[first]:
@@ -459,6 +472,15 @@ def _starts_with_verb(text: str) -> bool:
     if first in _INFLECTION_MAP:
         return True
     return False
+
+
+def _strip_commit_prefix(text: str) -> str:
+    """Strip a conventional commit prefix (fix:, feat(scope):, etc.).
+
+    Only strips lowercase prefixes to avoid false positives on
+    natural prose like 'Build: the reactor core'.
+    """
+    return _COMMIT_PREFIX_RE.sub("", text)
 
 
 def _starts_with_file(text: str) -> bool:
@@ -615,7 +637,12 @@ def is_junk(text: str, limit: int = 0) -> str:
     # Smart lowercase handling: verb-starting or file-starting text is OK
     if _LOWERCASE_START_RE.match(stripped):
         if not _starts_with_verb(stripped) and not _starts_with_file(stripped):
-            return "starts lowercase (not a verb or file)"
+            # Fallback: strip commit prefix and retry (e.g. "fix: build seed_gate.py")
+            without_prefix = _strip_commit_prefix(stripped)
+            if without_prefix == stripped or (
+                not _starts_with_verb(without_prefix) and not _starts_with_file(without_prefix)
+            ):
+                return "starts lowercase (not a verb or file)"
     # Hard artifact signals -- always fail (first 80 chars)
     head = stripped[:80].lower()
     for signal in _HARD_ARTIFACT_SIGNALS:
@@ -715,12 +742,7 @@ def compute_score(
     if verb:
         raw += 2.5
     if target:
-        kind_scores = {
-            "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
-            "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
-            "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
-        }
-        raw += kind_scores.get(target_kind, 1.5)
+        raw += _KIND_SCORES.get(target_kind, 1.5)
     words = text.split()
     if len(words) >= 8:
         raw += 0.5
@@ -770,6 +792,103 @@ _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
 _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic APIs (PR #272)
+# ---------------------------------------------------------------------------
+
+def find_verb_with_position(text: str, limit: int = 0) -> tuple[str | None, int | None]:
+    """Return (verb, word_index) or (None, None).
+
+    *word_index* is the 0-based position of the matched word in text.split().
+    For phrasal verbs the index is the position of the head word.
+    """
+    check = text[:limit] if limit else text
+    words = check.split()
+    if not words:
+        return (None, None)
+    # Pass 1: phrasal verbs (highest specificity)
+    for i, w in enumerate(words[:-1]):
+        lo = w.lower().rstrip(":,;!?.")
+        nxt = words[i + 1].lower()
+        if lo in _PHRASAL_FIRST and nxt in _PHRASAL_FIRST[lo]:
+            return (_PHRASAL_FIRST[lo][nxt], i)
+        if lo in _PHRASAL_INFLECTED and nxt in _PHRASAL_INFLECTED[lo]:
+            return (_PHRASAL_INFLECTED[lo][nxt], i)
+    # Pass 2: single-word verbs
+    for i, w in enumerate(words):
+        lo = w.lower().rstrip(":,;!?.")
+        if lo in ACTION_VERBS:
+            return (lo, i)
+        base = _INFLECTION_MAP.get(lo)
+        if base:
+            return (base, i)
+    return (None, None)
+
+
+# Module-level score weights (shared by compute_score and score_breakdown)
+_KIND_SCORES: dict[str, float] = {
+    "file": 4.0, "path": 3.5, "func": 3.0, "module": 3.0,
+    "tool": 3.0, "cli": 3.0, "env": 3.0, "const": 2.5,
+    "discussion": 2.0, "channel": 2.0, "quoted": 1.5,
+}
+
+
+def score_breakdown(text: str, tags: list = None) -> dict[str, float]:
+    """Return component-by-component score decomposition.
+
+    Keys: verb, target, length, multi_target, imperative, total.
+    Values are raw (pre-normalization) score contributions.
+    """
+    result = validate_seed(text, tags)
+    components: dict[str, float] = {
+        "verb": 0.0, "target": 0.0, "length": 0.0,
+        "multi_target": 0.0, "imperative": 0.0,
+    }
+    if result.verb_found:
+        components["verb"] = 2.5
+    if result.target_found:
+        _, target_kind = find_target(text)
+        components["target"] = _KIND_SCORES.get(target_kind, 1.5)
+    words = text.split()
+    if len(words) >= 8:
+        components["length"] += 0.5
+    if len(words) >= 15:
+        components["length"] += 1.0
+    unique = count_unique_targets(text)
+    if unique >= 2:
+        components["multi_target"] = 1.0
+    if result.verb_found and _starts_with_verb(text):
+        components["imperative"] = 0.5
+    components["total"] = sum(components.values())
+    return components
+
+
+def explain(text: str, tags: list = None) -> str:
+    """Return a human-readable diagnostic string for a proposal.
+
+    Useful for CLI tooling and debugging. Shows pass/fail, verb, target,
+    score, confidence, and any suggestions.
+    """
+    result = validate_seed(text, tags)
+    parts: list[str] = []
+    parts.append("PASS" if result.passed else "FAIL")
+    parts.append("verb=%s" % (result.verb_found or "none"))
+    parts.append("target=%s" % (result.target_found or "none"))
+    parts.append("score=%.2f" % result.score)
+    if result.confidence:
+        parts.append("confidence=%s" % result.confidence)
+    if result.junk:
+        parts.append("junk=true")
+    if result.advisory:
+        parts.append("advisory=%s" % result.advisory)
+    if result.reasons:
+        parts.append("reasons=[%s]" % "; ".join(result.reasons))
+    tips = suggest(text, tags)
+    if tips:
+        parts.append("suggestions=[%s]" % "; ".join(tips))
+    return " | ".join(parts)
 
 
 # ---------------------------------------------------------------------------
