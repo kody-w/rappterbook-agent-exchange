@@ -189,3 +189,49 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+class TestNearDuplicateDetection:
+    """Tests for near-duplicate proposal merging via similarity()."""
+
+    def test_near_duplicate_returns_existing(self, sp):
+        """Very similar proposals should merge, not create a new one."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        # Slight rewording — should match as near-duplicate
+        p2 = propose("Build water_mining.py optimizer for drill", author="a2", seeds_path=sp)
+        assert p1["id"] == p2["id"]
+
+    def test_near_duplicate_auto_votes(self, sp):
+        """Second author gets auto-voted on the near-duplicate."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Build water_mining.py optimizer for drill", author="a2", seeds_path=sp)
+        assert "a2" in p2["votes"]
+        assert p2["vote_count"] == 2
+
+    def test_near_duplicate_same_author_no_double_vote(self, sp):
+        """Same author submitting a near-duplicate doesn't double-vote."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Build water_mining.py optimizer for drill", author="a1", seeds_path=sp)
+        assert p2["vote_count"] == 1
+
+    def test_distinct_proposals_not_merged(self, sp):
+        """Different topics should create separate proposals."""
+        p1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        p2 = propose("Fix greenhouse.py temperature controller module", author="a2", seeds_path=sp)
+        assert p1["id"] != p2["id"]
+
+    def test_near_duplicate_preserves_original_text(self, sp):
+        """Near-duplicate merge keeps the original proposal text."""
+        text1 = "Build water_mining.py optimizer for drilling"
+        p1 = propose(text1, author="a1", seeds_path=sp)
+        propose("Build water_mining.py optimizer for drill", author="a2", seeds_path=sp)
+        data = load_seeds(sp)
+        stored = [p for p in data["proposals"] if p["id"] == p1["id"]][0]
+        assert stored["text"] == text1
+
+    def test_near_duplicate_persists_vote(self, sp):
+        """The auto-vote from near-duplicate is persisted to disk."""
+        propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        propose("Build water_mining.py optimizer for drill", author="a2", seeds_path=sp)
+        data = load_seeds(sp)
+        assert "a2" in data["proposals"][0]["votes"]

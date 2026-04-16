@@ -58,6 +58,11 @@ Evolution log:
                   enriched SeedGateResult (target_kind, verb_source,
                   verb_position, score_parts, is_imperative, negated,
                   advisories, strength); explain_dict() structured API.
+    PR #304  -- graduated multi-target scoring (2→+1.0, 3→+1.5,
+                  4+→+2.0); similarity() near-duplicate detector
+                  (Jaccard 3-gram shingles); negation-aware tag/question
+                  fallback (blocks verb inference when negation present);
+                  wired similarity into propose_seed.py near-dupe check.
 """
 from __future__ import annotations
 
@@ -481,6 +486,18 @@ class BatchResult:
     passed_items: tuple[tuple[str, dict], ...]
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
+
+    def summary(self) -> str:
+        """Return a human-readable one-line summary of the batch.
+
+        Example: '42 proposals: 30 passed, 8 failed, 4 junk (71.4% pass rate)'
+        """
+        s = self.stats
+        rate = f"{s.pass_rate * 100:.1f}%" if s.total else "N/A"
+        return (
+            f"{s.total} proposals: {s.passed} passed, "
+            f"{s.failed} failed, {s.junk} junk ({rate} pass rate)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +937,53 @@ def canonicalize_target(target: str) -> str:
     return t.lower().strip()
 
 
+_SIMILARITY_STOP_RE = re.compile(r"\b(?:the|a|an)\b")
+
+
+def _normalize_for_similarity(text: str) -> str:
+    """Normalize text for similarity comparison.
+
+    Lowercase, strip articles (the/a/an) when followed by other words,
+    collapse whitespace, strip conventional commit prefixes.
+    Keeps underscores, dots, and hyphens intact so filenames and
+    tool names retain their structure.
+    """
+    lowered = text.lower().strip()
+    lowered = _COMMIT_PREFIX_RE.sub("", lowered)
+    # Only strip articles that precede another word (not the entire text)
+    lowered = re.sub(r"\b(?:the|a|an)\s+", "", lowered)
+    return " ".join(lowered.split())
+
+
+def _trigram_shingles(text: str) -> set[str]:
+    """Return the set of character 3-gram shingles from *text*."""
+    normalized = _normalize_for_similarity(text)
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {normalized[i:i + 3] for i in range(len(normalized) - 2)}
+
+
+def similarity(a: str, b: str) -> float:
+    """Jaccard similarity between two texts using character 3-gram shingles.
+
+    Returns a float in [0.0, 1.0].  Useful for near-duplicate detection
+    in propose_seed.py -- catches rephrasings that share the same core
+    intent but differ in wording.
+
+    Normalization: lowercase, strip articles (the/a/an), collapse
+    whitespace, strip conventional commit prefixes.
+    """
+    sa = _trigram_shingles(a)
+    sb = _trigram_shingles(b)
+    if not sa and not sb:
+        return 1.0
+    if not sa or not sb:
+        return 0.0
+    intersection = len(sa & sb)
+    union = len(sa | sb)
+    return intersection / union if union else 0.0
+
+
 def count_unique_targets(text: str) -> int:
     """Count distinct concrete targets in *text* after canonicalization.
 
@@ -944,6 +1008,21 @@ def count_unique_targets(text: str) -> int:
     return len(unique)
 
 
+def _multi_target_bonus(unique: int) -> float:
+    """Graduated bonus for multiple concrete targets in a proposal.
+
+    2 targets -> +1.0, 3 targets -> +1.5, 4+ targets -> +2.0.
+    Shared by compute_score() and _score_parts() to prevent drift.
+    """
+    if unique >= 4:
+        return 2.0
+    if unique >= 3:
+        return 1.5
+    if unique >= 2:
+        return 1.0
+    return 0.0
+
+
 def compute_score(
     text: str,
     verb: str | None,
@@ -962,8 +1041,7 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
+    raw += _multi_target_bonus(unique)
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
         raw += 0.5
@@ -1073,8 +1151,9 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
-        components["multi_target"] = 1.0
+    bonus = _multi_target_bonus(unique)
+    if bonus:
+        components["multi_target"] = bonus
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
     return components
@@ -1185,15 +1264,36 @@ def validate_seed(
     verb = find_verb(text, limit=verb_limit)
     target, target_kind = find_target(text)
 
+    # -- Negation-aware fallback: skip tag/question inference when the
+    #    text expresses negative intent.  detect_negation checks action
+    #    verbs; _has_negation_word does a broader lexical scan for cases
+    #    where no action verb exists but negation words are present ---
+    _has_negated_verb = detect_negation(text)
+    # Broader lexical negation: check for negation words but exclude
+    # affirmative patterns like "not only", "not just", and question stems
+    # like "why not" which are proposals, not negations
+    _lower_text = text.lower()
+    _lower_words = set(re.findall(r"[a-zA-Z]+", _lower_text))
+    _raw_neg_words = _lower_words & NEGATION_WORDS
+    _has_negation_word = False
+    if _raw_neg_words:
+        _has_negation_word = True
+        # Affirmative exceptions: "not only", "not just"
+        if _raw_neg_words == {"not"} and re.search(r"\bnot\s+(?:only|just)\b", _lower_text):
+            _has_negation_word = False
+        # Question stem exceptions: "why not" is a proposal, not negation
+        if _raw_neg_words <= {"not", "nor"} and _QUESTION_STEM_RE.match(_lower_text.strip()):
+            _has_negation_word = False
+
     # -- Tag-implied verb inference (#12530) ---
-    if not verb:
+    if not verb and not _has_negated_verb and not _has_negation_word:
         for tag in tag_set:
             if tag in TAG_IMPLIED_VERBS:
                 verb = TAG_IMPLIED_VERBS[tag]
                 break
 
     # -- Question stem inference (exempt tags only) ---
-    if not verb and is_exempt:
+    if not verb and is_exempt and not _has_negated_verb and not _has_negation_word:
         m = _QUESTION_STEM_RE.match(text.strip())
         if m:
             verb = QUESTION_STEMS.get(m.group().lower())
@@ -1210,7 +1310,7 @@ def validate_seed(
     _, verb_position = find_verb_with_position(text, limit=verb_limit)
 
     # -- Negation detection (advisory, not suppression) ---
-    negated = detect_negation(text)
+    negated = _has_negated_verb or _has_negation_word
     advisories: list[str] = []
     if negated:
         advisories.append("negated-intent")
