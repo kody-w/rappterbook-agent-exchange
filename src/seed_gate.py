@@ -58,6 +58,11 @@ Evolution log:
                   enriched SeedGateResult (target_kind, verb_source,
                   verb_position, score_parts, is_imperative, negated,
                   advisories, strength); explain_dict() structured API.
+    PR #304  -- graduated multi-target scoring (2→+1.0, 3→+1.5,
+                  4+→+2.0); clause-boundary-aware negation (commas,
+                  semicolons, discourse markers reset negation window);
+                  similarity(a, b) for near-duplicate detection;
+                  rank() for batch quality ordering.
 """
 from __future__ import annotations
 
@@ -542,16 +547,56 @@ class VerbMatch(tuple):
 # Internal helpers -- negation + compound + unified scanner
 # ---------------------------------------------------------------------------
 
-def _is_negated(tokens: list[str], idx: int) -> bool:
+# Clause-boundary markers for negation scoping
+_CLAUSE_BOUNDARY_CHARS: frozenset[str] = frozenset({",", ";", ":"})
+_CLAUSE_BOUNDARY_WORDS: frozenset[str] = frozenset({
+    "but", "although", "however", "yet", "though", "whereas",
+    "while", "unless", "except",
+})
+
+
+def _clause_ids(text: str, positions: list[tuple[int, int]]) -> list[int]:
+    """Assign a clause ID to each alpha token based on punctuation boundaries.
+
+    Tokens after a comma, semicolon, colon, or discourse marker get a
+    higher clause ID so negation from a prior clause doesn't leak across.
+    """
+    if not positions:
+        return []
+    lower = text.lower()
+    clause = 0
+    ids: list[int] = []
+    for i, (cs, ce) in enumerate(positions):
+        # Check for punctuation between previous token end and this token start
+        if i > 0:
+            gap = lower[positions[i - 1][1]:cs]
+            if any(ch in _CLAUSE_BOUNDARY_CHARS for ch in gap):
+                clause += 1
+        # Check if this token IS a boundary word
+        word = lower[cs:ce]
+        if word in _CLAUSE_BOUNDARY_WORDS:
+            clause += 1
+        ids.append(clause)
+    return ids
+
+
+def _is_negated(tokens: list[str], idx: int,
+                clause_ids: list[int] | None = None) -> bool:
     """Return True if the token at *idx* is negated within a 3-token window.
 
     Handles bare negation words, contraction stems (don't -> don, t),
-    and affirmative exceptions (not only, not just).
+    affirmative exceptions (not only, not just), and clause boundaries
+    (negation does not cross commas, semicolons, or discourse markers).
     """
     if idx <= 0:
         return False
+    current_clause = clause_ids[idx] if clause_ids and idx < len(clause_ids) else -1
     window_start = max(0, idx - 3)
     for j in range(window_start, idx):
+        # Skip tokens from a different clause
+        if clause_ids and j < len(clause_ids) and current_clause >= 0:
+            if clause_ids[j] != current_clause:
+                continue
         tok = tokens[j]
         if tok in NEGATION_WORDS or tok in _CONTRACTION_NEG_STEMS:
             if tok == "not" and j + 1 < idx and tokens[j + 1] in _AFFIRMATIVE_PAIRS:
@@ -595,12 +640,14 @@ def _scan_verbs(text: str) -> list[tuple[str, int, bool]]:
     for m in re.finditer(r"[a-zA-Z]+", lower):
         positions.append((m.start(), m.end()))
 
+    cids = _clause_ids(text, positions)
+
     for i, word in enumerate(tokens):
         if skip_next:
             skip_next = False
             continue
 
-        negated = _is_negated(tokens, i)
+        negated = _is_negated(tokens, i, cids)
 
         if i < len(positions):
             cs, ce = positions[i]
@@ -962,9 +1009,12 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        raw += 2.0
+    elif unique >= 3:
+        raw += 1.5
+    elif unique >= 2:
         raw += 1.0
-    # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
         raw += 0.5
     return min(raw / 10.0, 1.0)
@@ -1005,6 +1055,90 @@ _canonicalize_target = canonicalize_target
 _count_unique_targets = count_unique_targets
 _score = lambda text, verb, target, kind: compute_score(text, verb, target, kind)
 _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
+
+
+# ---------------------------------------------------------------------------
+# Similarity + ranking (PR #304)
+# ---------------------------------------------------------------------------
+
+_STOP_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
+    "for", "of", "with", "by", "from", "is", "it", "its", "this",
+    "that", "be", "as", "are", "was", "were", "been", "has", "have",
+    "had", "do", "does", "did", "will", "would", "should", "could",
+    "can", "may", "might", "shall", "we", "i", "they", "them",
+    "our", "my", "your", "all", "some", "any",
+})
+
+
+def _normalize_tokens(text: str) -> set[str]:
+    """Tokenize, lowercase, normalize verbs, canonicalize targets, drop stops."""
+    words = re.findall(r"[a-zA-Z0-9_./-]+", text.lower())
+    normalized: set[str] = set()
+    for w in words:
+        if w in _STOP_WORDS:
+            continue
+        # Normalize inflected verbs to base form
+        base = _INFLECTION_MAP.get(w)
+        if base:
+            normalized.add(base)
+        elif w in ACTION_VERBS:
+            normalized.add(w)
+        else:
+            # Canonicalize file-like targets
+            c = canonicalize_target(w)
+            normalized.add(c if c else w)
+    return normalized
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute Jaccard similarity between two proposals (0.0-1.0).
+
+    Uses smart tokenization: normalizes verb inflections, canonicalizes
+    file targets, and drops common stop words for meaningful comparison.
+    """
+    tokens_a = _normalize_tokens(a)
+    tokens_b = _normalize_tokens(b)
+    if not tokens_a and not tokens_b:
+        return 1.0
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    return len(intersection) / len(union)
+
+
+def rank(
+    proposals: list[str] | list[tuple[str, list]],
+    tags: list | None = None,
+) -> list[dict]:
+    """Rank proposals by specificity score (descending).
+
+    Accepts either plain text strings or (text, tags) tuples.
+    Returns list of dicts: {text, tags, score, passed, rank}.
+    """
+    items: list[tuple[str, list]] = []
+    for p in proposals:
+        if isinstance(p, tuple):
+            items.append((p[0], p[1] if len(p) > 1 else (tags or [])))
+        else:
+            items.append((p, tags or []))
+
+    scored: list[dict] = []
+    for text, item_tags in items:
+        result = validate_seed(text, item_tags)
+        scored.append({
+            "text": text,
+            "tags": item_tags,
+            "score": result.score,
+            "passed": result.passed,
+            "strength": result.strength,
+        })
+
+    scored.sort(key=lambda x: (-int(x["passed"]), -x["score"]))
+    for i, item in enumerate(scored):
+        item["rank"] = i + 1
+    return scored
 
 
 # ---------------------------------------------------------------------------
@@ -1073,7 +1207,11 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
+    if unique >= 4:
+        components["multi_target"] = 2.0
+    elif unique >= 3:
+        components["multi_target"] = 1.5
+    elif unique >= 2:
         components["multi_target"] = 1.0
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
@@ -1321,12 +1459,18 @@ def _cli() -> None:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
         print("       python -m seed_gate --explain '<proposal text>'")
         print("       python -m seed_gate --batch < proposals.json")
+        print("       python -m seed_gate --rank < proposals.json")
         sys.exit(1)
     import json as _json
     if sys.argv[1] == "--batch":
         data = _json.loads(sys.stdin.read())
         results = [validate(t, []) for t in data]
         print(_json.dumps(results, indent=2))
+        sys.exit(0)
+    if sys.argv[1] == "--rank":
+        data = _json.loads(sys.stdin.read())
+        ranked = rank(data)
+        print(_json.dumps(ranked, indent=2))
         sys.exit(0)
     if sys.argv[1] == "--explain":
         text = sys.argv[2] if len(sys.argv) > 2 else ""

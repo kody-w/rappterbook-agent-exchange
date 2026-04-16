@@ -2520,3 +2520,388 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #304: Graduated multi-target scoring
+# ===================================================================
+
+class TestGraduatedMultiTarget:
+    """Verify multi-target scoring scales: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_two_targets(self):
+        text = "Build auth.py and config.yaml"
+        s = compute_score(text, "build", "auth.py", "file")
+        bd = score_breakdown(text)
+        assert bd["multi_target"] == 1.0
+
+    def test_three_targets(self):
+        text = "Build auth.py and config.yaml and update README.md"
+        from seed_gate import _score_parts
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 1.5
+
+    def test_four_targets(self):
+        text = "Build auth.py, config.yaml, deploy.sh, and water_mining.py"
+        from seed_gate import _score_parts
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 2.0
+
+    def test_five_targets_same_as_four(self):
+        text = "Build auth.py, config.yaml, deploy.sh, water_mining.py, and solar_array.py"
+        from seed_gate import _score_parts
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 2.0
+
+    def test_one_target_no_bonus(self):
+        text = "Build auth.py"
+        from seed_gate import _score_parts
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert "multi_target" not in parts
+
+    def test_compute_score_graduated(self):
+        s2 = compute_score("Build auth.py and config.yaml", "build", "auth.py", "file")
+        s3 = compute_score("Build auth.py, config.yaml, and README.md", "build", "auth.py", "file")
+        s4 = compute_score("Build auth.py, config.yaml, deploy.sh, and state/flags.json", "build", "auth.py", "file")
+        assert s3 > s2
+        assert s4 > s3
+
+    def test_score_parts_in_result(self):
+        r = validate_seed("Build auth.py, config.yaml, and README.md")
+        parts = dict(r.score_parts)
+        assert parts.get("multi_target", 0) >= 1.0
+
+
+# ===================================================================
+# PR #304: Similarity
+# ===================================================================
+
+class TestSimilarity:
+    """Tests for similarity() near-duplicate detection."""
+
+    def test_identical(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py module", "Build auth.py module") == 1.0
+
+    def test_completely_different(self):
+        from seed_gate import similarity
+        s = similarity("Build auth.py", "Deploy nuclear_reactor.py")
+        assert s < 0.5
+
+    def test_paraphrase_detected(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build auth.py CSRF protection",
+            "Implement CSRF protection for auth.py"
+        )
+        assert s > 0.4  # smart normalization helps
+
+    def test_verb_inflection_normalized(self):
+        from seed_gate import similarity
+        s = similarity("Build auth.py", "Building auth.py")
+        assert s >= 0.8
+
+    def test_different_targets_low(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build water_mining.py optimizer",
+            "Build solar_array.py diagnostics"
+        )
+        assert s < 0.6
+
+    def test_stop_words_ignored(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build the auth module",
+            "Build auth module"
+        )
+        assert s >= 0.8
+
+    def test_empty_strings(self):
+        from seed_gate import similarity
+        assert similarity("", "") == 1.0
+
+    def test_one_empty(self):
+        from seed_gate import similarity
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_range_bounded(self):
+        from seed_gate import similarity
+        for a, b in [
+            ("Build auth.py", "Test config.yaml"),
+            ("", "hello"),
+            ("Fix bug", "Fix bug in auth.py"),
+        ]:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0
+
+    def test_target_canonicalization(self):
+        from seed_gate import similarity
+        s = similarity(
+            "Build src/auth.py module",
+            "Build auth.py module"
+        )
+        assert s >= 0.8  # src/auth.py → auth → matches auth
+
+
+# ===================================================================
+# PR #304: Rank
+# ===================================================================
+
+class TestRank:
+    """Tests for rank() batch quality ordering."""
+
+    def test_basic_ranking(self):
+        from seed_gate import rank
+        proposals = [
+            "Build auth.py, config.yaml, and deploy.sh",  # multi-target
+            "Build auth.py",  # single target
+            "vibes and energy everywhere today",  # rejected
+        ]
+        ranked = rank(proposals)
+        assert len(ranked) == 3
+        assert ranked[0]["rank"] == 1
+        assert ranked[0]["passed"] is True
+        assert ranked[-1]["passed"] is False
+
+    def test_passed_before_failed(self):
+        from seed_gate import rank
+        ranked = rank(["vibes only", "Build auth.py module"])
+        assert ranked[0]["passed"] is True
+        assert ranked[1]["passed"] is False
+
+    def test_higher_score_first(self):
+        from seed_gate import rank
+        ranked = rank([
+            "Build auth.py",
+            "Build auth.py, config.yaml, deploy.sh, and tests/test_auth.py module",
+        ])
+        assert ranked[0]["score"] >= ranked[1]["score"]
+
+    def test_tuple_input(self):
+        from seed_gate import rank
+        proposals = [
+            ("Build auth.py module", ["code"]),
+            ("Explore the universe deeply", ["philosophy"]),
+        ]
+        ranked = rank(proposals)
+        assert len(ranked) == 2
+        assert all("rank" in r for r in ranked)
+
+    def test_tags_fallback(self):
+        from seed_gate import rank
+        ranked = rank(["Explore the nature of consciousness"], tags=["philosophy"])
+        assert ranked[0]["passed"] is True  # exempt tag
+
+    def test_result_fields(self):
+        from seed_gate import rank
+        ranked = rank(["Build auth.py"])
+        item = ranked[0]
+        for key in ("text", "tags", "score", "passed", "strength", "rank"):
+            assert key in item
+
+    def test_empty_list(self):
+        from seed_gate import rank
+        assert rank([]) == []
+
+
+# ===================================================================
+# PR #304: Clause-boundary negation
+# ===================================================================
+
+class TestClauseBoundaryNegation:
+    """Tests for clause-boundary-aware negation."""
+
+    def test_comma_resets_negation(self):
+        """Negation before comma should not leak to verb after comma."""
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Don't deploy config.yaml, but build auth.py instead")
+        verbs = [(v, neg) for v, _, neg in result]
+        # "deploy" should be negated, "build" should NOT be
+        deploy_entry = [e for e in verbs if e[0] == "deploy"]
+        build_entry = [e for e in verbs if e[0] == "build"]
+        assert deploy_entry and deploy_entry[0][1] is True
+        assert build_entry and build_entry[0][1] is False
+
+    def test_semicolon_resets_negation(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Never deploy to prod; build a staging env first")
+        verbs = [(v, neg) for v, _, neg in result]
+        deploy_entry = [e for e in verbs if e[0] == "deploy"]
+        build_entry = [e for e in verbs if e[0] == "build"]
+        assert deploy_entry and deploy_entry[0][1] is True
+        assert build_entry and build_entry[0][1] is False
+
+    def test_but_resets_negation(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Don't delete the file but fix the bug")
+        verbs = [(v, neg) for v, _, neg in result]
+        delete_entry = [e for e in verbs if e[0] == "delete"]
+        fix_entry = [e for e in verbs if e[0] == "fix"]
+        assert delete_entry and delete_entry[0][1] is True
+        assert fix_entry and fix_entry[0][1] is False
+
+    def test_although_resets_negation(self):
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Although we should not remove it, we should fix auth.py")
+        verbs = [(v, neg) for v, _, neg in result]
+        remove_entry = [e for e in verbs if e[0] == "remove"]
+        fix_entry = [e for e in verbs if e[0] == "fix"]
+        assert remove_entry and remove_entry[0][1] is True
+        assert fix_entry and fix_entry[0][1] is False
+
+    def test_no_boundary_keeps_negation(self):
+        """Without a boundary, negation should propagate."""
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Do not deploy and do not build")
+        verbs = [(v, neg) for v, _, neg in result]
+        for v, neg in verbs:
+            assert neg is True, f"{v} should be negated"
+
+    def test_detect_negation_clause_aware(self):
+        from seed_gate import detect_negation
+        # First verb is negated even with clause boundary
+        assert detect_negation("Don't deploy, build instead") is True
+        # First verb is NOT negated when it's after the boundary
+        assert detect_negation("We considered options, then decided to build auth.py") is False
+
+    def test_validate_seed_negation_clause_boundary(self):
+        r = validate_seed("Don't remove old code, but build auth.py for the new system")
+        assert r.passed is True  # "build" is found and not negated
+        # The first verb "remove" is negated, but "build" is the one that matters for passing
+
+    def test_clause_ids_basic(self):
+        from seed_gate import _clause_ids
+        import re
+        text = "hello world, but goodbye"
+        positions = [(m.start(), m.end()) for m in re.finditer(r"[a-zA-Z]+", text.lower())]
+        ids = _clause_ids(text, positions)
+        assert ids[0] == ids[1] == 0  # hello, world
+        assert ids[2] > 0  # "but" starts new clause
+        assert ids[3] > 0  # "goodbye" in new clause
+
+    def test_clause_ids_semicolon(self):
+        from seed_gate import _clause_ids
+        import re
+        text = "build auth; deploy config"
+        positions = [(m.start(), m.end()) for m in re.finditer(r"[a-zA-Z]+", text.lower())]
+        ids = _clause_ids(text, positions)
+        assert ids[0] == ids[1]  # build, auth
+        assert ids[2] > ids[0]  # deploy in new clause
+
+    def test_clause_ids_empty(self):
+        from seed_gate import _clause_ids
+        assert _clause_ids("hello", []) == []
+
+
+# ===================================================================
+# PR #304: CLI --rank
+# ===================================================================
+
+class TestCLIRank:
+    """Tests for --rank CLI mode."""
+
+    def test_rank_mode(self):
+        import json
+        proposals = ["Build auth.py module", "vibes only today"]
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys, json, io; "
+             f"sys.path.insert(0, {str(REPO_ROOT / 'src')!r}); "
+             "from seed_gate import _cli; "
+             "sys.argv = ['seed_gate', '--rank']; "
+             f"sys.stdin = io.StringIO({json.dumps(json.dumps(proposals))}); "
+             "_cli()"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert len(data) == 2
+        assert data[0]["rank"] == 1
+
+
+# ===================================================================
+# PR #304: Propose_seed near-duplicate advisory
+# ===================================================================
+
+class TestProposeSeedSimilarity:
+    """Tests for near-duplicate advisory in propose_seed."""
+
+    def test_near_duplicate_gets_advisory(self):
+        import tempfile
+        from propose_seed import propose, load_seeds
+        with tempfile.TemporaryDirectory() as td:
+            seeds_path = Path(td) / "seeds.json"
+            # First proposal
+            p1 = propose("Build auth.py CSRF module", "agent-1", seeds_path=seeds_path)
+            assert p1
+            assert "similar_to" not in p1
+            # Near-duplicate
+            p2 = propose("Building auth.py CSRF module now", "agent-2", seeds_path=seeds_path)
+            assert p2
+            assert p2.get("similar_to") == p1["id"]
+
+    def test_different_proposal_no_advisory(self):
+        import tempfile
+        from propose_seed import propose
+        with tempfile.TemporaryDirectory() as td:
+            seeds_path = Path(td) / "seeds.json"
+            p1 = propose("Build auth.py CSRF module", "agent-1", seeds_path=seeds_path)
+            p2 = propose("Deploy nuclear_reactor.py optimizer", "agent-2", seeds_path=seeds_path)
+            assert p2
+            assert "similar_to" not in p2
+
+    def test_list_proposals_still_sorts_by_votes(self):
+        """list_proposals must still sort by vote count, not score."""
+        import tempfile
+        from propose_seed import propose, vote, list_proposals
+        with tempfile.TemporaryDirectory() as td:
+            seeds_path = Path(td) / "seeds.json"
+            propose("Build auth.py CSRF module", "agent-1", seeds_path=seeds_path)
+            p2 = propose("Fix water_mining.py, config.yaml, and deploy.sh bugs", "agent-2", seeds_path=seeds_path)
+            # Vote for the lower-score proposal
+            vote(p2["id"], "agent-3", seeds_path=seeds_path)
+            vote(p2["id"], "agent-4", seeds_path=seeds_path)
+            ranked = list_proposals(seeds_path=seeds_path)
+            # p2 has more votes → should be first
+            assert ranked[0]["id"] == p2["id"]
+
+
+# ===================================================================
+# PR #304: Invariants
+# ===================================================================
+
+class TestPR304Invariants:
+    """Cross-cutting invariants for PR #304 features."""
+
+    def test_similarity_symmetric(self):
+        from seed_gate import similarity
+        a, b = "Build auth.py module", "Deploy config.yaml handler"
+        assert abs(similarity(a, b) - similarity(b, a)) < 1e-9
+
+    def test_rank_deterministic(self):
+        from seed_gate import rank
+        proposals = ["Build auth.py", "Fix config.yaml", "Test deploy.sh"]
+        r1 = rank(proposals)
+        r2 = rank(proposals)
+        assert [x["text"] for x in r1] == [x["text"] for x in r2]
+
+    def test_graduated_score_monotonic(self):
+        """More targets → higher or equal score."""
+        s1 = compute_score("Build auth.py", "build", "auth.py", "file")
+        s2 = compute_score("Build auth.py and config.yaml", "build", "auth.py", "file")
+        s3 = compute_score("Build auth.py, config.yaml, and README.md", "build", "auth.py", "file")
+        assert s2 >= s1
+        assert s3 >= s2
+
+    def test_clause_boundary_preserves_existing_negation(self):
+        """Simple negation (no clause boundary) still works."""
+        from seed_gate import _scan_verbs
+        result = _scan_verbs("Don't deploy config.yaml")
+        assert result and result[0][2] is True  # negated
+
+    def test_backward_compat_is_negated_no_clause_ids(self):
+        """_is_negated still works without clause_ids argument."""
+        from seed_gate import _is_negated
+        assert _is_negated(["not", "deploy"], 1) is True
+        assert _is_negated(["deploy", "auth"], 1) is False

@@ -92,6 +92,7 @@ def propose(text, author, context="", tags=None, seeds_path=None):
 
     # Specificity gate
     from seed_gate import validate as validate_seed
+    from seed_gate import similarity as _similarity
     gate = validate_seed(text, tags)
     if not gate["passed"]:
         return {}
@@ -99,10 +100,17 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Duplicate check (exact)
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
             return p
+
+    # Near-duplicate check (similarity >= 0.8 → advisory, not rejection)
+    similar_to = None
+    for p in seeds.get("proposals", []):
+        if _similarity(text, p.get("text", "")) >= 0.8:
+            similar_to = p["id"]
+            break
 
     proposal = {
         "id": prop_id,
@@ -115,6 +123,8 @@ def propose(text, author, context="", tags=None, seeds_path=None):
         "vote_count": 1,
         "score": gate["score"],
     }
+    if similar_to:
+        proposal["similar_to"] = similar_to
 
     seeds.setdefault("proposals", []).append(proposal)
     save_seeds(seeds, seeds_path)
