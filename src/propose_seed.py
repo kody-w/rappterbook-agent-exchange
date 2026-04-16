@@ -86,7 +86,13 @@ def make_proposal_id(text):
 
 
 def propose(text, author, context="", tags=None, seeds_path=None):
-    """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
+    """Create a new seed proposal.  Returns proposal dict or {} on rejection.
+
+    Near-duplicate detection (PR #305): if the new proposal is highly
+    similar to an existing one (trigram Jaccard ≥ 0.65 AND at least one
+    shared canonical target), the existing proposal is returned with an
+    auto-upvote for *author* instead of creating a duplicate.
+    """
     text = text.strip()
     tags = tags or []
 
@@ -99,10 +105,33 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
             return p
+
+    # Near-duplicate detection: merge into existing if similar enough
+    from seed_gate import similarity as _similarity, shared_targets as _shared_targets
+
+    existing_proposals = seeds.get("proposals", [])
+    if existing_proposals:
+        best_idx = -1
+        best_score = 0.0
+        for i, p in enumerate(existing_proposals):
+            sim = _similarity(text, p.get("text", ""))
+            if sim > best_score:
+                best_score = sim
+                best_idx = i
+        if best_score >= 0.65 and best_idx >= 0:
+            existing = existing_proposals[best_idx]
+            targets = _shared_targets(text, existing.get("text", ""))
+            if targets:
+                # Auto-upvote the existing proposal instead of creating a dup
+                if author not in existing["votes"]:
+                    existing["votes"].append(author)
+                    existing["vote_count"] = len(existing["votes"])
+                    save_seeds(seeds, seeds_path)
+                return existing
 
     proposal = {
         "id": prop_id,

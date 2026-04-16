@@ -189,3 +189,84 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# ===================================================================
+# PR #305 — Near-duplicate detection in propose()
+# ===================================================================
+
+class TestNearDuplicateDetection:
+    """Test that similar proposals auto-merge into the existing one."""
+
+    def test_near_dup_merges(self, sp):
+        """Highly similar proposals with shared targets should merge."""
+        p1 = propose(
+            "Build auth.py login handler with JWT tokens for authentication",
+            author="a1", seeds_path=sp,
+        )
+        assert p1
+        p2 = propose(
+            "Build auth.py login handler using JWT authentication tokens",
+            author="a2", seeds_path=sp,
+        )
+        # Should return existing (p1) not create a new one
+        assert p2["id"] == p1["id"]
+        # Author should be auto-upvoted
+        assert "a2" in p2["votes"]
+        assert p2["vote_count"] == 2
+        # Only one proposal in the list
+        assert len(list_proposals(seeds_path=sp)) == 1
+
+    def test_different_targets_not_merged(self, sp):
+        """Proposals with different targets should NOT merge."""
+        p1 = propose(
+            "Build auth.py login handler with JWT tokens",
+            author="a1", seeds_path=sp,
+        )
+        assert p1
+        p2 = propose(
+            "Build config.yaml parser with validation tokens",
+            author="a2", seeds_path=sp,
+        )
+        assert p2
+        # Should be different proposals
+        assert p2["id"] != p1["id"]
+        assert len(list_proposals(seeds_path=sp)) == 2
+
+    def test_same_author_no_double_vote(self, sp):
+        """If same author proposes near-dup, don't double-vote."""
+        p1 = propose(
+            "Build auth.py login handler with JWT tokens for authentication",
+            author="a1", seeds_path=sp,
+        )
+        p2 = propose(
+            "Build auth.py login handler using JWT authentication tokens",
+            author="a1", seeds_path=sp,
+        )
+        assert p2["id"] == p1["id"]
+        assert p2["vote_count"] == 1  # no double vote
+
+    def test_exact_dup_still_works(self, sp):
+        """Exact duplicates use the hash-based check, not similarity."""
+        p1 = propose(
+            "Build auth.py login handler", author="a1", seeds_path=sp,
+        )
+        p2 = propose(
+            "Build auth.py login handler", author="a1", seeds_path=sp,
+        )
+        assert p2["id"] == p1["id"]
+
+    def test_low_similarity_creates_new(self, sp):
+        """Proposals that are clearly different should create separate entries."""
+        p1 = propose(
+            "Build auth.py login handler with JWT authentication module",
+            author="a1", seeds_path=sp,
+        )
+        p2 = propose(
+            "Refactor database.py migration engine for PostgreSQL support",
+            author="a2", seeds_path=sp,
+        )
+        assert p1
+        assert p2
+        assert p1["id"] != p2["id"]
+        assert len(list_proposals(seeds_path=sp)) == 2

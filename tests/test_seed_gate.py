@@ -2520,3 +2520,269 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #305 — Similarity API
+# ===================================================================
+
+from seed_gate import (
+    similarity,
+    shared_targets,
+    find_most_similar,
+    _normalize_for_similarity,
+    _trigrams,
+    BatchResult,
+    BatchStats,
+    validate_batch,
+    _score_parts,
+)
+
+
+class TestNormalizeForSimilarity:
+    def test_lowercase(self):
+        assert _normalize_for_similarity("BUILD Auth.py") == "build authpy"
+
+    def test_collapse_whitespace(self):
+        assert _normalize_for_similarity("a   b\tc") == "a b c"
+
+    def test_strip_punctuation(self):
+        result = _normalize_for_similarity("hello, world!")
+        assert "," not in result
+        assert "!" not in result
+
+    def test_preserves_underscores_and_dashes(self):
+        result = _normalize_for_similarity("my_module some-tool")
+        assert "_" in result
+        assert "-" in result
+
+    def test_empty(self):
+        assert _normalize_for_similarity("") == ""
+
+
+class TestTrigrams:
+    def test_basic(self):
+        t = _trigrams("abcde")
+        assert "abc" in t
+        assert "bcd" in t
+        assert "cde" in t
+        assert len(t) == 3
+
+    def test_short_string(self):
+        assert _trigrams("ab") == {"ab"}
+
+    def test_single_char(self):
+        assert _trigrams("a") == {"a"}
+
+    def test_empty(self):
+        assert _trigrams("") == set()
+
+    def test_repeated_trigrams(self):
+        t = _trigrams("aaa")
+        assert t == {"aaa"}
+
+
+class TestSimilarity:
+    def test_identical(self):
+        assert similarity("Build auth.py module", "Build auth.py module") == 1.0
+
+    def test_case_insensitive(self):
+        assert similarity("Build auth.py", "build AUTH.PY") > 0.8
+
+    def test_completely_different(self):
+        assert similarity("Build auth.py", "xyz qqq zzz abc") < 0.3
+
+    def test_high_similarity(self):
+        a = "Build auth.py login handler with JWT tokens for secure authentication"
+        b = "Build auth.py login handler with JWT token for secure auth"
+        assert similarity(a, b) > 0.5
+
+    def test_symmetric(self):
+        a = "Build auth.py module"
+        b = "Refactor config.yaml parser"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_returns_float(self):
+        result = similarity("foo", "bar")
+        assert isinstance(result, float)
+
+    def test_bounds(self):
+        result = similarity("Build auth.py", "Build auth.py")
+        assert 0.0 <= result <= 1.0
+
+    def test_empty_strings(self):
+        assert similarity("", "") == 0.0
+        assert similarity("hello", "") == 0.0
+        assert similarity("", "hello") == 0.0
+
+    def test_near_duplicate_high(self):
+        a = "Refactor auth.py to use JWT tokens"
+        b = "Refactor auth.py to use JWT authentication tokens"
+        assert similarity(a, b) > 0.65
+
+    def test_same_topic_different_target(self):
+        a = "Build auth.py module"
+        b = "Build config.yaml parser"
+        sim = similarity(a, b)
+        assert sim < 0.7  # same verb but different targets = not a duplicate
+
+
+class TestSharedTargets:
+    def test_shared_file(self):
+        a = "Build auth.py with error handling"
+        b = "Refactor auth.py for better testing"
+        targets = shared_targets(a, b)
+        assert "auth" in targets
+
+    def test_no_shared(self):
+        a = "Build auth.py module"
+        b = "Test config.yaml parser"
+        targets = shared_targets(a, b)
+        # auth != config, so no overlap (or very little)
+        assert "auth" not in targets or "config" not in targets
+
+    def test_multiple_shared(self):
+        a = "Refactor auth.py and config.yaml"
+        b = "Test auth.py and config.yaml"
+        targets = shared_targets(a, b)
+        assert "auth" in targets
+        assert "config" in targets
+
+    def test_returns_frozenset(self):
+        result = shared_targets("Build auth.py", "Build auth.py")
+        assert isinstance(result, frozenset)
+
+    def test_no_targets(self):
+        result = shared_targets("hello world", "goodbye world")
+        assert result == frozenset()
+
+
+class TestFindMostSimilar:
+    def test_finds_match(self):
+        corpus = [
+            "Refactor auth.py login handler module",
+            "Build config.yaml parser",
+            "Test database.py migration engine",
+        ]
+        result = find_most_similar("Refactor auth.py login handler code", corpus, threshold=0.5)
+        assert result is not None
+        idx, score = result
+        assert idx == 0
+        assert score > 0.5
+
+    def test_no_match_below_threshold(self):
+        corpus = ["Build auth.py module", "Test config.yaml parser"]
+        result = find_most_similar("qqq zzz xxx yyy", corpus, threshold=0.8)
+        assert result is None
+
+    def test_empty_corpus(self):
+        result = find_most_similar("Build auth.py", [])
+        assert result is None
+
+    def test_returns_highest(self):
+        corpus = [
+            "Build auth.py module",
+            "Build auth.py login handler with JWT tokens",
+            "Test config.yaml",
+        ]
+        text = "Build auth.py login handler using JWT authentication"
+        result = find_most_similar(text, corpus, threshold=0.3)
+        assert result is not None
+        idx, _score = result
+        assert idx == 1  # should match the more similar one
+
+    def test_custom_threshold(self):
+        corpus = ["Build auth.py module"]
+        result = find_most_similar("Build auth.py module!", corpus, threshold=0.99)
+        # Slight differences: may or may not pass 0.99 depending on normalization
+        if result:
+            assert result[1] >= 0.99
+
+
+# ===================================================================
+# PR #305 — Graduated multi-target scoring
+# ===================================================================
+
+class TestGraduatedMultiTarget:
+    def test_two_targets_bonus(self):
+        text = "Build auth.py and config.yaml together"
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 1.0
+
+    def test_three_targets_bonus(self):
+        text = "Refactor auth.py, config.yaml, and database.py"
+        parts = _score_parts(text, "refactor", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 1.5
+
+    def test_four_targets_bonus(self):
+        text = "Refactor auth.py, config.yaml, database.py, and router.js"
+        parts = _score_parts(text, "refactor", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 2.0
+
+    def test_five_targets_bonus_capped(self):
+        text = "Build auth.py, config.yaml, database.py, router.js, and index.html"
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert parts.get("multi_target", 0) == 2.0  # capped at 2.0
+
+    def test_single_target_no_bonus(self):
+        text = "Build auth.py module"
+        parts = _score_parts(text, "build", "auth.py", "file")
+        assert "multi_target" not in parts
+
+    def test_score_breakdown_consistent(self):
+        """score_breakdown components should sum to its total."""
+        text = "Refactor auth.py, config.yaml, and database.py optimization"
+        bd = score_breakdown(text)
+        component_sum = sum(v for k, v in bd.items() if k != "total")
+        assert abs(component_sum - bd["total"]) < 0.01
+
+    def test_score_parts_matches_compute_score(self):
+        """_score_parts() and compute_score() must agree on multi_target."""
+        text = "Build auth.py, config.yaml, database.py, and router.js"
+        parts = _score_parts(text, "build", "auth.py", "file")
+        # compute_score returns normalized 0-1; reconstruct raw from parts
+        parts_total = sum(parts.values())
+        expected_normalized = min(parts_total / 10.0, 1.0)
+        actual = compute_score(text, "build", "auth.py", "file")
+        assert abs(expected_normalized - actual) < 0.01
+
+
+# ===================================================================
+# PR #305 — BatchResult.summary()
+# ===================================================================
+
+class TestBatchResultSummary:
+    def test_basic_summary(self):
+        br = validate_batch([
+            "Build auth.py login handler",
+            "vibes only bro",
+            "asdfjkl;",
+        ])
+        s = br.summary()
+        assert "3 proposals" in s
+        assert "passed" in s
+        assert "failed" in s
+        assert "junk" in s
+        assert "pass rate" in s
+
+    def test_all_pass(self):
+        br = validate_batch([
+            "Build auth.py login module handler",
+            "Test config.yaml parser validation",
+        ])
+        s = br.summary()
+        assert "2 proposals" in s
+        assert "100%" in s
+
+    def test_empty_batch(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 proposals" in s
+
+    def test_format_structure(self):
+        br = validate_batch(["Build auth.py handler"])
+        s = br.summary()
+        # Should match: "N proposals: X passed, Y failed, Z junk (P% pass rate)"
+        assert ":" in s
+        assert "(" in s
+        assert ")" in s

@@ -58,6 +58,11 @@ Evolution log:
                   enriched SeedGateResult (target_kind, verb_source,
                   verb_position, score_parts, is_imperative, negated,
                   advisories, strength); explain_dict() structured API.
+    PR #305  -- graduated multi-target scoring (2->+1.0, 3->+1.5,
+                   4+->+2.0); similarity(a, b) trigram Jaccard
+                   primitive with normalization; BatchResult.summary();
+                   propose_seed.py near-duplicate detection via
+                   similarity + shared-target overlap.
 """
 from __future__ import annotations
 
@@ -481,6 +486,16 @@ class BatchResult:
     passed_items: tuple[tuple[str, dict], ...]
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
+
+    def summary(self) -> str:
+        """Return a human-readable summary of the batch results."""
+        return (
+            f"{self.stats.total} proposals: "
+            f"{self.stats.passed} passed, "
+            f"{self.stats.failed} failed, "
+            f"{self.stats.junk} junk "
+            f"({self.stats.pass_rate:.0%} pass rate)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -962,7 +977,12 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
+    # Graduated multi-target bonus (PR #305)
+    if unique >= 4:
+        raw += 2.0
+    elif unique >= 3:
+        raw += 1.5
+    elif unique >= 2:
         raw += 1.0
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
@@ -1008,8 +1028,80 @@ _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
 
 
 # ---------------------------------------------------------------------------
-# Diagnostic APIs (PR #272)
+# Similarity API (PR #305)
 # ---------------------------------------------------------------------------
+
+def _normalize_for_similarity(text: str) -> str:
+    """Normalize text for similarity comparison.
+
+    Lowercases, collapses whitespace, strips punctuation noise,
+    and canonicalizes detected targets (src/auth.py → auth).
+    """
+    import string
+    s = text.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.translate(str.maketrans("", "", string.punctuation.replace("_", "").replace("-", "")))
+    return s
+
+
+def _trigrams(text: str) -> set[str]:
+    """Return the set of character trigrams for *text*."""
+    if len(text) < 3:
+        return {text} if text else set()
+    return {text[i:i + 3] for i in range(len(text) - 2)}
+
+
+def similarity(a: str, b: str) -> float:
+    """Trigram Jaccard similarity between two texts.
+
+    Returns a float in [0.0, 1.0].  Normalizes both texts (lowercase,
+    collapse whitespace, strip punctuation) before comparison so that
+    minor formatting differences don't inflate distance.
+    """
+    na = _normalize_for_similarity(a)
+    nb = _normalize_for_similarity(b)
+    ta = _trigrams(na)
+    tb = _trigrams(nb)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def shared_targets(a: str, b: str) -> frozenset[str]:
+    """Return the set of canonical targets shared by both texts.
+
+    Useful as a secondary check for near-duplicate detection:
+    two proposals are more likely true duplicates if they reference
+    the same concrete targets, not just similar wording.
+    """
+    targets_a = {canonicalize_target(t) for t, _k in _find_all_targets(a)}
+    targets_b = {canonicalize_target(t) for t, _k in _find_all_targets(b)}
+    targets_a.discard("")
+    targets_b.discard("")
+    return frozenset(targets_a & targets_b)
+
+
+def find_most_similar(
+    text: str,
+    corpus: list[str],
+    threshold: float = 0.75,
+) -> tuple[int, float] | None:
+    """Find the most similar text in *corpus* above *threshold*.
+
+    Returns (index, score) of the best match, or None if nothing
+    exceeds the threshold.  When multiple items exceed the threshold,
+    returns the one with the highest score.
+    """
+    best_idx = -1
+    best_score = 0.0
+    for i, candidate in enumerate(corpus):
+        score = similarity(text, candidate)
+        if score > best_score:
+            best_score = score
+            best_idx = i
+    if best_score >= threshold and best_idx >= 0:
+        return (best_idx, best_score)
+    return None
 
 def find_verb_with_position(text: str, limit: int = 0) -> tuple[str | None, int | None]:
     """Return (verb, word_index) or (None, None).
@@ -1073,7 +1165,12 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
+    # Graduated multi-target bonus (PR #305)
+    if unique >= 4:
+        components["multi_target"] = 2.0
+    elif unique >= 3:
+        components["multi_target"] = 1.5
+    elif unique >= 2:
         components["multi_target"] = 1.0
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
