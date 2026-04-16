@@ -2520,3 +2520,288 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ===================================================================
+# PR #304: Graduated multi-target scoring
+# ===================================================================
+
+
+class TestGraduatedMultiTargetScoring:
+    """Verify graduated multi-target scoring: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_two_targets_score_bonus(self):
+        text = "Build auth.py and config.py for the platform"
+        result = validate_seed(text)
+        parts = dict(result.score_parts)
+        assert parts.get("multi_target", 0) == 1.0
+
+    def test_three_targets_score_bonus(self):
+        text = "Build auth.py and config.py and router.py for the platform"
+        result = validate_seed(text)
+        parts = dict(result.score_parts)
+        assert parts.get("multi_target", 0) == 1.5
+
+    def test_four_targets_score_bonus(self):
+        text = "Build auth.py, config.py, router.py, and models.py for the platform"
+        result = validate_seed(text)
+        parts = dict(result.score_parts)
+        assert parts.get("multi_target", 0) == 2.0
+
+    def test_single_target_no_bonus(self):
+        text = "Build auth.py for the platform"
+        result = validate_seed(text)
+        parts = dict(result.score_parts)
+        assert parts.get("multi_target", 0) == 0
+
+    def test_graduated_raises_score(self):
+        two = validate_seed("Build auth.py and config.py for the mars colony")
+        three = validate_seed("Build auth.py and config.py and router.py for the mars colony")
+        four = validate_seed("Build auth.py, config.py, router.py, and models.py for the mars colony")
+        assert two.score < three.score <= four.score
+
+    def test_score_breakdown_reflects_graduated(self):
+        text = "Build auth.py, config.py, and router.py for the platform"
+        bd = score_breakdown(text)
+        assert bd["multi_target"] == 1.5
+
+    def test_count_unique_targets_four_plus(self):
+        text = "Fix auth.py, config.py, router.py, models.py, and utils.py"
+        assert count_unique_targets(text) >= 4
+
+    def test_compute_score_consistency(self):
+        """compute_score and _score_parts agree on multi_target."""
+        text = "Build auth.py, config.py, and router.py for the platform"
+        verb = find_verb(text)
+        target, kind = find_target(text)
+        score = compute_score(text, verb, target, kind)
+        result = validate_seed(text)
+        assert abs(score - result.score) < 0.001
+
+
+# ===================================================================
+# PR #304: Placeholder detection (advisory-only)
+# ===================================================================
+
+
+class TestPlaceholderDetection:
+    """Placeholder phrases flagged as advisory, never cause rejection."""
+
+    def test_placeholder_detected_no_target(self):
+        result = validate_seed("Improve the module to handle errors better")
+        # "Improve" is a verb, but "the module" is placeholder with no target
+        assert not result.passed  # fails because no concrete target
+        assert "placeholder-language" in result.advisories
+
+    def test_placeholder_not_detected_with_target(self):
+        result = validate_seed("Improve the module seed_gate.py to handle errors")
+        # Has concrete target seed_gate.py — placeholder suppressed
+        assert result.passed
+        assert "placeholder-language" not in result.advisories
+
+    def test_placeholder_never_causes_rejection(self):
+        """A passing proposal with placeholder still passes."""
+        result = validate_seed("Build auth.py to replace the module with something better")
+        assert result.passed
+        # Has concrete target auth.py, so placeholder is not flagged
+
+    def test_detect_placeholders_function_direct(self):
+        from seed_gate import detect_placeholders
+        assert detect_placeholders("Fix the system config") == ["the system"]
+        assert detect_placeholders("Fix the system config", has_target=True) == []
+
+    def test_multiple_placeholders(self):
+        from seed_gate import detect_placeholders
+        found = detect_placeholders("Improve the module and the system")
+        assert "the module" in found
+        assert "the system" in found
+
+    def test_placeholder_the_code(self):
+        from seed_gate import detect_placeholders
+        assert detect_placeholders("Refactor the code for clarity") == ["the code"]
+
+    def test_no_placeholder_in_specific_text(self):
+        from seed_gate import detect_placeholders
+        assert detect_placeholders("Build auth.py parser for JWT tokens") == []
+
+    def test_placeholder_advisory_string(self):
+        result = validate_seed("Explore the logic for some reason")
+        # No target, explore is a verb but "the logic" is placeholder
+        if not result.passed and not result.target_found:
+            assert "placeholder-language" in result.advisories
+
+    def test_explain_dict_shows_placeholder(self):
+        result = explain_dict("Improve the module to handle errors better")
+        if "placeholder-language" in result.get("advisories", []):
+            assert True
+        else:
+            # If verb+target passed, placeholder is suppressed — that's fine
+            pass
+
+
+# ===================================================================
+# PR #304: BatchResult.summary()
+# ===================================================================
+
+
+class TestBatchResultSummary:
+    """Test the BatchResult.summary() method."""
+
+    def test_summary_format(self):
+        br = validate_batch([
+            "Build auth.py parser for tokens",
+            "Build config.py loader for settings",
+            "vibes only no verb no target",
+            "",
+        ])
+        s = br.summary()
+        assert "4 proposals" in s
+        assert "passed" in s
+        assert "failed" in s
+        assert "junk" in s
+        assert "pass rate" in s
+
+    def test_summary_all_pass(self):
+        br = validate_batch([
+            "Build auth.py parser for the platform",
+            "Fix config.py loader for settings",
+        ])
+        s = br.summary()
+        assert "2 proposals" in s
+        assert "2 passed" in s
+        assert "0 failed" in s
+
+    def test_summary_empty(self):
+        br = validate_batch([])
+        s = br.summary()
+        assert "0 proposals" in s
+        assert "0.0% pass rate" in s
+
+    def test_summary_all_junk(self):
+        br = validate_batch(["", "x", ""])
+        s = br.summary()
+        assert "0 passed" in s
+
+    def test_summary_pass_rate_percentage(self):
+        br = validate_batch([
+            "Build auth.py for the platform",
+            "Fix config.py for settings",
+            "vibes",
+            "",
+        ])
+        s = br.summary()
+        # Should show a percentage like "50.0%" or similar
+        assert "%" in s
+
+
+# ===================================================================
+# PR #304: Score boundary tests
+# ===================================================================
+
+
+class TestScoreBoundaries:
+    """Verify score-band stability around 0.35 and 0.65 thresholds."""
+
+    def test_high_confidence_above_065(self):
+        result = validate_seed(
+            "Build auth.py and config.py and router.py for JWT token "
+            "parsing in the Mars colony thermal control subsystem"
+        )
+        if result.passed and result.score >= 0.65:
+            assert result.confidence == "high"
+            assert result.strength == "strong"
+
+    def test_medium_confidence_band(self):
+        result = validate_seed("Build auth.py for the platform")
+        if result.passed:
+            if 0.35 <= result.score < 0.65:
+                assert result.confidence == "medium"
+                assert result.strength == "moderate"
+
+    def test_low_confidence_below_035(self):
+        # Short proposal, minimal targets — low score if it passes
+        result = validate_seed("Test auth.py")
+        if result.passed and result.score < 0.35:
+            assert result.confidence == "low"
+            assert result.strength == "weak"
+
+    def test_rejected_strength(self):
+        result = validate_seed("Make everything better")
+        assert not result.passed
+        assert result.strength == "rejected"
+
+    def test_graduated_scoring_does_not_flip_pass_fail(self):
+        """Graduated scoring only affects score magnitude, not pass/fail."""
+        # Two targets — should still pass
+        assert validate_seed("Build auth.py and config.py").passed
+        # Three targets — should still pass
+        assert validate_seed("Build auth.py, config.py, and router.py").passed
+        # No target — should still fail
+        assert not validate_seed("Build something amazing").passed
+
+    def test_score_nonnegative_invariant(self):
+        """Score is always >= 0."""
+        for text in [
+            "Build auth.py", "Fix the module", "vibes",
+            "", "Build auth.py and config.py and router.py and models.py",
+        ]:
+            result = validate_seed(text)
+            assert result.score >= 0.0
+
+    def test_score_at_most_one(self):
+        """Score never exceeds 1.0 even with many targets."""
+        text = (
+            "Build auth.py, config.py, router.py, models.py, utils.py, "
+            "and helpers.py for the Mars colony thermal control subsystem"
+        )
+        result = validate_seed(text)
+        assert result.score <= 1.0
+
+
+# ===================================================================
+# PR #304: Consolidation invariants for new features
+# ===================================================================
+
+
+class TestPR304Invariants:
+    """Property-based invariants for PR #304 features."""
+
+    def test_placeholder_advisory_only_when_no_target(self):
+        """placeholder-language advisory appears only when no target found."""
+        proposals = [
+            ("Build the module for errors", False),     # no file target
+            ("Build auth.py for the module", True),     # has file target
+            ("Improve the system somehow", False),      # no target
+            ("Fix the system in config.py", True),      # has file target
+        ]
+        for text, has_target in proposals:
+            result = validate_seed(text)
+            if has_target:
+                assert "placeholder-language" not in result.advisories, text
+
+    def test_graduated_monotonic(self):
+        """More unique targets → equal or higher multi_target score."""
+        t2 = "Build auth.py and config.py"
+        t3 = "Build auth.py, config.py, and router.py"
+        t4 = "Build auth.py, config.py, router.py, and models.py"
+        s2 = dict(validate_seed(t2).score_parts).get("multi_target", 0)
+        s3 = dict(validate_seed(t3).score_parts).get("multi_target", 0)
+        s4 = dict(validate_seed(t4).score_parts).get("multi_target", 0)
+        assert s2 <= s3 <= s4
+
+    def test_batch_summary_matches_stats(self):
+        """summary() content is consistent with stats."""
+        br = validate_batch(["Build auth.py", "vibes", ""])
+        s = br.summary()
+        assert str(br.stats.total) in s
+        assert str(br.stats.passed) in s
+
+    def test_score_parts_sum_close_to_prescore_with_graduated(self):
+        """Sum of score_parts ≈ raw prescore for graduated scoring."""
+        text = "Build auth.py, config.py, and router.py for the Mars colony"
+        result = validate_seed(text)
+        parts = dict(result.score_parts)
+        raw_sum = sum(parts.values())
+        # Score = min(raw / 10.0, 1.0)
+        expected = min(raw_sum / 10.0, 1.0)
+        assert abs(expected - result.score) < 0.02

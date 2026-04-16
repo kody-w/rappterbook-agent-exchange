@@ -17,6 +17,8 @@ from propose_seed import (
     propose,
     purge_junk,
     save_seeds,
+    similarity,
+    find_similar,
     unvote,
     vote,
     withdraw,
@@ -189,3 +191,86 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# ===================================================================
+# PR #304: similarity() and find_similar()
+# ===================================================================
+
+
+class TestSimilarity:
+    def test_identical_texts(self):
+        assert similarity("Build auth.py parser", "Build auth.py parser") == 1.0
+
+    def test_completely_different(self):
+        score = similarity("Build auth.py parser", "Deploy nuclear_reactor.py cooling")
+        assert score < 0.3
+
+    def test_similar_proposals(self):
+        a = "Build auth.py token parser for JWT"
+        b = "Build auth.py JWT token validator"
+        score = similarity(a, b)
+        assert 0.3 < score < 1.0
+
+    def test_empty_strings(self):
+        assert similarity("", "") == 0.0
+        assert similarity("Build auth.py", "") == 0.0
+
+    def test_stopwords_ignored(self):
+        a = "Build the auth.py for the platform"
+        b = "Build auth.py platform"
+        score = similarity(a, b)
+        assert score > 0.7  # stopwords removed, core tokens match
+
+    def test_symmetry(self):
+        a = "Build auth.py parser"
+        b = "Deploy config.py loader"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_range_zero_to_one(self):
+        pairs = [
+            ("Build auth.py", "Build auth.py"),
+            ("Build auth.py", "Fix config.py"),
+            ("Build auth.py", ""),
+            ("", ""),
+        ]
+        for a, b in pairs:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0
+
+
+class TestFindSimilar:
+    def test_finds_similar_proposal(self, sp):
+        p1 = propose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        proposals = list_proposals(seeds_path=sp)
+        similar = find_similar("Build water_mining.py optimizer for deep drilling", proposals)
+        assert len(similar) >= 1
+        assert similar[0][0]["id"] == p1["id"]
+        assert similar[0][1] > 0.5
+
+    def test_no_similar_found(self, sp):
+        propose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        proposals = list_proposals(seeds_path=sp)
+        similar = find_similar("Deploy nuclear_reactor.py cooling system", proposals)
+        # May or may not find similar — threshold dependent
+        for _, score in similar:
+            assert score >= 0.6
+
+    def test_threshold_respected(self, sp):
+        propose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        proposals = list_proposals(seeds_path=sp)
+        high = find_similar("Build water_mining.py optimizer", proposals, threshold=0.9)
+        low = find_similar("Build water_mining.py optimizer", proposals, threshold=0.3)
+        assert len(high) <= len(low)
+
+    def test_empty_proposals(self):
+        similar = find_similar("Build auth.py", [])
+        assert similar == []
+
+    def test_sorted_by_similarity(self, sp):
+        propose("Build water_mining.py optimizer drilling", author="a1", seeds_path=sp)
+        propose("Build solar_array.py controller grid sys", author="a2", seeds_path=sp)
+        proposals = list_proposals(seeds_path=sp)
+        similar = find_similar("Build water_mining.py optimizer for deep drilling", proposals, threshold=0.1)
+        if len(similar) >= 2:
+            assert similar[0][1] >= similar[1][1]
