@@ -85,6 +85,55 @@ def make_proposal_id(text):
     return "prop-" + hashlib.sha256(text.encode()).hexdigest()[:8]
 
 
+_SIMILARITY_THRESHOLD: float = 0.75
+
+_STOP_WORDS: frozenset = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
+    "for", "of", "with", "by", "from", "is", "it", "that", "this",
+    "as", "be", "are", "was", "were", "been",
+})
+
+
+def _normalize_tokens(text: str) -> set[str]:
+    """Normalize text to a set of meaningful tokens for comparison.
+
+    Strips punctuation, lowercases, removes stop words, and
+    canonicalizes file references (src/foo.py -> foo).
+    """
+    import re as _re
+    raw = _re.findall(r"[\w./-]+", text.lower())
+    tokens: set[str] = set()
+    for t in raw:
+        # Strip path prefixes
+        for pfx in ("src/", "tests/", "engine/", "state/", "docs/", "scripts/"):
+            if t.startswith(pfx):
+                t = t[len(pfx):]
+                break
+        # Strip extension
+        if "." in t and not t.startswith("."):
+            base = t.rsplit(".", 1)[0]
+            if base:
+                tokens.add(base)
+        t = t.strip(".,;:!?\'\"-/()[]")
+        if t and t not in _STOP_WORDS and len(t) > 1:
+            tokens.add(t)
+    return tokens
+
+
+def similarity(a: str, b: str) -> float:
+    """Token-overlap similarity (0.0-1.0) for fuzzy proposal dedup.
+
+    Normalizes tokens (strips paths, extensions, stop words) before
+    computing Jaccard similarity.  Used by propose() to detect
+    near-duplicate proposals.
+    """
+    tokens_a = _normalize_tokens(a)
+    tokens_b = _normalize_tokens(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    return len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+
+
 def propose(text, author, context="", tags=None, seeds_path=None):
     """Create a new seed proposal.  Returns proposal dict or {} on rejection."""
     text = text.strip()
@@ -99,9 +148,19 @@ def propose(text, author, context="", tags=None, seeds_path=None):
     seeds = load_seeds(seeds_path)
     prop_id = make_proposal_id(text)
 
-    # Duplicate check
+    # Exact duplicate check
     for p in seeds.get("proposals", []):
         if p["id"] == prop_id:
+            return p
+
+    # Fuzzy duplicate check — near-identical proposals merge
+    for p in seeds.get("proposals", []):
+        if similarity(text, p.get("text", "")) >= _SIMILARITY_THRESHOLD:
+            # Auto-vote for the existing proposal instead of creating a dupe
+            if author not in p.get("votes", []):
+                p.setdefault("votes", []).append(author)
+                p["vote_count"] = len(p["votes"])
+                save_seeds(seeds, seeds_path)
             return p
 
     proposal = {

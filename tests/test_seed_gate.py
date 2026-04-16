@@ -2520,3 +2520,159 @@ class TestBackwardCompatPR289:
     def test_validate_batch_unchanged(self):
         br = validate_batch(["Build auth.py", "vibes only here"])
         assert br.stats.total == 2
+
+
+# ---------------------------------------------------------------------------
+# PR #304 -- Graduated multi-target scoring
+# ---------------------------------------------------------------------------
+
+class TestGraduatedMultiTarget:
+    """Verify graduated multi-target scoring: 2→+1.0, 3→+1.5, 4+→+2.0."""
+
+    def test_one_target_no_bonus(self):
+        r = validate("Build seed_gate.py validator system", [])
+        bd = r["score_parts"]
+        assert bd.get("multi_target", 0.0) == 0.0
+
+    def test_two_targets_bonus(self):
+        r = validate("Build seed_gate.py and propose_seed.py integration", [])
+        bd = r["score_parts"]
+        assert bd.get("multi_target", 0.0) == 1.0
+
+    def test_three_targets_bonus(self):
+        r = validate(
+            "Build seed_gate.py, propose_seed.py, and compute_trending.py integration",
+            [],
+        )
+        bd = r["score_parts"]
+        assert bd.get("multi_target", 0.0) == 1.5
+
+    def test_four_targets_bonus(self):
+        r = validate(
+            "Refactor seed_gate.py, propose_seed.py, compute_trending.py, and state_io.py",
+            [],
+        )
+        bd = r["score_parts"]
+        assert bd.get("multi_target", 0.0) == 2.0
+
+    def test_five_targets_capped_at_two(self):
+        r = validate(
+            "Wire seed_gate.py propose_seed.py state_io.py compute_trending.py generate_feeds.py together",
+            [],
+        )
+        bd = r["score_parts"]
+        assert bd.get("multi_target", 0.0) == 2.0
+
+    def test_monotonicity_two_vs_one(self):
+        one = validate("Build seed_gate.py validator system", [])
+        two = validate("Build seed_gate.py and propose_seed.py integration", [])
+        assert two["score"] >= one["score"]
+
+    def test_monotonicity_three_vs_two(self):
+        two = validate("Build seed_gate.py and propose_seed.py integration", [])
+        three = validate(
+            "Build seed_gate.py, propose_seed.py, and compute_trending.py integration",
+            [],
+        )
+        assert three["score"] >= two["score"]
+
+    def test_monotonicity_four_vs_three(self):
+        three = validate(
+            "Build seed_gate.py, propose_seed.py, and compute_trending.py integration",
+            [],
+        )
+        four = validate(
+            "Refactor seed_gate.py, propose_seed.py, compute_trending.py, and state_io.py",
+            [],
+        )
+        assert four["score"] >= three["score"]
+
+    def test_score_breakdown_matches_compute_score(self):
+        from seed_gate import score_breakdown
+        text = "Build seed_gate.py, propose_seed.py, and compute_trending.py integration"
+        bd = score_breakdown(text, [])
+        # Total should be close to raw sum of components
+        expected = sum(v for k, v in bd.items() if k != "total")
+        assert abs(bd["total"] - expected) < 0.01
+
+    def test_multi_target_bonus_helper_zero(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(0) == 0.0
+        assert _multi_target_bonus(1) == 0.0
+
+    def test_multi_target_bonus_helper_graduated(self):
+        from seed_gate import _multi_target_bonus
+        assert _multi_target_bonus(2) == 1.0
+        assert _multi_target_bonus(3) == 1.5
+        assert _multi_target_bonus(4) == 2.0
+        assert _multi_target_bonus(10) == 2.0
+
+    def test_result_to_dict_has_graduated_parts(self):
+        r = validate_seed(
+            "Build seed_gate.py, propose_seed.py, and compute_trending.py integration",
+            [],
+        )
+        d = r.to_dict()
+        assert "multi_target" in dict(d["score_parts"])
+
+    def test_explain_dict_graduated(self):
+        from seed_gate import explain_dict
+        ed = explain_dict(
+            "Build seed_gate.py, propose_seed.py, and compute_trending.py together",
+            [],
+        )
+        assert ed["score_breakdown"].get("multi_target", 0.0) >= 1.0
+
+
+# ---------------------------------------------------------------------------
+# PR #304 -- BatchResult.summary()
+# ---------------------------------------------------------------------------
+
+class TestBatchResultSummary:
+    """Test the BatchResult.summary() human-readable output."""
+
+    def test_summary_all_pass(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build seed_gate.py validator system"])
+        assert "1/1 passed" in br.summary()
+        assert "0 junk" in br.summary()
+        assert "0 failed" in br.summary()
+
+    def test_summary_mixed(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Build seed_gate.py validator system",
+            "",
+            "Make things better and amazing overall",
+        ])
+        s = br.summary()
+        assert "1/3 passed" in s
+        assert "1 junk" in s
+        assert "1 failed" in s
+
+    def test_summary_all_junk(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["", "x", "   "])
+        s = br.summary()
+        assert "0/3 passed" in s
+        assert "3 junk" in s
+
+    def test_summary_empty(self):
+        from seed_gate import validate_batch
+        br = validate_batch([])
+        s = br.summary()
+        assert "0/0 passed" in s
+
+    def test_summary_is_string(self):
+        from seed_gate import validate_batch
+        br = validate_batch(["Build seed_gate.py validator system"])
+        assert isinstance(br.summary(), str)
+
+    def test_summary_no_junk_all_fail(self):
+        from seed_gate import validate_batch
+        br = validate_batch([
+            "Make things better and amazing overall",
+            "Improve everything across the board for everyone",
+        ])
+        s = br.summary()
+        assert "0 junk" in s or "junk" in s

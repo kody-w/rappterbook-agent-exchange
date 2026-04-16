@@ -189,3 +189,156 @@ class TestSmoke:
         assert list_proposals(seeds_path=sp)[0]["vote_count"] == 3
         assert withdraw(p["id"], seeds_path=sp) is True
         assert list_proposals(seeds_path=sp) == []
+
+
+# ---------------------------------------------------------------------------
+# PR #304 -- similarity() and fuzzy dedup
+# ---------------------------------------------------------------------------
+
+from propose_seed import similarity, _normalize_tokens, _SIMILARITY_THRESHOLD
+
+
+class TestNormalizeTokens:
+    def test_basic(self):
+        tokens = _normalize_tokens("Build seed_gate.py validator")
+        assert "build" in tokens
+        assert "seed_gate" in tokens
+        assert "validator" in tokens
+
+    def test_strips_extension(self):
+        tokens = _normalize_tokens("seed_gate.py")
+        assert "seed_gate" in tokens
+
+    def test_strips_path(self):
+        tokens = _normalize_tokens("src/seed_gate.py")
+        assert "seed_gate" in tokens
+
+    def test_removes_stop_words(self):
+        tokens = _normalize_tokens("Build the seed_gate.py for the system")
+        assert "the" not in tokens
+        assert "for" not in tokens
+
+    def test_empty(self):
+        assert _normalize_tokens("") == set()
+
+    def test_lowercase(self):
+        tokens = _normalize_tokens("BUILD SEED_GATE.PY")
+        assert "build" in tokens
+        assert "seed_gate" in tokens
+
+    def test_punctuation_stripped(self):
+        tokens = _normalize_tokens("build, seed_gate.py!")
+        assert "build" in tokens
+
+
+class TestSimilarity:
+    def test_identity(self):
+        assert similarity("Build seed_gate.py", "Build seed_gate.py") == 1.0
+
+    def test_disjoint(self):
+        assert similarity("Build seed_gate.py validator", "Deploy nuclear_reactor.py system") < 0.3
+
+    def test_partial_overlap(self):
+        s = similarity(
+            "Build seed_gate.py validator system",
+            "Build seed_gate.py testing suite",
+        )
+        assert 0.2 < s < 0.9
+
+    def test_empty_first(self):
+        assert similarity("", "Build seed_gate.py") == 0.0
+
+    def test_empty_second(self):
+        assert similarity("Build seed_gate.py", "") == 0.0
+
+    def test_both_empty(self):
+        assert similarity("", "") == 0.0
+
+    def test_path_normalization(self):
+        """src/seed_gate.py and seed_gate.py should match."""
+        s = similarity(
+            "Build src/seed_gate.py validator",
+            "Build seed_gate.py validator",
+        )
+        assert s > 0.8
+
+    def test_symmetric(self):
+        a = "Build seed_gate.py validator system"
+        b = "Build propose_seed.py integration module"
+        assert similarity(a, b) == similarity(b, a)
+
+    def test_near_duplicate(self):
+        s = similarity(
+            "Build water_mining.py optimizer for drilling",
+            "Build water_mining.py optimizer for mining",
+        )
+        assert s >= 0.6
+
+    def test_different_proposals(self):
+        s = similarity(
+            "Build water_mining.py optimizer for drilling",
+            "Deploy nuclear_reactor.py to production servers",
+        )
+        assert s < 0.3
+
+    def test_range_0_to_1(self):
+        for a, b in [
+            ("a", "b"), ("Build X.py", "Build X.py"),
+            ("hello world", "hello world foo bar baz"),
+        ]:
+            s = similarity(a, b)
+            assert 0.0 <= s <= 1.0
+
+
+class TestFuzzyDedup:
+    def test_near_duplicate_merges(self, sp):
+        """Near-identical proposals should merge and auto-vote."""
+        r1 = propose("Optimize water_mining.py drilling depth algorithm performance tuning", author="a1", seeds_path=sp)
+        r2 = propose("Optimize water_mining.py drilling depth algorithm performance tweaks", author="a2", seeds_path=sp)
+        # Should return the same proposal
+        assert r1["id"] == r2["id"]
+        # a2 should be auto-voted
+        assert "a2" in r2["votes"]
+        assert r2["vote_count"] == 2
+
+    def test_dissimilar_creates_new(self, sp):
+        """Different proposals should NOT merge."""
+        r1 = propose("Build water_mining.py optimizer for drilling", author="a1", seeds_path=sp)
+        r2 = propose("Deploy nuclear_reactor.py to production servers", author="a2", seeds_path=sp)
+        assert r1["id"] != r2["id"]
+
+    def test_fuzzy_dedup_idempotent_vote(self, sp):
+        """Same author fuzzy-deduping shouldn't double-vote."""
+        r1 = propose("Optimize water_mining.py drilling depth algorithm performance tuning", author="a1", seeds_path=sp)
+        r2 = propose("Optimize water_mining.py drilling depth algorithm performance tweaks", author="a1", seeds_path=sp)
+        assert r2["vote_count"] == 1  # a1 already voted
+
+    def test_exact_duplicate_still_works(self, sp):
+        """Exact duplicate returns existing (hash check before fuzzy)."""
+        text = "Build water_mining.py optimizer for drilling"
+        r1 = propose(text, author="a1", seeds_path=sp)
+        r2 = propose(text, author="a2", seeds_path=sp)
+        assert r1["id"] == r2["id"]
+
+    def test_threshold_boundary(self, sp):
+        """Proposals right at the boundary should create new entries."""
+        # These share 'Build' but have very different targets
+        r1 = propose("Build seed_gate.py validator for proposals", author="a1", seeds_path=sp)
+        r2 = propose("Build nuclear_reactor.py power core system", author="a2", seeds_path=sp)
+        assert r1["id"] != r2["id"]
+
+    def test_fuzzy_dedup_persists(self, sp):
+        """Auto-vote from fuzzy dedup should persist to disk."""
+        propose("Optimize water_mining.py drilling depth algorithm performance tuning", author="a1", seeds_path=sp)
+        propose("Optimize water_mining.py drilling depth algorithm performance tweaks", author="a2", seeds_path=sp)
+        data = load_seeds(sp)
+        p = data["proposals"][0]
+        assert "a2" in p["votes"]
+
+
+class TestSimilarityThreshold:
+    def test_threshold_is_float(self):
+        assert isinstance(_SIMILARITY_THRESHOLD, float)
+
+    def test_threshold_in_range(self):
+        assert 0.0 < _SIMILARITY_THRESHOLD < 1.0

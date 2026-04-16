@@ -482,6 +482,13 @@ class BatchResult:
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
 
+    def summary(self) -> str:
+        """Human-readable one-line summary of batch results."""
+        return (
+            f"{self.stats.passed}/{self.stats.total} passed, "
+            f"{self.stats.junk} junk, {self.stats.failed} failed"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Negation constants
@@ -962,8 +969,7 @@ def compute_score(
     if len(words) >= 15:
         raw += 1.0
     unique = count_unique_targets(text)
-    if unique >= 2:
-        raw += 1.0
+    raw += _multi_target_bonus(unique)
     # Imperative bonus: text that starts with a verb is more actionable
     if verb and _starts_with_verb(text):
         raw += 0.5
@@ -1053,6 +1059,20 @@ _KIND_SCORES: dict[str, float] = {
 }
 
 
+def _multi_target_bonus(unique_count: int) -> float:
+    """Graduated bonus for proposals naming multiple targets.
+
+    More targets = more specific proposal.  Caps at +2.0 raw.
+    """
+    if unique_count >= 4:
+        return 2.0
+    if unique_count >= 3:
+        return 1.5
+    if unique_count >= 2:
+        return 1.0
+    return 0.0
+
+
 def _score_parts(text: str, verb: str | None, target: str | None,
                   target_kind: str) -> dict[str, float]:
     """Internal helper: compute score components without running full validate.
@@ -1073,8 +1093,9 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     if length:
         components["length"] = length
     unique = count_unique_targets(text)
-    if unique >= 2:
-        components["multi_target"] = 1.0
+    bonus = _multi_target_bonus(unique)
+    if bonus:
+        components["multi_target"] = bonus
     if verb and _starts_with_verb(text):
         components["imperative"] = 0.5
     return components
