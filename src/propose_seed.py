@@ -25,6 +25,15 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 SEEDS_FILE = REPO_ROOT / "state" / "seeds.json"
 
+# Stopwords removed from similarity comparison -- common filler
+_SIMILARITY_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
+    "for", "of", "with", "by", "from", "is", "are", "was", "were",
+    "be", "been", "being", "have", "has", "had", "do", "does", "did",
+    "will", "would", "could", "should", "may", "might", "can", "shall",
+    "that", "this", "it", "its", "not", "no", "so", "as", "if", "up",
+})
+
 _DEFAULT_SEEDS = {
     "active": None,
     "queue": [],
@@ -83,6 +92,43 @@ def save_seeds(data, path=None):
 def make_proposal_id(text):
     """Generate a short deterministic proposal ID."""
     return "prop-" + hashlib.sha256(text.encode()).hexdigest()[:8]
+
+
+def _tokenize_for_similarity(text):
+    """Lowercase, split, drop stopwords for similarity comparison."""
+    import re as _re
+    tokens = _re.findall(r"[a-z0-9_./-]+", text.lower())
+    return {t for t in tokens if t not in _SIMILARITY_STOPWORDS and len(t) > 1}
+
+
+def similarity(text_a, text_b):
+    """Compute Jaccard similarity between two proposals (0.0-1.0).
+
+    Tokenizes to lowercase words, drops stopwords, and compares.
+    Concrete targets (filenames, tools) carry high signal because
+    stopword removal leaves them prominent.
+    """
+    set_a = _tokenize_for_similarity(text_a)
+    set_b = _tokenize_for_similarity(text_b)
+    if not set_a or not set_b:
+        return 0.0
+    intersection = set_a & set_b
+    union = set_a | set_b
+    return len(intersection) / len(union)
+
+
+def find_similar(text, proposals, threshold=0.6):
+    """Find proposals similar to *text* above *threshold*.
+
+    Returns list of (proposal_dict, similarity_score) pairs sorted
+    by similarity descending.  Warning-only: callers decide what to do.
+    """
+    results = []
+    for p in proposals:
+        score = similarity(text, p.get("text", ""))
+        if score >= threshold:
+            results.append((p, score))
+    return sorted(results, key=lambda x: x[1], reverse=True)
 
 
 def propose(text, author, context="", tags=None, seeds_path=None):

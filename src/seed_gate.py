@@ -61,7 +61,8 @@ Evolution log:
     PR #304  -- graduated multi-target scoring (2→+1.0, 3→+1.5,
                   4+→+2.0); DRY find_verb_match() via _scan_verbs();
                   similarity() API for near-duplicate detection;
-                  _jaccard() helper.
+                  _jaccard() helper; placeholder-language advisory
+                  (detect_placeholders); BatchResult.summary().
 """
 from __future__ import annotations
 
@@ -313,6 +314,38 @@ _QUESTION_STEM_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Placeholder phrases -- generic language that weakens specificity.
+# Advisory only: these never cause rejection, but signal vagueness.
+# Only flagged when NOT anchored to a detected concrete target.
+# ---------------------------------------------------------------------------
+
+PLACEHOLDER_PHRASES: tuple[str, ...] = (
+    "the module", "the system", "the script", "the tool",
+    "the component", "the service", "the function", "the class",
+    "the config", "the configuration", "the pipeline", "the workflow",
+    "some code", "the code", "a new feature", "a feature",
+    "the feature", "the thing", "the stuff", "the logic",
+    "everything", "something", "the process", "the infrastructure",
+)
+
+_PLACEHOLDER_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(p) for p in PLACEHOLDER_PHRASES) + r")\b",
+    re.I,
+)
+
+
+def detect_placeholders(text: str, has_target: bool = False) -> list[str]:
+    """Return placeholder phrases found in *text*.
+
+    If *has_target* is True (the proposal already names a concrete target),
+    returns empty -- anchored placeholders are not penalized.
+    """
+    if has_target:
+        return []
+    return [m.group() for m in _PLACEHOLDER_RE.finditer(text)]
+
+
+# ---------------------------------------------------------------------------
 # Junk / artifact detection (#12507 + main repo consolidation)
 # ---------------------------------------------------------------------------
 
@@ -485,6 +518,17 @@ class BatchResult:
     passed_items: tuple[tuple[str, dict], ...]
     failed_items: tuple[tuple[str, dict], ...]
     junk_items: tuple[tuple[str, dict], ...]
+
+    def summary(self) -> str:
+        """Return human-readable summary of the batch validation.
+
+        Example: '10 proposals: 7 passed, 2 failed, 1 junk (70.0% pass rate)'
+        """
+        s = self.stats
+        return (
+            f"{s.total} proposals: {s.passed} passed, {s.failed} failed, "
+            f"{s.junk} junk ({s.pass_rate:.1%} pass rate)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -942,7 +986,10 @@ def compute_score(
     target: str | None,
     target_kind: str,
 ) -> float:
-    """Compute a 0.0-1.0 specificity score."""
+    """Compute a 0.0-1.0 specificity score.
+
+    Uses graduated multi-target scoring: 2→+1.0, 3→+1.5, 4+→+2.0.
+    """
     raw = 0.0
     if verb:
         raw += 2.5
@@ -1084,6 +1131,7 @@ def _score_parts(text: str, verb: str | None, target: str | None,
     """Internal helper: compute score components without running full validate.
 
     Returns dict suitable for SeedGateResult.score_parts.
+    Uses graduated multi-target scoring: 2→+1.0, 3→+1.5, 4+→+2.0.
     """
     components: dict[str, float] = {}
     if verb:
@@ -1244,6 +1292,11 @@ def validate_seed(
     advisories: list[str] = []
     if negated:
         advisories.append("negated-intent")
+
+    # -- Placeholder detection (advisory, not suppression) ---
+    placeholders = detect_placeholders(text, has_target=bool(target))
+    if placeholders:
+        advisories.append("placeholder-language")
 
     # -- Rich match info (#12521) ---
     all_verbs = tuple(find_all_verbs(text))
