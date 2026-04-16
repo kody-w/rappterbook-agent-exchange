@@ -1652,3 +1652,686 @@ class TestInflectionInvariants:
         for text in ["Build auth.py", "vibes only", "x"]:
             result = suggest(text)
             assert isinstance(result, list)
+
+
+# ===================================================================
+# PR #288 — Consolidation features
+# ===================================================================
+
+
+class TestNegationDetection:
+    """Tests for contraction expansion and negation-aware verb detection."""
+
+    def test_expand_contractions_basic(self):
+        from seed_gate import _expand_contractions
+        assert "do not" in _expand_contractions("Don't build")
+        assert "will not" in _expand_contractions("Won't deploy")
+        assert "can not" in _expand_contractions("Can't test")
+        assert "should not" in _expand_contractions("Shouldn't refactor")
+
+    def test_expand_contractions_unicode_apostrophe(self):
+        from seed_gate import _expand_contractions
+        assert "do not" in _expand_contractions("Don\u2019t build")
+        assert "can not" in _expand_contractions("Can\u2019t test")
+
+    def test_expand_contractions_preserves_non_contractions(self):
+        from seed_gate import _expand_contractions
+        text = "Build the auth.py module"
+        assert _expand_contractions(text) == text
+
+    def test_is_negated_at_basic(self):
+        from seed_gate import _is_negated_at
+        words = ["do", "not", "deploy"]
+        assert _is_negated_at(words, 2, "do not deploy")
+
+    def test_is_negated_at_never(self):
+        from seed_gate import _is_negated_at
+        words = ["never", "build", "anything"]
+        assert _is_negated_at(words, 1, "never build anything")
+
+    def test_is_negated_at_cannot(self):
+        from seed_gate import _is_negated_at
+        words = ["we", "cannot", "deploy", "this"]
+        assert _is_negated_at(words, 2, "we cannot deploy this")
+
+    def test_is_negated_at_window_3(self):
+        from seed_gate import _is_negated_at
+        # "not" is within 3 words of "deploy" (positions 1-3)
+        words = ["we", "not", "going", "to", "deploy"]
+        assert _is_negated_at(words, 4, "we not going to deploy")
+
+    def test_is_negated_at_too_far(self):
+        from seed_gate import _is_negated_at
+        words = ["not", "a", "b", "c", "deploy"]
+        assert not _is_negated_at(words, 4, "not a b c deploy")
+
+    def test_is_negated_at_first_word(self):
+        from seed_gate import _is_negated_at
+        words = ["build", "auth"]
+        assert not _is_negated_at(words, 0, "build auth")
+
+    def test_not_only_exemption(self):
+        from seed_gate import _is_negated_at
+        words = ["not", "only", "build", "but", "also", "test"]
+        assert not _is_negated_at(words, 2, "not only build but also test")
+
+    def test_not_just_exemption(self):
+        from seed_gate import _is_negated_at
+        words = ["not", "just", "test", "but", "deploy"]
+        assert not _is_negated_at(words, 2, "not just test but deploy")
+
+    def test_not_merely_exemption(self):
+        from seed_gate import _is_negated_at
+        words = ["not", "merely", "refactor"]
+        assert not _is_negated_at(words, 2, "not merely refactor")
+
+
+class TestNegatedValidation:
+    """Negation affects validate_seed() pass/fail decisions."""
+
+    @pytest.mark.parametrize("text", [
+        "Don't deploy auth.py",
+        "We should not build seed_gate.py",
+        "Never test the water_mining.py system",
+        "Can't fix this thermal_control.py issue",
+        "Won't implement the rover.py changes",
+        "Shouldn't refactor water_purifier.py",
+        "Do not optimize atmosphere.py",
+    ])
+    def test_negated_proposals_fail(self, text):
+        r = _vs(text)
+        assert not r.passed, f"Should fail: {text}"
+        assert r.negated, f"Should be negated: {text}"
+        assert "negated" in r.reasons[0].lower()
+        assert r.strength == "rejected"
+
+    @pytest.mark.parametrize("text", [
+        "Not only build but also test seed_gate.py",
+        "Not just deploy, but optimize auth.py",
+        "Not merely fix but refactor water_mining.py",
+    ])
+    def test_not_only_passes(self, text):
+        r = _vs(text)
+        assert r.passed, f"Should pass (not only): {text}"
+        assert not r.negated
+
+    def test_negated_does_not_fallback_to_implied(self):
+        """When explicit verb is negated, tag-implied verbs don't rescue."""
+        r = _vs("Don't build seed_gate.py", tags=["code"])
+        assert not r.passed
+        assert r.negated
+
+    def test_negated_does_not_fallback_to_commit_prefix(self):
+        """feat: prefix doesn't rescue a negated verb in the body."""
+        r = _vs("feat: Do not deploy auth.py and config.yaml to production")
+        assert not r.passed
+        assert r.negated
+
+    def test_negated_result_is_not_junk(self):
+        """Negation rejection is NOT junk — it's a valid rejection reason."""
+        r = _vs("Don't deploy auth.py")
+        assert not r.junk
+        assert not r.passed
+        assert r.negated
+
+    def test_mixed_negated_positive_passes(self):
+        """If there's a non-negated verb after negated ones, it passes."""
+        r = _vs("Don't just read it, build water_mining.py from scratch")
+        assert r.passed
+        assert not r.negated
+        assert r.verb_found == "build"
+
+    def test_negation_suggest_includes_hint(self):
+        from seed_gate import suggest
+        tips = suggest("Don't deploy auth.py")
+        assert any("negation" in t.lower() for t in tips)
+
+
+class TestCommitPrefixStripping:
+    """Tests for conventional commit prefix handling."""
+
+    def test_strip_basic_prefixes(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat: build auth.py")
+        assert body == "build auth.py"
+        assert verb == "build"
+
+    def test_strip_with_scope(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("fix(auth): broken token refresh")
+        assert body == "broken token refresh"
+        assert verb == "fix"
+
+    def test_strip_breaking_change(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("feat!: rewrite authentication module")
+        assert body == "rewrite authentication module"
+
+    def test_no_prefix_passthrough(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("Build seed_gate.py")
+        assert body == "Build seed_gate.py"
+        assert verb is None
+
+    @pytest.mark.parametrize("prefix,expected_verb", [
+        ("feat", "build"), ("fix", "fix"), ("chore", "clean"),
+        ("docs", "document"), ("test", "test"), ("refactor", "refactor"),
+        ("style", "improve"), ("ci", "configure"), ("build", "build"),
+        ("perf", "optimize"), ("revert", "remove"),
+    ])
+    def test_all_commit_types_mapped(self, prefix, expected_verb):
+        from seed_gate import _strip_commit_prefix
+        _, verb = _strip_commit_prefix(f"{prefix}: modify auth.py")
+        assert verb == expected_verb
+
+    def test_commit_prefix_fallback_verb(self):
+        """Commit-prefix implied verb used when body has no explicit verb."""
+        r = _vs("fix: auth.py breaks when token expires during refresh")
+        assert r.passed
+        assert r.verb_found == "fix"
+        assert r.verb_source == "commit-prefix"
+
+    def test_commit_prefix_explicit_verb_wins(self):
+        """Explicit verb in body takes priority over commit-prefix implied verb."""
+        r = _vs("feat: deploy auth.py to production environment")
+        assert r.passed
+        assert r.verb_found == "deploy"
+        assert r.verb_source == "explicit"
+
+    def test_commit_prefix_junk_body_fails(self):
+        """Short body after prefix stripping triggers junk detection."""
+        r = _vs("fix: x")
+        assert not r.passed
+        assert r.junk
+
+    def test_commit_prefix_case_insensitive(self):
+        from seed_gate import _strip_commit_prefix
+        body, verb = _strip_commit_prefix("FEAT: build something new")
+        assert body == "build something new"
+        assert verb == "build"
+
+
+class TestVerbMatch:
+    """Tests for VerbMatch dataclass and find_verb_with_position()."""
+
+    def test_find_explicit_verb(self):
+        from seed_gate import find_verb_with_position, VerbMatch
+        vm = find_verb_with_position("Build seed_gate.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "explicit"
+
+    def test_find_inflected_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("Building seed_gate.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.source == "inflected"
+
+    def test_find_phrasal_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("Set up the CI pipeline for auth.py")
+        assert vm is not None
+        assert vm.verb == "set up"
+        assert vm.source == "phrasal"
+
+    def test_find_no_verb(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("The auth module is broken")
+        assert vm is None
+
+    def test_position_non_initial(self):
+        from seed_gate import find_verb_with_position
+        vm = find_verb_with_position("We should build auth.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.position == 2
+
+    def test_verb_match_str(self):
+        from seed_gate import VerbMatch
+        vm = VerbMatch(verb="build", position=0, source="explicit")
+        s = str(vm)
+        assert "build" in s
+        assert "pos=0" in s
+        assert "explicit" in s
+
+    def test_verb_match_negated_str(self):
+        from seed_gate import VerbMatch
+        vm = VerbMatch(verb="deploy", position=2, source="explicit", negated=True)
+        assert "NEGATED" in str(vm)
+
+    def test_limit_parameter(self):
+        from seed_gate import find_verb_with_position
+        text = "The long preamble about various topics... Build auth.py"
+        vm = find_verb_with_position(text, limit=10)
+        assert vm is None  # "Build" is past the limit
+
+
+class TestScoreBreakdown:
+    """Tests for ScoreBreakdown dataclass and score_breakdown()."""
+
+    def test_basic_breakdown(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py")
+        assert bd.verb == 2.5
+        assert bd.target == 4.0
+        assert bd.target_kind == "file"
+        assert bd.imperative > 0
+        assert bd.raw == bd.verb + bd.target + bd.length + bd.multi_target + bd.imperative
+        assert 0.0 <= bd.normalized <= 1.0
+
+    def test_no_verb_no_target(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Something abstract and vague")
+        assert bd.verb == 0.0
+        assert bd.target == 0.0
+
+    def test_multi_target_bonus(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py and deploy config.yaml")
+        assert bd.multi_target > 0
+
+    def test_length_bonus_8_words(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build the auth.py module with proper error handling support")
+        assert bd.length >= 0.5
+
+    def test_length_bonus_15_words(self):
+        from seed_gate import score_breakdown
+        text = "Build the auth.py module with proper error handling and logging support for the production environment deployment process"
+        bd = score_breakdown(text)
+        assert bd.length >= 1.0
+
+    def test_to_dict(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py")
+        d = bd.to_dict()
+        assert isinstance(d, dict)
+        assert "verb" in d
+        assert "target" in d
+        assert "normalized" in d
+        assert "target_kind" in d
+
+    def test_auto_detect_when_args_omitted(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py")
+        assert bd.verb == 2.5  # auto-detected "build"
+        assert bd.target == 4.0  # auto-detected "auth.py"
+
+    def test_no_auto_detect_with_explicit_args(self):
+        from seed_gate import score_breakdown
+        bd = score_breakdown("Build auth.py", verb=None, target=None, _auto_detect=False)
+        assert bd.verb == 0.0
+        assert bd.target == 0.0
+
+    def test_compute_score_delegates_to_breakdown(self):
+        """compute_score() and score_breakdown() must agree."""
+        from seed_gate import compute_score, score_breakdown
+        text = "Build auth.py"
+        score = compute_score(text, "build", "auth.py", "file")
+        bd = score_breakdown(text, "build", "auth.py", "file")
+        assert abs(score - bd.normalized) < 0.001
+
+    def test_imperative_bonus(self):
+        from seed_gate import score_breakdown
+        bd_imperative = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        bd_non_imperative = score_breakdown("We should build auth.py", "build", "auth.py", "file")
+        assert bd_imperative.imperative > bd_non_imperative.imperative
+
+    def test_target_kind_scores_vary(self):
+        from seed_gate import score_breakdown
+        bd_file = score_breakdown("Build auth.py", "build", "auth.py", "file")
+        bd_disc = score_breakdown("Fix #12345", "fix", "#12345", "discussion")
+        assert bd_file.target > bd_disc.target
+
+
+class TestExplainAPI:
+    """Tests for explain() diagnostic output."""
+
+    def test_explain_pass(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "PASS" in output
+        assert "build" in output.lower()
+        assert "seed_gate.py" in output
+
+    def test_explain_fail_no_verb(self):
+        from seed_gate import explain
+        output = explain("The auth module is very broken")
+        assert "FAIL" in output
+
+    def test_explain_negated(self):
+        from seed_gate import explain
+        output = explain("Don't deploy auth.py")
+        assert "FAIL" in output
+        assert "negat" in output.lower()
+
+    def test_explain_strength(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "strong" in output
+
+    def test_explain_confidence(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "confidence=" in output
+
+    def test_explain_imperative(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "imperative" in output
+
+    def test_explain_score_line(self):
+        from seed_gate import explain
+        output = explain("Build seed_gate.py")
+        assert "Score:" in output
+        assert "verb" in output
+        assert "target" in output
+
+    def test_explain_advisory(self):
+        from seed_gate import explain
+        output = explain("Build something useful for the platform", tags=["theme"])
+        # Exempt tag + verb but no target → advisory
+        assert "PASS" in output
+
+    def test_explain_commit_prefix(self):
+        from seed_gate import explain
+        output = explain("fix: auth.py token refresh fails on expired tokens")
+        assert "PASS" in output
+        assert "commit-prefix" in output
+
+    def test_explain_returns_string(self):
+        from seed_gate import explain
+        assert isinstance(explain("Build auth.py"), str)
+        assert isinstance(explain("vibes only"), str)
+
+
+class TestAbbreviatedReferences:
+    """Tests for abbreviated reference false-positive filtering."""
+
+    @pytest.mark.parametrize("abbrev", [
+        "fig.1", "sec.2", "no.5", "vol.3", "eq.7", "ch.4", "pt.2",
+        "ex.1", "app.3", "Fig.10", "SEC.5",
+    ])
+    def test_abbreviated_refs_not_files(self, abbrev):
+        from seed_gate import _is_false_file_match
+        assert _is_false_file_match(abbrev), f"{abbrev} should be a false file match"
+
+    def test_real_files_not_filtered(self):
+        from seed_gate import _is_false_file_match
+        assert not _is_false_file_match("auth.py")
+        assert not _is_false_file_match("config.yaml")
+        assert not _is_false_file_match("seed_gate.py")
+
+    def test_abbreviated_refs_not_targets(self):
+        """Abbreviated refs should not count as targets in find_target."""
+        from seed_gate import find_target
+        target, kind = find_target("See fig.1 for the diagram explanation")
+        # Should NOT find fig.1 as a file target
+        assert target != "fig.1"
+
+    def test_abbreviated_refs_dont_inflate_score(self):
+        """Abbreviated refs should not count in unique target counting."""
+        from seed_gate import count_unique_targets
+        count_with_abbrev = count_unique_targets("Build fig.1 and sec.2 improvements")
+        assert count_with_abbrev == 0  # Neither should count
+
+
+class TestEnrichedSeedGateResult:
+    """Tests for new fields on SeedGateResult."""
+
+    def test_target_kind_populated(self):
+        r = _vs("Build seed_gate.py")
+        assert r.target_kind == "file"
+
+    def test_target_kind_path(self):
+        r = _vs("Deploy src/auth/handler.py")
+        assert r.target_kind in ("file", "path")
+
+    def test_target_kind_tool(self):
+        r = _vs("Fix state_io for atomic writes")
+        assert r.target_kind in ("tool", "module")
+
+    def test_target_kind_discussion(self):
+        r = _vs("Review #12345 before merging")
+        assert r.target_kind == "discussion"
+
+    def test_verb_source_explicit(self):
+        r = _vs("Build seed_gate.py")
+        assert r.verb_source == "explicit"
+
+    def test_verb_source_inflected(self):
+        r = _vs("Building seed_gate.py from scratch")
+        assert r.verb_source == "inflected"
+
+    def test_verb_source_tag_implied(self):
+        r = _vs("The seed_gate.py module needs work", tags=["code"])
+        assert r.verb_source == "tag-implied"
+
+    def test_verb_source_commit_prefix(self):
+        r = _vs("fix: auth.py breaks when token expires during refresh")
+        assert r.verb_source == "commit-prefix"
+
+    def test_verb_position_initial(self):
+        r = _vs("Build seed_gate.py")
+        assert r.verb_position == 0
+
+    def test_verb_position_non_initial(self):
+        r = _vs("We should build seed_gate.py")
+        assert r.verb_position > 0
+
+    def test_is_imperative_true(self):
+        r = _vs("Build seed_gate.py")
+        assert r.is_imperative
+
+    def test_is_imperative_false(self):
+        r = _vs("We should build seed_gate.py")
+        assert not r.is_imperative
+
+    def test_strength_strong(self):
+        r = _vs("Build seed_gate.py with full test coverage")
+        assert r.strength == "strong"
+
+    def test_strength_moderate(self):
+        r = _vs("Fix issue #12345 before the next release cycle")
+        assert r.strength in ("moderate", "strong")
+
+    def test_strength_rejected(self):
+        r = _vs("vibes only")
+        assert r.strength == "rejected"
+
+    def test_negated_field_false_when_no_negation(self):
+        r = _vs("Build seed_gate.py")
+        assert not r.negated
+
+    def test_negated_field_true_when_negated(self):
+        r = _vs("Don't deploy auth.py")
+        assert r.negated
+
+    def test_to_dict_includes_new_fields(self):
+        r = _vs("Build seed_gate.py")
+        d = r.to_dict()
+        assert "target_kind" in d
+        assert "verb_source" in d
+        assert "verb_position" in d
+        assert "negated" in d
+        assert "strength" in d
+        assert "is_imperative" in d
+        assert "score_breakdown" in d
+
+    def test_to_dict_breakdown_structure(self):
+        r = _vs("Build seed_gate.py")
+        d = r.to_dict()
+        bd = d["score_breakdown"]
+        assert "verb" in bd
+        assert "target" in bd
+        assert "normalized" in bd
+
+    def test_breakdown_property(self):
+        r = _vs("Build seed_gate.py")
+        assert r.breakdown is not None
+        assert r.breakdown.verb == 2.5
+
+
+class TestFindFirstNonNegatedVerb:
+    """Tests for _find_first_non_negated_verb internal helper."""
+
+    def test_positive_verb(self):
+        from seed_gate import _find_first_non_negated_verb
+        verb, neg = _find_first_non_negated_verb("Build auth.py")
+        assert verb == "build"
+        assert not neg
+
+    def test_negated_verb(self):
+        from seed_gate import _find_first_non_negated_verb
+        verb, neg = _find_first_non_negated_verb("Do not build auth.py")
+        assert verb is None
+        assert neg
+
+    def test_negated_then_positive(self):
+        from seed_gate import _find_first_non_negated_verb
+        # "deploy" is negated by "not", but "build" is not
+        verb, neg = _find_first_non_negated_verb("Do not deploy first, then build auth.py")
+        assert verb == "build"
+        assert neg  # there was a negated verb before
+
+    def test_no_verbs(self):
+        from seed_gate import _find_first_non_negated_verb
+        verb, neg = _find_first_non_negated_verb("The auth module is broken")
+        assert verb is None
+        assert not neg
+
+    def test_contraction_negation(self):
+        from seed_gate import _find_first_non_negated_verb
+        verb, neg = _find_first_non_negated_verb("Won't deploy auth.py")
+        assert verb is None
+        assert neg
+
+    def test_never_negation(self):
+        from seed_gate import _find_first_non_negated_verb
+        verb, neg = _find_first_non_negated_verb("Never test the auth.py module")
+        assert verb is None
+        assert neg
+
+    def test_cannot_negation(self):
+        from seed_gate import _find_first_non_negated_verb
+        verb, neg = _find_first_non_negated_verb("We cannot deploy auth.py now")
+        assert verb is None
+        assert neg
+
+
+class TestConsolidationIntegration:
+    """Integration tests verifying all consolidation features work together."""
+
+    def test_commit_prefix_with_negation_in_body(self):
+        """feat: + negated body = fail (negation wins)."""
+        r = _vs("feat: do not deploy auth.py to production server")
+        assert not r.passed
+
+    def test_commit_prefix_with_positive_body(self):
+        """feat: + positive body = pass with prefix fallback verb."""
+        r = _vs("fix: auth.py token refresh breaks on expired sessions")
+        assert r.passed
+        assert r.verb_found == "fix"
+        assert r.verb_source == "commit-prefix"
+
+    def test_explain_of_negated_with_prefix(self):
+        from seed_gate import explain
+        out = explain("feat: Don't deploy auth.py to production server")
+        assert "FAIL" in out
+        assert "negat" in out.lower()
+
+    def test_breakdown_in_explain_output(self):
+        from seed_gate import explain
+        out = explain("Build seed_gate.py and auth.py")
+        assert "Score:" in out
+        assert "multi-target" in out.lower() or "verb" in out.lower()
+
+    def test_full_enriched_result(self):
+        r = _vs("Build seed_gate.py with comprehensive test suite")
+        assert r.passed
+        assert r.verb_found == "build"
+        assert r.target_found == "seed_gate.py"
+        assert r.target_kind == "file"
+        assert r.verb_source == "explicit"
+        assert r.verb_position == 0
+        assert r.is_imperative
+        assert r.strength in ("strong", "moderate")
+        assert r.confidence in ("high", "medium")
+        assert not r.negated
+        assert r.breakdown is not None
+
+    def test_validate_dict_includes_all_new_fields(self):
+        d = _v("Build seed_gate.py")
+        for key in ["target_kind", "verb_source", "verb_position",
+                     "negated", "strength", "is_imperative", "score_breakdown"]:
+            assert key in d, f"Missing key: {key}"
+
+    def test_backward_compat_dict_shape(self):
+        """Original dict keys still present for backward compatibility."""
+        d = _v("Build seed_gate.py")
+        for key in ["passed", "reasons", "score", "verb_found",
+                     "target_found", "junk", "advisory", "confidence",
+                     "all_verbs", "all_targets"]:
+            assert key in d, f"Missing original key: {key}"
+
+    def test_abbreviated_refs_in_real_proposal(self):
+        """Real proposal with abbreviated refs should not miscount targets."""
+        r = _vs("Build the diagram renderer as described in fig.1 and sec.2 of the spec")
+        # fig.1 and sec.2 should not count as file targets
+        assert r.target_found != "fig.1"
+        assert r.target_found != "sec.2"
+
+    def test_score_breakdown_matches_score(self):
+        """The score in SeedGateResult must match breakdown.normalized."""
+        r = _vs("Build seed_gate.py")
+        assert r.breakdown is not None
+        assert abs(r.score - r.breakdown.normalized) < 0.001
+
+
+class TestConsolidationPropertyInvariants:
+    """Property-based invariants for consolidated features."""
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't deploy auth.py", "Fix bugs",
+        "feat: build seed_gate.py", "vibes only",
+        "Not only build but also test seed_gate.py",
+    ])
+    def test_strength_always_valid(self, text):
+        r = _vs(text)
+        assert r.strength in ("strong", "moderate", "weak", "rejected")
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't deploy auth.py", "Fix bugs",
+    ])
+    def test_negated_implies_not_passed(self, text):
+        r = _vs(text)
+        if r.negated:
+            assert not r.passed
+
+    @pytest.mark.parametrize("text", [
+        "Build auth.py", "Don't deploy auth.py", "Fix bugs",
+        "feat: build seed_gate.py", "vibes only",
+    ])
+    def test_to_dict_always_serializable(self, text):
+        import json
+        r = _vs(text)
+        json.dumps(r.to_dict())
+
+    def test_verb_position_minus_one_when_no_verb(self):
+        r = _vs("vibes only")
+        assert r.verb_position == -1
+
+    def test_verb_source_empty_when_no_verb(self):
+        r = _vs("vibes only")
+        assert r.verb_source == ""
+
+    def test_is_imperative_false_when_no_verb(self):
+        r = _vs("vibes only")
+        assert not r.is_imperative
+
+    def test_negated_false_when_junk(self):
+        r = _vs("x")
+        assert r.junk
+        assert not r.negated
