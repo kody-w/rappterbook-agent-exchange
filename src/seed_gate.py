@@ -1,9 +1,9 @@
 """seed_gate.py -- canonical specificity validator for seed proposals.
 
 Consolidates ideas from 6 independent implementations (#12503, #12505,
-#12507, #12511, #12521, #12530) and PRs #245, #246, #247 into one
-validator that checks for an *action verb* plus a *concrete target*
-(filename, tool name, path, or discussion reference).
+#12507, #12511, #12521, #12530) and PRs #245-#288 into one validator
+that checks for an *action verb* plus a *concrete target* (filename,
+tool name, path, or discussion reference).
 
 Two public APIs -- pick whichever suits the call-site:
 
@@ -29,6 +29,12 @@ Two public APIs -- pick whichever suits the call-site:
     junk   = is_junk(text)            # str (reason) or empty
     score  = compute_score(text, verb, target, kind)  # float
 
+    # Diagnostic APIs
+    vm     = find_verb_match(text)    # VerbMatch | None
+    bd     = score_breakdown(text)    # dict[str, float]
+    diag   = explain(text)            # str
+    tips   = suggest(text)            # list[str]
+
 Evolution log:
     PR #237  -- initial canonical validator (165 tests)
     PR #242  -- contract alignment with propose_seed.py
@@ -47,8 +53,15 @@ Evolution log:
                   imperative scoring bonus.
     PR #272  -- diagnostic APIs: explain(), score_breakdown(),
                   find_verb_with_position(); commit-prefix handling
-                  (fix: build → accepted); _KIND_SCORES module constant;
+                  (fix: build -> accepted); _KIND_SCORES module constant;
                   "redesign" verb.
+    PR #289  -- canonical consolidation of 8 agent PRs (#272-#279):
+                  negation-aware verb detection (VerbMatch dataclass,
+                  contraction-preserving tokenizer, per-candidate
+                  negation with clause-boundary resets); abbreviation-
+                  ref false-positive filter; enriched SeedGateResult
+                  (target_kind, verb_position, is_imperative, strength);
+                  --explain CLI flag.
 """
 from __future__ import annotations
 
@@ -189,6 +202,49 @@ for _inf_phrase, _inf_canonical in _INFLECTION_MAP.items():
 CONST_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
 
 # ---------------------------------------------------------------------------
+# Negation detection (consolidated from PRs #275-#279)
+#
+# Design: per-candidate negation with contraction-preserving tokenizer.
+# A verb is negated if a negation word appears within WINDOW tokens
+# before it, with no clause boundary in between. Only punctuation
+# and "but" reset the scope (rubber-duck advised: minimal boundaries).
+# ---------------------------------------------------------------------------
+
+_NEGATION_WORDS: frozenset[str] = frozenset({
+    "don't", "dont", "doesn't", "doesnt", "didn't", "didnt",
+    "won't", "wont", "wouldn't", "wouldnt", "shouldn't", "shouldnt",
+    "can't", "cant", "cannot", "couldn't", "couldnt",
+    "never", "not", "stop", "avoid", "prevent", "without",
+})
+
+# Only punctuation and "but" reset negation scope (keep it conservative)
+_CLAUSE_BOUNDARY_WORDS: frozenset[str] = frozenset({"but"})
+
+# Tokenizer that preserves contractions and marks clause boundaries
+_TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z']*|[,;]")
+
+
+def _tokenize_for_negation(text: str) -> list[str]:
+    """Tokenize preserving contractions (don't, can't) and punctuation boundaries."""
+    return [t.lower() for t in _TOKEN_RE.findall(text)]
+
+
+def _is_negated(tokens: list[str], index: int, window: int = 3) -> bool:
+    """Check if the token at *index* is negated within *window* tokens back.
+
+    Clause boundaries (comma, semicolon, 'but') reset the negation scope.
+    """
+    start = max(0, index - window)
+    for i in range(index - 1, start - 1, -1):
+        tok = tokens[i]
+        if tok in (",", ";") or tok in _CLAUSE_BOUNDARY_WORDS:
+            return False
+        if tok in _NEGATION_WORDS:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Target regex patterns (compiled once)
 # ---------------------------------------------------------------------------
 
@@ -203,12 +259,16 @@ _FALSE_FILE_MATCHES: frozenset[str] = frozenset({
 # Version strings: 2.0.1, v1.2.3, 1.0 -- should NOT match as file targets
 _VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[+.-]\w+)?$")
 
+# Abbreviation references: fig.1, sec.2, no.5, ch.3, vol.2, pt.1, eq.4
+# Also handles space: "fig. 1", "sec. 2"
+_ABBREV_REF_RE = re.compile(
+    r"\b(?:fig|sec|no|ch|vol|pt|eq|tbl|app)\.\s?\d", re.I,
+)
+
 # Environment variable references: $STATE_DIR, ${GITHUB_TOKEN}
 ENV_VAR_RE = re.compile(r"\$\{?[A-Z][A-Z0-9_]+\}?")
 
 # Conventional commit prefix: fix:, feat(scope):, chore!: etc.
-# Case-sensitive — only matches lowercase prefixes to avoid stripping
-# natural prose like "Build: the reactor".
 _COMMIT_PREFIX_RE = re.compile(
     r"^(?:fix|feat|chore|docs|style|refactor|perf|test|build|ci|revert)"
     r"(?:\([^)]*\))?!?:\s*"
@@ -297,8 +357,6 @@ _QUESTION_STEM_RE = re.compile(
 # Junk / artifact detection (#12507 + main repo consolidation)
 # ---------------------------------------------------------------------------
 
-# Core junk signals -- note: ^[a-z] is handled separately to allow
-# verb-starting lowercase text (the old pattern rejected "build seed_gate.py")
 _JUNK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*[`|,()\-]"),
     re.compile(r"^\d+\.\s"),
@@ -307,31 +365,26 @@ _JUNK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*$"),
 ]
 
-# Lowercase start -- only junk if first word is NOT an action verb
-# and text does NOT start with a known file
 _LOWERCASE_START_RE = re.compile(r"^[a-z]")
 _FILE_START_RE = re.compile(r"^[\w./-]*\w+\.\w{1,8}\b")
 
 _JUNK_EXCEPTION_RE = re.compile(r"^run_\w")
 
-# Two-tier artifact signals (rubber-duck advised split):
-# Hard: always fail -- parser/extraction garbage
 _HARD_ARTIFACT_SIGNALS: tuple[str, ...] = (
     "parser grabbed", "parsing artifact", "outside that grammar",
     "the fragment was", "`) and ", "` has `",
 )
 
-# Soft: only fail when no verb+target to redeem
 _SOFT_ARTIFACT_SIGNALS: tuple[str, ...] = (
     "the regex", "the parser", "the fragment", "substring",
     "` and `", "` is ",
 )
 
-# Backward-compatible flat tuple (union of both tiers)
+# Backward-compatible flat tuple
 ARTIFACT_SIGNALS: tuple[str, ...] = _HARD_ARTIFACT_SIGNALS + _SOFT_ARTIFACT_SIGNALS
 
 # ---------------------------------------------------------------------------
-# Auto-discovered modules from src/*.py  (avoids hand-maintaining 100+ list)
+# Auto-discovered modules from src/*.py
 # ---------------------------------------------------------------------------
 
 def _discover_modules() -> frozenset[str]:
@@ -353,6 +406,32 @@ KNOWN_MODULES: frozenset[str] = _discover_modules()
 _KNOWN_MODULES_LOWER: frozenset[str] = frozenset(m.lower() for m in KNOWN_MODULES)
 
 # ---------------------------------------------------------------------------
+# VerbMatch dataclass (consolidated from PRs #273-#279)
+# ---------------------------------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class VerbMatch:
+    """Structured result from negation-aware verb detection.
+
+    Attributes:
+        verb:     canonical base form (e.g. "build")
+        position: 0-based word index in the original text
+        source:   where the verb came from: "text", "tag", "question"
+        negated:  whether the verb is preceded by a negation word
+        original: the actual token found in text (e.g. "builds", "setting")
+    """
+    verb: str
+    position: int
+    source: str = "text"
+    negated: bool = False
+    original: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.original:
+            object.__setattr__(self, "original", self.verb)
+
+
+# ---------------------------------------------------------------------------
 # Dataclass results
 # ---------------------------------------------------------------------------
 
@@ -369,6 +448,9 @@ class SeedGateResult:
     advisory: str = ""
     all_verbs: tuple = ()
     all_targets: tuple = ()
+    target_kind: str = ""
+    verb_position: int | None = None
+    negated: bool = False
 
     @property
     def verb(self) -> str:
@@ -389,6 +471,20 @@ class SeedGateResult:
             return "medium"
         return "low"
 
+    @property
+    def is_imperative(self) -> bool:
+        """True if the proposal starts with an action verb (imperative mood)."""
+        return self.verb_position == 0
+
+    @property
+    def strength(self) -> str:
+        """Tier label: strong (>=0.65), moderate (>=0.35), weak (<0.35)."""
+        if self.score >= 0.65:
+            return "strong"
+        if self.score >= 0.35:
+            return "moderate"
+        return "weak"
+
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
@@ -401,6 +497,11 @@ class SeedGateResult:
             "confidence": self.confidence,
             "all_verbs": list(self.all_verbs),
             "all_targets": [list(t) for t in self.all_targets],
+            "target_kind": self.target_kind,
+            "verb_position": self.verb_position,
+            "is_imperative": self.is_imperative,
+            "strength": self.strength,
+            "negated": self.negated,
         }
 
 
@@ -445,12 +546,15 @@ class BatchResult:
 def _is_false_file_match(match_text: str) -> bool:
     """Return True if a FILE_RE match is actually a false positive.
 
-    Catches abbreviations (e.g., i.e.) and bare version strings (2.0.1).
+    Catches abbreviations (e.g., i.e.), version strings (2.0.1), and
+    abbreviation references (fig.1, sec.2).
     """
     stripped = match_text.lower().rstrip(".")
     if stripped in _FALSE_FILE_MATCHES:
         return True
     if _VERSION_RE.match(match_text):
+        return True
+    if _ABBREV_REF_RE.match(match_text):
         return True
     return False
 
@@ -492,72 +596,126 @@ def _starts_with_file(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Negation-aware verb scanning (single source of truth)
+# ---------------------------------------------------------------------------
+
+def _scan_verbs_negation_aware(text: str, limit: int = 0) -> list[VerbMatch]:
+    """Scan text for ALL verb candidates with negation annotations.
+
+    Returns a list of VerbMatch objects for every verb found, marking
+    each as negated or not. This is the single source of truth for
+    verb detection — find_verb, find_all_verbs, find_verb_match, and
+    find_verb_with_position all delegate here.
+    """
+    check = text[:limit] if limit else text
+    tokens = _tokenize_for_negation(check)
+    # Also get space-split words for position tracking
+    words = check.split()
+    results: list[VerbMatch] = []
+    seen: set[str] = set()
+
+    # Map token indices to word indices for position tracking
+    # We rebuild the token list from words to get positions
+    word_tokens: list[tuple[str, int]] = []  # (lowercase_token, word_index)
+    for wi, w in enumerate(words):
+        sub_tokens = _TOKEN_RE.findall(w)
+        for st in sub_tokens:
+            word_tokens.append((st.lower(), wi))
+
+    i = 0
+    while i < len(word_tokens):
+        tok, word_idx = word_tokens[i]
+        negated = _is_negated([t for t, _ in word_tokens], i)
+
+        # Check phrasal verbs first
+        if i + 1 < len(word_tokens):
+            next_tok, _ = word_tokens[i + 1]
+            if tok in _PHRASAL_FIRST and next_tok in _PHRASAL_FIRST[tok]:
+                canonical = _PHRASAL_FIRST[tok][next_tok]
+                if canonical not in seen:
+                    seen.add(canonical)
+                    results.append(VerbMatch(
+                        verb=canonical, position=word_idx,
+                        source="text", negated=negated, original=tok,
+                    ))
+                i += 2
+                continue
+            if tok in _PHRASAL_INFLECTED and next_tok in _PHRASAL_INFLECTED[tok]:
+                canonical = _PHRASAL_INFLECTED[tok][next_tok]
+                if canonical not in seen:
+                    seen.add(canonical)
+                    results.append(VerbMatch(
+                        verb=canonical, position=word_idx,
+                        source="text", negated=negated, original=tok,
+                    ))
+                i += 2
+                continue
+
+        # Single-word verb
+        clean = tok.rstrip(":,;!?.")
+        if clean in ACTION_VERBS:
+            if clean not in seen:
+                seen.add(clean)
+                results.append(VerbMatch(
+                    verb=clean, position=word_idx,
+                    source="text", negated=negated, original=tok,
+                ))
+        elif clean in _INFLECTION_MAP:
+            base = _INFLECTION_MAP[clean]
+            if base not in seen:
+                seen.add(base)
+                results.append(VerbMatch(
+                    verb=base, position=word_idx,
+                    source="text", negated=negated, original=tok,
+                ))
+        i += 1
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Public composable helpers
 # ---------------------------------------------------------------------------
 
 def find_verb(text: str, limit: int = 0) -> str | None:
-    """Return the first action verb found in *text*, or None.
+    """Return the first non-negated action verb in *text*, or None.
 
-    Checks base forms first, then inflected forms (builds->build,
-    creating->create, deployed->deploy).  Phrasal verbs and their
-    inflected forms (setting up->set up) are also recognized.
+    If all verbs are negated, returns None. Uses the negation-aware
+    scanner as single source of truth.
     """
-    search_text = text[:limit] if limit else text
-    words = re.findall(r"[a-zA-Z]+", search_text.lower())
-    for i, word in enumerate(words):
-        if i + 1 < len(words):
-            next_word = words[i + 1]
-            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
-                return _PHRASAL_FIRST[word][next_word]
-            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
-                return _PHRASAL_INFLECTED[word][next_word]
-        if word in ACTION_VERBS:
-            return word
-        if word in _INFLECTION_MAP:
-            return _INFLECTION_MAP[word]
+    matches = _scan_verbs_negation_aware(text, limit=limit)
+    for m in matches:
+        if not m.negated:
+            return m.verb
     return None
+
+
+def find_verb_match(text: str, limit: int = 0) -> VerbMatch | None:
+    """Return a VerbMatch for the first non-negated verb, or None.
+
+    If all verbs are negated, returns None. For the full list of
+    all verb candidates (including negated), use find_all_verb_matches().
+    """
+    matches = _scan_verbs_negation_aware(text, limit=limit)
+    for m in matches:
+        if not m.negated:
+            return m
+    return None
+
+
+def find_all_verb_matches(text: str) -> list[VerbMatch]:
+    """Return all verb candidates with negation annotations."""
+    return _scan_verbs_negation_aware(text)
 
 
 def find_all_verbs(text: str) -> list[str]:
     """Return all action verbs in *text* (deduped, order-preserving).
 
     Recognizes base forms, inflected forms, and phrasal verbs.
-    Always returns the canonical (base) form.
+    Always returns the canonical (base) form. Includes negated verbs
+    for completeness (they're still verbs, just negated).
     """
-    words = re.findall(r"[a-zA-Z]+", text.lower())
-    seen: set[str] = set()
-    result: list[str] = []
-    skip_next = False
-    for i, word in enumerate(words):
-        if skip_next:
-            skip_next = False
-            continue
-        if i + 1 < len(words):
-            next_word = words[i + 1]
-            if word in _PHRASAL_FIRST and next_word in _PHRASAL_FIRST[word]:
-                v = _PHRASAL_FIRST[word][next_word]
-                if v not in seen:
-                    seen.add(v)
-                    result.append(v)
-                skip_next = True
-                continue
-            if word in _PHRASAL_INFLECTED and next_word in _PHRASAL_INFLECTED[word]:
-                v = _PHRASAL_INFLECTED[word][next_word]
-                if v not in seen:
-                    seen.add(v)
-                    result.append(v)
-                skip_next = True
-                continue
-        if word in ACTION_VERBS:
-            if word not in seen:
-                seen.add(word)
-                result.append(word)
-        elif word in _INFLECTION_MAP:
-            base = _INFLECTION_MAP[word]
-            if base not in seen:
-                seen.add(base)
-                result.append(base)
-    return result
+    return [m.verb for m in _scan_verbs_negation_aware(text)]
 
 
 def find_target(text: str) -> tuple[str, str]:
@@ -637,7 +795,6 @@ def is_junk(text: str, limit: int = 0) -> str:
     # Smart lowercase handling: verb-starting or file-starting text is OK
     if _LOWERCASE_START_RE.match(stripped):
         if not _starts_with_verb(stripped) and not _starts_with_file(stripped):
-            # Fallback: strip commit prefix and retry (e.g. "fix: build seed_gate.py")
             without_prefix = _strip_commit_prefix(stripped)
             if without_prefix == stripped or (
                 not _starts_with_verb(without_prefix) and not _starts_with_file(without_prefix)
@@ -722,7 +879,6 @@ def count_unique_targets(text: str) -> int:
         c = canonicalize_target(t)
         if c:
             canonical.append(c)
-    # Substring dedup: remove shorter forms that are substrings of longer ones
     canonical_sorted = sorted(set(canonical), key=len, reverse=True)
     unique: list[str] = []
     for c in canonical_sorted:
@@ -758,19 +914,23 @@ def compute_score(
 
 
 def suggest(text: str, tags: list = None) -> list[str]:
-    """Return actionable suggestions for improving a rejected proposal.
-
-    Thin helper over validate_seed() -- no contract change, just
-    human-readable feedback for the rejection reasons.
-    """
+    """Return actionable suggestions for improving a rejected proposal."""
     result = validate_seed(text, tags)
     if result.passed:
         return []
     suggestions: list[str] = []
     if not result.verb_found:
-        suggestions.append(
-            "Start with an action verb (build, fix, test, deploy, refactor, ...)"
-        )
+        # Check if there are negated verbs
+        all_matches = _scan_verbs_negation_aware(text)
+        if any(m.negated for m in all_matches):
+            suggestions.append(
+                "Verb found but negated (don't/never/cannot) -- "
+                "rephrase as a positive action"
+            )
+        else:
+            suggestions.append(
+                "Start with an action verb (build, fix, test, deploy, refactor, ...)"
+            )
     if not result.target_found and not (frozenset(t.lower() for t in (tags or [])) & EXEMPT_TAGS):
         suggestions.append(
             "Name a concrete target: a filename (auth.py), tool (state_io), "
@@ -795,7 +955,7 @@ _normalize_verb = lambda word: _INFLECTION_MAP.get(word)
 
 
 # ---------------------------------------------------------------------------
-# Diagnostic APIs (PR #272)
+# Diagnostic APIs (PR #272, enriched PR #289)
 # ---------------------------------------------------------------------------
 
 def find_verb_with_position(text: str, limit: int = 0) -> tuple[str | None, int | None]:
@@ -803,27 +963,11 @@ def find_verb_with_position(text: str, limit: int = 0) -> tuple[str | None, int 
 
     *word_index* is the 0-based position of the matched word in text.split().
     For phrasal verbs the index is the position of the head word.
+    Only returns non-negated verbs (consistent with find_verb).
     """
-    check = text[:limit] if limit else text
-    words = check.split()
-    if not words:
-        return (None, None)
-    # Pass 1: phrasal verbs (highest specificity)
-    for i, w in enumerate(words[:-1]):
-        lo = w.lower().rstrip(":,;!?.")
-        nxt = words[i + 1].lower()
-        if lo in _PHRASAL_FIRST and nxt in _PHRASAL_FIRST[lo]:
-            return (_PHRASAL_FIRST[lo][nxt], i)
-        if lo in _PHRASAL_INFLECTED and nxt in _PHRASAL_INFLECTED[lo]:
-            return (_PHRASAL_INFLECTED[lo][nxt], i)
-    # Pass 2: single-word verbs
-    for i, w in enumerate(words):
-        lo = w.lower().rstrip(":,;!?.")
-        if lo in ACTION_VERBS:
-            return (lo, i)
-        base = _INFLECTION_MAP.get(lo)
-        if base:
-            return (base, i)
+    vm = find_verb_match(text, limit=limit)
+    if vm:
+        return (vm.verb, vm.position)
     return (None, None)
 
 
@@ -868,8 +1012,7 @@ def score_breakdown(text: str, tags: list = None) -> dict[str, float]:
 def explain(text: str, tags: list = None) -> str:
     """Return a human-readable diagnostic string for a proposal.
 
-    Useful for CLI tooling and debugging. Shows pass/fail, verb, target,
-    score, confidence, and any suggestions.
+    Useful for CLI tooling and debugging.
     """
     result = validate_seed(text, tags)
     parts: list[str] = []
@@ -879,10 +1022,18 @@ def explain(text: str, tags: list = None) -> str:
     parts.append("score=%.2f" % result.score)
     if result.confidence:
         parts.append("confidence=%s" % result.confidence)
+    if result.target_kind:
+        parts.append("target_kind=%s" % result.target_kind)
+    if result.verb_position is not None:
+        parts.append("verb_position=%d" % result.verb_position)
+    if result.negated:
+        parts.append("negated=true")
     if result.junk:
         parts.append("junk=true")
     if result.advisory:
         parts.append("advisory=%s" % result.advisory)
+    if result.passed:
+        parts.append("strength=%s" % result.strength)
     if result.reasons:
         parts.append("reasons=[%s]" % "; ".join(result.reasons))
     tips = suggest(text, tags)
@@ -915,9 +1066,19 @@ def validate_seed(
             verb_found=None, target_found=None, junk=True,
         )
 
-    # -- Verb + target ---
+    # -- Verb + target (negation-aware) ---
     verb_limit = 200 if mode == "purge" else 0
-    verb = find_verb(text, limit=verb_limit)
+    all_verb_matches = _scan_verbs_negation_aware(text, limit=verb_limit)
+    verb_match: VerbMatch | None = None
+    for vm in all_verb_matches:
+        if not vm.negated:
+            verb_match = vm
+            break
+
+    verb = verb_match.verb if verb_match else None
+    verb_pos = verb_match.position if verb_match else None
+    has_only_negated = bool(all_verb_matches) and all(m.negated for m in all_verb_matches)
+
     target, target_kind = find_target(text)
 
     # -- Tag-implied verb inference (#12530) ---
@@ -934,7 +1095,7 @@ def validate_seed(
             verb = QUESTION_STEMS.get(m.group().lower())
 
     # -- Rich match info (#12521) ---
-    all_verbs = tuple(find_all_verbs(text))
+    all_verbs = tuple(m.verb for m in all_verb_matches)
     all_targets = _find_all_targets(text)
 
     # -- Soft artifact check ---
@@ -944,6 +1105,8 @@ def validate_seed(
             reasons=("soft artifact signal without redeeming verb+target",),
             score=0.0, verb_found=verb, target_found=target or None,
             junk=True, all_verbs=all_verbs, all_targets=all_targets,
+            target_kind=target_kind, verb_position=verb_pos,
+            negated=has_only_negated,
         )
 
     # -- Decision ---
@@ -958,7 +1121,10 @@ def validate_seed(
     advisory = ""
     if not passed:
         if not verb:
-            reasons.append("No action verb found")
+            if has_only_negated:
+                reasons.append("Only negated action verb found")
+            else:
+                reasons.append("No action verb found")
         if not target and not is_exempt:
             reasons.append("No concrete target (filename, tool, or reference)")
         if verb and not target and not is_exempt:
@@ -970,6 +1136,8 @@ def validate_seed(
         passed=passed, reasons=tuple(reasons), score=specificity,
         verb_found=verb or None, target_found=target or None, junk=False,
         advisory=advisory, all_verbs=all_verbs, all_targets=all_targets,
+        target_kind=target_kind, verb_position=verb_pos,
+        negated=has_only_negated,
     )
 
 
@@ -988,12 +1156,7 @@ def validate_batch(
     tags: list = None,
     mode: str = "admission",
 ) -> BatchResult:
-    """Validate a batch of proposals; separate junk from merely-failed.
-
-    Returns a BatchResult with stats + categorized items so callers
-    (like propose_seed.purge_junk) can treat junk and vague-but-salvageable
-    proposals differently.
-    """
+    """Validate a batch of proposals; separate junk from merely-failed."""
     passed_items: list[tuple[str, dict]] = []
     failed_items: list[tuple[str, dict]] = []
     junk_items: list[tuple[str, dict]] = []
@@ -1026,15 +1189,33 @@ def validate_batch(
 # ---------------------------------------------------------------------------
 
 def _cli() -> None:  # pragma: no cover
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    if not args:
         print("Usage: python -m seed_gate '<proposal text>' [tag1 tag2 ...]")
+        print("       python -m seed_gate --explain '<proposal text>' [tag1 ...]")
         sys.exit(1)
-    text = sys.argv[1]
-    tags = sys.argv[2:] if len(sys.argv) > 2 else []
-    import json as _json
-    result = validate(text, tags)
-    print(_json.dumps(result, indent=2))
-    sys.exit(0 if result["passed"] else 1)
+
+    explain_mode = False
+    if args[0] == "--explain":
+        explain_mode = True
+        args = args[1:]
+
+    if not args:
+        print("Error: no proposal text provided")
+        sys.exit(1)
+
+    text = args[0]
+    tags = args[1:] if len(args) > 1 else []
+
+    if explain_mode:
+        print(explain(text, tags))
+        result = validate(text, tags)
+        sys.exit(0 if result["passed"] else 1)
+    else:
+        import json as _json
+        result = validate(text, tags)
+        print(_json.dumps(result, indent=2))
+        sys.exit(0 if result["passed"] else 1)
 
 
 if __name__ == "__main__":

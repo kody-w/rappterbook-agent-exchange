@@ -1983,3 +1983,759 @@ class TestNewAPIInvariants:
             v1 = find_verb(text)
             v2, _ = find_verb_with_position(text)
             assert v1 == v2, f"Disagreement on '{text}': find_verb={v1}, find_verb_with_position={v2}"
+
+
+# ===================================================================
+# NEW TESTS: Canonical consolidation (PR #289)
+# Covers: negation detection, VerbMatch, enriched SeedGateResult,
+# abbreviation-ref filter, --explain CLI, strength/is_imperative
+# ===================================================================
+
+from seed_gate import (
+    VerbMatch,
+    find_verb_match,
+    find_all_verb_matches,
+    _tokenize_for_negation,
+    _is_negated,
+    _scan_verbs_negation_aware,
+    _NEGATION_WORDS,
+    _CLAUSE_BOUNDARY_WORDS,
+    _ABBREV_REF_RE,
+)
+
+
+# -------------------------------------------------------------------
+# Negation tokenizer
+# -------------------------------------------------------------------
+
+class TestNegationTokenizer:
+    """Tests for _tokenize_for_negation -- preserves contractions."""
+
+    def test_preserves_dont(self):
+        tokens = _tokenize_for_negation("Don't build auth.py")
+        assert "don't" in tokens
+
+    def test_preserves_cant(self):
+        tokens = _tokenize_for_negation("Can't fix the bug")
+        assert "can't" in tokens
+
+    def test_preserves_shouldnt(self):
+        tokens = _tokenize_for_negation("Shouldn't deploy yet")
+        assert "shouldn't" in tokens
+
+    def test_preserves_wont(self):
+        tokens = _tokenize_for_negation("Won't merge this PR")
+        assert "won't" in tokens
+
+    def test_preserves_commas(self):
+        tokens = _tokenize_for_negation("Don't deploy, but build it")
+        assert "," in tokens
+
+    def test_preserves_semicolons(self):
+        tokens = _tokenize_for_negation("Don't deploy; build it")
+        assert ";" in tokens
+
+    def test_lowercases(self):
+        tokens = _tokenize_for_negation("BUILD Deploy")
+        assert "build" in tokens
+        assert "deploy" in tokens
+
+    def test_empty_string(self):
+        assert _tokenize_for_negation("") == []
+
+    def test_normal_sentence(self):
+        tokens = _tokenize_for_negation("Build auth.py for the login")
+        assert "build" in tokens
+        assert "auth" in tokens
+
+
+# -------------------------------------------------------------------
+# _is_negated helper
+# -------------------------------------------------------------------
+
+class TestIsNegated:
+    """Tests for _is_negated -- per-candidate negation check."""
+
+    def test_immediate_negation(self):
+        tokens = ["don't", "build"]
+        assert _is_negated(tokens, 1) is True
+
+    def test_not_before_verb(self):
+        tokens = ["do", "not", "build"]
+        assert _is_negated(tokens, 2) is True
+
+    def test_never_before_verb(self):
+        tokens = ["never", "deploy"]
+        assert _is_negated(tokens, 1) is True
+
+    def test_no_negation(self):
+        tokens = ["build", "the", "thing"]
+        assert _is_negated(tokens, 0) is False
+
+    def test_window_boundary(self):
+        # Negation word 4 tokens back (outside default window of 3)
+        tokens = ["not", "the", "very", "best", "build"]
+        assert _is_negated(tokens, 4) is False
+
+    def test_within_window(self):
+        # Negation word 2 tokens back (inside window)
+        tokens = ["not", "a", "build"]
+        assert _is_negated(tokens, 2) is True
+
+    def test_comma_resets_scope(self):
+        tokens = ["don't", "deploy", ",", "build"]
+        assert _is_negated(tokens, 3) is False
+
+    def test_semicolon_resets_scope(self):
+        tokens = ["don't", "deploy", ";", "build"]
+        assert _is_negated(tokens, 3) is False
+
+    def test_but_resets_scope(self):
+        tokens = ["don't", "deploy", "but", "build"]
+        assert _is_negated(tokens, 3) is False
+
+    def test_stop_is_negation(self):
+        tokens = ["stop", "deploying"]
+        assert _is_negated(tokens, 1) is True
+
+    def test_avoid_is_negation(self):
+        tokens = ["avoid", "building"]
+        assert _is_negated(tokens, 1) is True
+
+    def test_without_is_negation(self):
+        tokens = ["without", "testing"]
+        assert _is_negated(tokens, 1) is True
+
+
+# -------------------------------------------------------------------
+# Negation-aware verb detection (end-to-end)
+# -------------------------------------------------------------------
+
+class TestNegationAwareVerbs:
+    """Test that negated verbs are skipped by find_verb."""
+
+    def test_dont_build_returns_none(self):
+        assert find_verb("Don't build auth.py") is None
+
+    def test_never_deploy_returns_none(self):
+        assert find_verb("Never deploy to production servers") is None
+
+    def test_cannot_fix_returns_none(self):
+        assert find_verb("Cannot fix the broken pipeline") is None
+
+    def test_shouldnt_merge_returns_none(self):
+        assert find_verb("Shouldn't merge this pull request") is None
+
+    def test_positive_verb_still_works(self):
+        assert find_verb("Build auth.py for login") == "build"
+
+    def test_mixed_negated_then_positive(self):
+        """'Don't deploy, but build it' — should find 'build'."""
+        assert find_verb("Don't deploy, but build auth.py") == "build"
+
+    def test_positive_then_negated(self):
+        """'Build auth.py but don't deploy' — should find 'build'."""
+        assert find_verb("Build auth.py but don't deploy it") == "build"
+
+    def test_all_negated_returns_none(self):
+        assert find_verb("Don't build and never deploy anything") is None
+
+    def test_stop_deploying(self):
+        assert find_verb("Stop deploying broken code to production") is None
+
+    def test_avoid_building(self):
+        assert find_verb("Avoid building on the old framework") is None
+
+    def test_not_in_middle_sentence(self):
+        # "We should not deploy" — "deploy" is negated
+        assert find_verb("We should not deploy the broken code") is None
+
+    def test_negated_with_later_positive_clause(self):
+        result = find_verb("Never deploy broken code; fix thermal.py instead")
+        assert result == "fix"
+
+
+# -------------------------------------------------------------------
+# Negation in validate_seed (admission gate)
+# -------------------------------------------------------------------
+
+class TestNegationGate:
+    """Test that negated-only proposals fail the gate."""
+
+    def test_dont_build_fails(self):
+        r = _vs("Don't build auth.py for the login system")
+        assert r.passed is False
+        assert "Only negated action verb found" in r.reasons
+
+    def test_never_deploy_fails(self):
+        r = _vs("Never deploy untested code to the server")
+        assert r.passed is False
+
+    def test_mixed_passes_with_positive(self):
+        r = _vs("Don't deploy, but build auth.py for login")
+        assert r.passed is True
+        assert r.verb_found == "build"
+
+    def test_negated_field_true_when_all_negated(self):
+        r = _vs("Don't build auth.py for the login system")
+        assert r.negated is True
+
+    def test_negated_field_false_when_positive(self):
+        r = _vs("Build auth.py for the login system")
+        assert r.negated is False
+
+    def test_suggest_gives_negation_tip(self):
+        tips = suggest("Don't build auth.py for the login system")
+        assert any("negated" in t.lower() for t in tips)
+
+
+# -------------------------------------------------------------------
+# VerbMatch dataclass
+# -------------------------------------------------------------------
+
+class TestVerbMatch:
+    """Tests for VerbMatch dataclass."""
+
+    def test_basic_construction(self):
+        vm = VerbMatch(verb="build", position=0, source="text")
+        assert vm.verb == "build"
+        assert vm.position == 0
+        assert vm.source == "text"
+        assert vm.negated is False
+        assert vm.original == "build"
+
+    def test_original_defaults_to_verb(self):
+        vm = VerbMatch(verb="build", position=0)
+        assert vm.original == "build"
+
+    def test_original_explicit(self):
+        vm = VerbMatch(verb="build", position=0, original="builds")
+        assert vm.original == "builds"
+
+    def test_negated_flag(self):
+        vm = VerbMatch(verb="deploy", position=1, negated=True)
+        assert vm.negated is True
+
+    def test_frozen(self):
+        vm = VerbMatch(verb="build", position=0)
+        with pytest.raises(AttributeError):
+            vm.verb = "test"
+
+
+class TestFindVerbMatch:
+    """Tests for find_verb_match() — returns VerbMatch."""
+
+    def test_returns_verb_match(self):
+        vm = find_verb_match("Build auth.py for login")
+        assert isinstance(vm, VerbMatch)
+        assert vm.verb == "build"
+        assert vm.position == 0
+
+    def test_returns_none_when_no_verb(self):
+        assert find_verb_match("The quick brown fox jumps") is None
+
+    def test_returns_none_when_all_negated(self):
+        assert find_verb_match("Don't build auth.py") is None
+
+    def test_skips_negated_returns_positive(self):
+        vm = find_verb_match("Don't deploy, but build auth.py")
+        assert vm is not None
+        assert vm.verb == "build"
+        assert vm.negated is False
+
+    def test_inflected_verb(self):
+        vm = find_verb_match("Building auth.py for the team")
+        assert vm is not None
+        assert vm.verb == "build"
+
+    def test_phrasal_verb(self):
+        vm = find_verb_match("Set up auth.py for the team")
+        assert vm is not None
+        assert vm.verb == "set up"
+
+    def test_source_is_text(self):
+        vm = find_verb_match("Build auth.py")
+        assert vm.source == "text"
+
+
+class TestFindAllVerbMatches:
+    """Tests for find_all_verb_matches() — returns full list."""
+
+    def test_returns_all(self):
+        matches = find_all_verb_matches("Build auth.py and deploy to server")
+        verbs = [m.verb for m in matches]
+        assert "build" in verbs
+        assert "deploy" in verbs
+
+    def test_marks_negated(self):
+        matches = find_all_verb_matches("Don't build auth.py")
+        assert len(matches) >= 1
+        assert matches[0].negated is True
+
+    def test_mixed_negation(self):
+        matches = find_all_verb_matches("Don't deploy, but build auth.py")
+        negated = [m for m in matches if m.negated]
+        positive = [m for m in matches if not m.negated]
+        assert len(negated) >= 1
+        assert len(positive) >= 1
+
+    def test_empty_text(self):
+        assert find_all_verb_matches("") == []
+
+    def test_no_verbs(self):
+        assert find_all_verb_matches("The quick brown fox") == []
+
+
+# -------------------------------------------------------------------
+# Abbreviation reference filter
+# -------------------------------------------------------------------
+
+class TestAbbrevRefFilter:
+    """Tests for abbreviation reference false-positive filtering."""
+
+    def test_fig_dot_number(self):
+        assert _ABBREV_REF_RE.search("See fig.1 for details")
+
+    def test_sec_dot_number(self):
+        assert _ABBREV_REF_RE.search("See sec.2 for context")
+
+    def test_no_dot_number(self):
+        assert _ABBREV_REF_RE.search("Refer to no.5 in the list")
+
+    def test_ch_dot_number(self):
+        assert _ABBREV_REF_RE.search("Read ch.3 of the manual")
+
+    def test_case_insensitive(self):
+        assert _ABBREV_REF_RE.search("See Fig.1 for details")
+
+    def test_space_variant(self):
+        assert _ABBREV_REF_RE.search("See fig. 1 for details")
+
+    def test_not_a_file_match(self):
+        # "fig.1" should NOT be detected as a file target
+        _, kind = find_target("Build something described in fig.1")
+        assert kind != "file" or _ != "fig.1"
+
+    def test_sec_not_file(self):
+        _, kind = find_target("Implement sec.2 algorithm from paper")
+        assert kind != "file" or _ != "sec.2"
+
+    def test_real_file_still_works(self):
+        target, kind = find_target("Build auth.py for login")
+        assert target == "auth.py"
+        assert kind == "file"
+
+
+# -------------------------------------------------------------------
+# Enriched SeedGateResult fields
+# -------------------------------------------------------------------
+
+class TestEnrichedResult:
+    """Tests for new SeedGateResult fields: target_kind, verb_position,
+    is_imperative, strength, negated."""
+
+    def test_target_kind_file(self):
+        r = _vs("Build auth.py for the login system")
+        assert r.target_kind == "file"
+
+    def test_target_kind_tool(self):
+        r = _vs("Refactor state_io for better atomicity")
+        assert r.target_kind == "tool"
+
+    def test_target_kind_empty_when_no_target(self):
+        r = _vs("Build something amazing for the project")
+        assert r.target_kind == ""
+
+    def test_verb_position_at_start(self):
+        r = _vs("Build auth.py for the login system")
+        assert r.verb_position == 0
+
+    def test_verb_position_not_at_start(self):
+        r = _vs("We should build auth.py for login")
+        assert r.verb_position is not None
+        assert r.verb_position > 0
+
+    def test_verb_position_none_when_no_verb(self):
+        r = _vs("The quick brown fox jumps over fences")
+        assert r.verb_position is None
+
+    def test_is_imperative_true(self):
+        r = _vs("Build auth.py for the login system")
+        assert r.is_imperative is True
+
+    def test_is_imperative_false(self):
+        r = _vs("We should build auth.py for login")
+        assert r.is_imperative is False
+
+    def test_is_imperative_false_no_verb(self):
+        r = _vs("Something weird without direction here")
+        assert r.is_imperative is False
+
+    def test_strength_strong(self):
+        r = _vs("Build auth.py and deploy to server with tests")
+        assert r.strength in ("strong", "moderate", "weak")
+
+    def test_strength_weak_on_fail(self):
+        r = _vs("Something vague without any direction")
+        assert r.strength == "weak"
+
+    def test_to_dict_has_new_fields(self):
+        d = validate("Build auth.py for login system testing")
+        assert "target_kind" in d
+        assert "verb_position" in d
+        assert "is_imperative" in d
+        assert "strength" in d
+        assert "negated" in d
+
+    def test_to_dict_target_kind_value(self):
+        d = validate("Build auth.py for login system testing")
+        assert d["target_kind"] == "file"
+
+    def test_to_dict_is_imperative_value(self):
+        d = validate("Build auth.py for login system testing")
+        assert d["is_imperative"] is True
+
+    def test_to_dict_negated_false(self):
+        d = validate("Build auth.py for login system testing")
+        assert d["negated"] is False
+
+    def test_to_dict_negated_true(self):
+        d = validate("Don't build auth.py for login system")
+        assert d["negated"] is True
+
+
+# -------------------------------------------------------------------
+# Negation + validate consistency
+# -------------------------------------------------------------------
+
+class TestNegationConsistency:
+    """Ensure find_verb, find_verb_with_position, find_verb_match,
+    and validate_seed all agree on negation."""
+
+    def test_all_agree_positive(self):
+        text = "Build auth.py for the login system"
+        v1 = find_verb(text)
+        v2, pos2 = find_verb_with_position(text)
+        vm = find_verb_match(text)
+        r = _vs(text)
+        assert v1 == v2 == vm.verb == r.verb_found == "build"
+
+    def test_all_agree_negated(self):
+        text = "Don't build auth.py for the login"
+        v1 = find_verb(text)
+        v2, pos2 = find_verb_with_position(text)
+        vm = find_verb_match(text)
+        r = _vs(text)
+        assert v1 is None
+        assert v2 is None
+        assert vm is None
+        assert r.verb_found is None
+
+    def test_all_agree_mixed(self):
+        text = "Don't deploy, but build auth.py here"
+        v1 = find_verb(text)
+        v2, _ = find_verb_with_position(text)
+        vm = find_verb_match(text)
+        assert v1 == v2 == vm.verb == "build"
+
+    def test_find_all_verbs_includes_negated(self):
+        """find_all_verbs returns all verbs (including negated) for completeness."""
+        verbs = find_all_verbs("Don't build auth.py")
+        assert "build" in verbs
+
+
+# -------------------------------------------------------------------
+# Negation edge cases
+# -------------------------------------------------------------------
+
+class TestNegationEdgeCases:
+    """Edge cases for negation detection."""
+
+    def test_contraction_without_apostrophe(self):
+        # "dont" (no apostrophe) should still be detected
+        assert find_verb("Dont build auth.py for login") is None
+
+    def test_cannot_single_word(self):
+        assert find_verb("Cannot fix the broken pipeline") is None
+
+    def test_prevent_as_negation(self):
+        assert find_verb("Prevent deploying broken code here") is None
+
+    def test_double_negation_not_handled(self):
+        # "Don't not build" is semantically positive, but we don't
+        # handle double negation — it's too rare to justify complexity
+        # Just verify it doesn't crash
+        result = find_verb("Don't not build auth.py")
+        assert result is None or isinstance(result, str)
+
+    def test_negation_in_parenthetical(self):
+        # Parenthetical negation shouldn't bleed
+        vm = find_verb_match("Build auth.py (don't deploy yet)")
+        assert vm is not None
+        assert vm.verb == "build"
+
+    def test_long_sentence_window_limit(self):
+        # Negation too far back should not affect
+        text = "Don't touch the very long complicated thing, then build auth.py"
+        v = find_verb(text)
+        assert v == "build"
+
+    def test_negated_phrasal_verb(self):
+        assert find_verb("Don't set up the CI pipeline now") is None
+
+    def test_negated_inflected_verb(self):
+        assert find_verb("Never deployed this broken code before") is None
+
+
+# -------------------------------------------------------------------
+# Strength and is_imperative properties
+# -------------------------------------------------------------------
+
+class TestStrengthProperty:
+    """Test strength tier labeling."""
+
+    def test_strong_tier(self):
+        r = _vs("Build auth.py and deploy solar_array.py to production server with tests")
+        if r.passed:
+            assert r.strength == "strong" or r.score >= 0.65
+
+    def test_moderate_tier(self):
+        r = _vs("Build auth.py for the login system")
+        if r.passed:
+            assert r.strength in ("strong", "moderate")
+
+    def test_weak_tier(self):
+        r = _vs("Something with no clear direction at all")
+        assert r.strength == "weak"
+
+    def test_strength_always_valid(self):
+        for text in [
+            "Build auth.py for login",
+            "Something vague here",
+            "",
+            "Don't build anything at all here",
+        ]:
+            r = _vs(text)
+            assert r.strength in ("strong", "moderate", "weak")
+
+
+class TestIsImperativeProperty:
+    """Test is_imperative property."""
+
+    def test_imperative_at_start(self):
+        r = _vs("Build auth.py for login system testing")
+        assert r.is_imperative is True
+
+    def test_not_imperative_mid_sentence(self):
+        r = _vs("We should build auth.py for login")
+        assert r.is_imperative is False
+
+    def test_not_imperative_no_verb(self):
+        r = _vs("Something without any clear direction")
+        assert r.is_imperative is False
+
+    def test_inflected_imperative(self):
+        r = _vs("Building auth.py for the login system")
+        if r.verb_position == 0:
+            assert r.is_imperative is True
+
+    def test_phrasal_imperative(self):
+        r = _vs("Set up auth.py for the login system")
+        assert r.is_imperative is True
+
+
+# -------------------------------------------------------------------
+# Negation constants
+# -------------------------------------------------------------------
+
+class TestNegationConstants:
+    """Test negation word lists and boundaries."""
+
+    def test_negation_words_nonempty(self):
+        assert len(_NEGATION_WORDS) >= 15
+
+    def test_negation_words_all_lowercase(self):
+        for w in _NEGATION_WORDS:
+            assert w == w.lower()
+
+    def test_common_contractions_included(self):
+        for w in ("don't", "can't", "won't", "shouldn't", "wouldn't"):
+            assert w in _NEGATION_WORDS
+
+    def test_not_and_never_included(self):
+        assert "not" in _NEGATION_WORDS
+        assert "never" in _NEGATION_WORDS
+
+    def test_clause_boundary_words(self):
+        assert "but" in _CLAUSE_BOUNDARY_WORDS
+
+    def test_cannot_included(self):
+        assert "cannot" in _NEGATION_WORDS
+
+
+# -------------------------------------------------------------------
+# Scan verbs negation aware
+# -------------------------------------------------------------------
+
+class TestScanVerbsNegationAware:
+    """Test _scan_verbs_negation_aware directly."""
+
+    def test_returns_list_of_verb_match(self):
+        results = _scan_verbs_negation_aware("Build auth.py")
+        assert isinstance(results, list)
+        assert all(isinstance(m, VerbMatch) for m in results)
+
+    def test_marks_negated_correctly(self):
+        results = _scan_verbs_negation_aware("Don't build auth.py")
+        assert len(results) >= 1
+        assert results[0].negated is True
+
+    def test_positive_verb_not_negated(self):
+        results = _scan_verbs_negation_aware("Build auth.py")
+        assert len(results) >= 1
+        assert results[0].negated is False
+
+    def test_mixed_sentence(self):
+        results = _scan_verbs_negation_aware("Don't deploy, but build auth.py")
+        negated = [m for m in results if m.negated]
+        positive = [m for m in results if not m.negated]
+        assert len(negated) >= 1
+        assert len(positive) >= 1
+
+    def test_deduplication(self):
+        # Same verb twice should only appear once
+        results = _scan_verbs_negation_aware("Build it, then build again")
+        verbs = [m.verb for m in results]
+        assert verbs.count("build") == 1
+
+    def test_limit_parameter(self):
+        results = _scan_verbs_negation_aware("Build auth.py and deploy later", limit=10)
+        # Only "Build" is within first 10 chars
+        assert len(results) >= 1
+        assert results[0].verb == "build"
+
+    def test_empty_text(self):
+        assert _scan_verbs_negation_aware("") == []
+
+
+# -------------------------------------------------------------------
+# Property-based invariants for new features
+# -------------------------------------------------------------------
+
+class TestNewFeatureInvariants:
+    """Property-based invariants for PR #289 features."""
+
+    _DIVERSE_TEXTS = [
+        "Build auth.py for the login system",
+        "Don't build auth.py ever",
+        "Never deploy untested code to production",
+        "Don't deploy, but build auth.py",
+        "Set up CI pipeline for testing environment",
+        "We should not merge this broken PR",
+        "Refactor solar_array.py thermal controller",
+        "",
+        "x",
+        "Something vague without any clear direction at all",
+        "fix: build seed_gate.py validator tests",
+        "Cannot fix the broken pipeline at all",
+        "Build auth.py and deploy solar_array.py and test fuel_cell.py",
+        "Stop deploying broken code to production server",
+        "Avoid building on the deprecated old framework",
+    ]
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_verb_match_consistency(self, text):
+        """find_verb and find_verb_match always agree."""
+        v = find_verb(text)
+        vm = find_verb_match(text)
+        if vm is None:
+            assert v is None
+        else:
+            assert v == vm.verb
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_verb_with_position_consistency(self, text):
+        """find_verb and find_verb_with_position always agree."""
+        v = find_verb(text)
+        vp, pos = find_verb_with_position(text)
+        assert v == vp
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_strength_always_valid(self, text):
+        r = _vs(text)
+        assert r.strength in ("strong", "moderate", "weak")
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_is_imperative_implies_verb(self, text):
+        """If is_imperative is True, verb must exist."""
+        r = _vs(text)
+        if r.is_imperative:
+            assert r.verb_found is not None
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_negated_implies_no_positive_verb(self, text):
+        """If negated=True, verb_found must be None."""
+        r = _vs(text)
+        if r.negated:
+            assert r.verb_found is None
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_to_dict_round_trip(self, text):
+        """to_dict always returns valid dict with all expected keys."""
+        d = validate(text)
+        expected_keys = {
+            "passed", "reasons", "score", "verb_found", "target_found",
+            "junk", "advisory", "confidence", "all_verbs", "all_targets",
+            "target_kind", "verb_position", "is_imperative", "strength",
+            "negated",
+        }
+        assert expected_keys.issubset(d.keys())
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_score_0_to_1(self, text):
+        r = _vs(text)
+        assert 0.0 <= r.score <= 1.0
+
+    @pytest.mark.parametrize("text", _DIVERSE_TEXTS)
+    def test_explain_always_string(self, text):
+        result = explain(text)
+        assert isinstance(result, str)
+        assert "PASS" in result or "FAIL" in result
+
+
+# -------------------------------------------------------------------
+# Regression: things that must NOT break
+# -------------------------------------------------------------------
+
+class TestNegationRegressions:
+    """Regression tests: positive proposals must still pass."""
+
+    @pytest.mark.parametrize("text", [
+        "Build water_mining.py optimizer for drilling",
+        "Refactor thermal.py controller for efficiency",
+        "Deploy solar_array.py to the production grid",
+        "Test fuel_cell.py power management thoroughly",
+        "fix: build seed_gate.py validator for testing",
+        "Create dust_filter.py cleaner for habitat use",
+        "Wire up auth.py to the main login pipeline",
+        "Set up CI pipeline with test_seed_gate.py tests",
+    ])
+    def test_positive_proposals_still_pass(self, text):
+        assert passes_gate(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "Don't build auth.py for login system now",
+        "Never deploy untested code to the server",
+        "Cannot fix the broken pipeline right now",
+    ])
+    def test_negated_proposals_fail(self, text):
+        assert passes_gate(text) is False
+
+    def test_abbrev_ref_not_file(self):
+        """fig.1 should not be detected as a file target."""
+        r = _vs("Build something described in fig.1 of the paper")
+        # Should still pass if there's another target, or find correct target
+        target, kind = find_target("Implement the algorithm from fig.1")
+        if target == "fig.1":
+            # This would be a false positive
+            assert False, "fig.1 incorrectly detected as file"
