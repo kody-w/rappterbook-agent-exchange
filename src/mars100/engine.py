@@ -33,6 +33,9 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure,
 )
+from src.mars100.economy import (
+    EconomyState, tick_economy, compute_economic_pressure,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -62,6 +65,7 @@ class YearResult:
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
+    economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +83,7 @@ class YearResult:
             "births": self.births,
             "infrastructure": self.infrastructure,
             "culture": self.culture,
+            "economy": self.economy,
         }
 
 
@@ -100,10 +105,11 @@ class SimulationResult:
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
     final_culture: dict = field(default_factory=dict)
+    final_economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "5.0",
+            "_meta": {"engine": "mars-100", "version": "6.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -122,6 +128,7 @@ class SimulationResult:
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
+            "final_economy": self.final_economy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -144,6 +151,8 @@ class Mars100Engine:
         self.infra = InfrastructureState()
         self.culture = CulturalMemory()
         self.culture_rng = random.Random(seed + 7919)
+        self.economy = EconomyState()
+        self.economy_rng = random.Random(seed + 7927)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -213,6 +222,13 @@ class Mars100Engine:
         for act, delta in cultural_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Economic pressure from inequality / colony fund
+        economic_pressure = compute_economic_pressure(self.economy)
+        for act, delta in economic_pressure.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
+
         total = sum(weights.values())
         r = self.rng.random() * total
         cumulative = 0.0
@@ -562,6 +578,23 @@ class Mars100Engine:
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
+        # --- economy tick ---
+        skills_map = {c.id: c.skills.to_dict() for c in active}
+        trust_map: dict[str, dict[str, float]] = {}
+        for a_id in active_ids:
+            trust_map[a_id] = {}
+            for b_id in active_ids:
+                if a_id != b_id:
+                    trust_map[a_id][b_id] = self.social.get(a_id, b_id).trust
+        econ_leader: str | None = None
+        if self.governance.gov_type == "dictator":
+            econ_leader = self.governance.leader_id
+        econ_result = tick_economy(
+            self.economy, actions, skills_map, trust_map,
+            active_ids, self.governance.gov_type, econ_leader,
+            self.year, self.economy_rng,
+        )
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -629,6 +662,7 @@ class Mars100Engine:
             births=year_births,
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
+            economy=econ_result,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -662,6 +696,7 @@ class Mars100Engine:
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
+            final_economy=self.economy.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
