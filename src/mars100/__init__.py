@@ -101,4 +101,9 @@ __all__ = [
     "compute_nature_stress_reduction", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
+    "GeneticsState", "GeneticsTickResult", "Genome", "AllelePair",
+    "create_genome_from_phenotype", "create_random_genome",
+    "inherit_genome", "tick_genetics", "compute_colony_diversity",
+    "compute_inbreeding_coefficient", "apply_epigenetic_mark",
+    "compute_genome_baseline", "apply_genetic_drift_bound",
 ]

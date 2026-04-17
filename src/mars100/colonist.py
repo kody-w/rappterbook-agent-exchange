@@ -10,6 +10,15 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
+# Deferred import to avoid circular dependency
+_Genome = None
+def _get_genome_class():
+    global _Genome
+    if _Genome is None:
+        from src.mars100.genetics import Genome as G
+        _Genome = G
+    return _Genome
+
 ELEMENTS = ("fire", "water", "earth", "air")
 STAT_NAMES = ("resolve", "improvisation", "empathy", "hoarding", "faith", "paranoia")
 SKILL_NAMES = ("terraforming", "hydroponics", "mediation", "coding", "prayer", "sabotage")
@@ -147,6 +156,8 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    parent_ids: list[str] = field(default_factory=list)
+    genome_data: dict | None = None
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -163,6 +174,10 @@ class Colonist:
             d["death_cause"] = self.death_cause
         if self.exile_year is not None:
             d["exile_year"] = self.exile_year
+        if self.parent_ids:
+            d["parent_ids"] = self.parent_ids
+        if self.genome_data is not None:
+            d["genome_data"] = self.genome_data
         return d
 
     @classmethod
@@ -178,7 +193,8 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
-            wallet=wallet,
+            wallet=wallet, parent_ids=d.get("parent_ids", []),
+            genome_data=d.get("genome_data"),
         )
 
     def is_active(self) -> bool:
@@ -293,21 +309,35 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
 
 
 def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
-                 birth_year: int, rng: random.Random) -> Colonist:
+                 birth_year: int, rng: random.Random,
+                 parent_a_genome: Any = None,
+                 parent_b_genome: Any = None) -> Colonist:
     """Create a child colonist by blending two parents' stats/skills with mutation.
 
-    Stats are averaged from parents with gaussian noise.  Skills start near zero
-    (children must learn).  Element is randomly inherited from one parent.
+    If genomes are provided, uses Mendelian inheritance. Otherwise falls
+    back to simple averaging. Skills start near zero (children must learn).
+    Element is randomly inherited from one parent.
     """
     name_pool = [n for n in COLONIST_NAMES]
     name = rng.choice(name_pool) if name_pool else f"Child-{child_id}"
 
     element = rng.choice([parent_a.element, parent_b.element])
 
-    stats_dict: dict[str, float] = {}
-    for sn in STAT_NAMES:
-        avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
-        stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
+    # Genetic inheritance path
+    child_genome_data = None
+    if parent_a_genome is not None and parent_b_genome is not None:
+        from src.mars100.genetics import inherit_genome
+        child_genome = inherit_genome(parent_a_genome, parent_b_genome, rng)
+        expressed = child_genome.express_all()
+        stats_dict = {sn: max(0.0, min(1.0, expressed.get(sn, 0.5)))
+                      for sn in STAT_NAMES}
+        child_genome_data = child_genome.to_dict()
+    else:
+        # Fallback: simple averaging
+        stats_dict = {}
+        for sn in STAT_NAMES:
+            avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
+            stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
 
     skills_dict: dict[str, float] = {}
     for sk in SKILL_NAMES:
@@ -321,6 +351,8 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
+        parent_ids=[parent_a.id, parent_b.id],
+        genome_data=child_genome_data,
     )
 
 
