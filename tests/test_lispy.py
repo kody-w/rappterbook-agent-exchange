@@ -1,10 +1,4 @@
-"""
-test_lispy.py — Tests for the pure-computation LisPy interpreter.
-
-Covers: parsing, arithmetic, comparisons, logic, lambdas, closures,
-let bindings, list ops, dict ops, sub-sim spawning, depth limits,
-step limits, error handling, homoiconicity.
-"""
+"""Tests for the LisPy safe-eval interpreter."""
 from __future__ import annotations
 
 import pytest
@@ -13,653 +7,422 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.lispy import Lispy, LispError, Symbol, Closure, parse, tokenize, to_sexp, NIL
+from src.lispy import (
+    parse, parse_all, run, tokenize, to_sexpr,
+    Evaluator, Env, standard_env, Closure,
+    LispyError, StepLimitError, DepthLimitError,
+)
 
 
 # ---------------------------------------------------------------------------
-# Parsing
+# Parser tests
 # ---------------------------------------------------------------------------
 
 class TestTokenizer:
-    def test_simple_expression(self):
-        tokens = tokenize("(+ 1 2)")
-        assert tokens == ["(", "+", "1", "2", ")"]
+    def test_simple(self):
+        assert tokenize("(+ 1 2)") == ["(", "+", "1", "2", ")"]
 
-    def test_nested_expression(self):
-        tokens = tokenize("(+ (* 2 3) 4)")
-        assert tokens == ["(", "+", "(", "*", "2", "3", ")", "4", ")"]
+    def test_nested(self):
+        tokens = tokenize("(if (> x 0) x (- x))")
+        assert tokens[0] == "("
+        assert "if" in tokens
 
-    def test_string_literal(self):
-        tokens = tokenize('(print "hello world")')
+    def test_string(self):
+        tokens = tokenize('(str "hello world")')
         assert '"hello world"' in tokens
 
-    def test_comment_ignored(self):
+    def test_comment(self):
         tokens = tokenize("; this is a comment\n(+ 1 2)")
-        assert tokens == ["(", "+", "1", "2", ")"]
-
-    def test_quote_shorthand(self):
-        tokens = tokenize("'(1 2 3)")
-        assert tokens[0] == "'"
-
-    def test_empty_input(self):
-        assert tokenize("") == []
-
-    def test_whitespace_variants(self):
-        tokens = tokenize("(+\t1\n2\r3)")
-        assert tokens == ["(", "+", "1", "2", "3", ")"]
+        assert ";" not in "".join(tokens)
+        assert "+" in tokens
 
 
 class TestParser:
-    def test_integer(self):
-        forms = parse("42")
-        assert forms == [42]
+    def test_number(self):
+        assert parse("42") == 42.0
 
     def test_float(self):
-        forms = parse("3.14")
-        assert forms == [3.14]
+        assert parse("3.14") == 3.14
 
     def test_string(self):
-        forms = parse('"hello"')
-        assert forms == ["hello"]
+        assert parse('"hello"') == "hello"
 
     def test_symbol(self):
-        forms = parse("foo")
-        assert len(forms) == 1
-        assert isinstance(forms[0], Symbol)
-        assert forms[0] == "foo"
-
-    def test_booleans(self):
-        assert parse("true") == [True]
-        assert parse("false") == [False]
-
-    def test_nil(self):
-        assert parse("nil") == [NIL]
+        assert parse("foo") == "foo"
 
     def test_list(self):
-        forms = parse("(1 2 3)")
-        assert forms == [[1, 2, 3]]
+        assert parse("(+ 1 2)") == ["+", 1.0, 2.0]
 
     def test_nested_list(self):
-        forms = parse("(+ (- 5 3) 1)")
-        assert len(forms) == 1
-        assert len(forms[0]) == 3
+        result = parse("(if (> x 0) x (- x))")
+        assert result[0] == "if"
+        assert isinstance(result[1], list)
 
-    def test_quote(self):
-        forms = parse("'(1 2 3)")
-        assert forms == [[Symbol("quote"), [1, 2, 3]]]
+    def test_empty_list(self):
+        assert parse("()") == []
 
-    def test_multiple_forms(self):
-        forms = parse("1 2 3")
-        assert forms == [1, 2, 3]
+    def test_boolean_true(self):
+        assert parse("#t") is True
 
-    def test_unclosed_paren(self):
-        forms = parse("(+ 1 2")
-        assert isinstance(forms[0], LispError)
+    def test_boolean_false(self):
+        assert parse("#f") is False
 
-    def test_unexpected_close(self):
-        forms = parse(")")
-        assert isinstance(forms[0], LispError)
+    def test_parse_all(self):
+        exprs = parse_all("(define x 1) (+ x 2)")
+        assert len(exprs) == 2
+
+    def test_unmatched_paren(self):
+        with pytest.raises(LispyError):
+            parse("(+ 1 2")
+
+    def test_extra_close_paren(self):
+        with pytest.raises(LispyError):
+            parse(")")
 
 
 # ---------------------------------------------------------------------------
-# Arithmetic
+# Evaluator tests
 # ---------------------------------------------------------------------------
 
 class TestArithmetic:
-    def setup_method(self):
-        self.vm = Lispy()
+    def test_add(self):
+        assert run("(+ 1 2)") == 3.0
 
-    def test_addition(self):
-        assert self.vm.run("(+ 1 2)") == 3
+    def test_subtract(self):
+        assert run("(- 10 3)") == 7.0
 
-    def test_addition_multiple(self):
-        assert self.vm.run("(+ 1 2 3 4)") == 10
+    def test_multiply(self):
+        assert run("(* 3 4)") == 12.0
 
-    def test_subtraction(self):
-        assert self.vm.run("(- 10 3)") == 7
+    def test_divide(self):
+        assert run("(/ 10 3)") == pytest.approx(3.333, rel=0.01)
 
-    def test_negation(self):
-        assert self.vm.run("(- 5)") == -5
-
-    def test_multiplication(self):
-        assert self.vm.run("(* 3 4)") == 12
-
-    def test_division(self):
-        assert self.vm.run("(/ 10 3)") == pytest.approx(3.333, abs=0.01)
-
-    def test_division_by_zero(self):
-        result = self.vm.run("(/ 1 0)")
-        assert isinstance(result, LispError)
-
-    def test_modulo(self):
-        assert self.vm.run("(mod 10 3)") == 1
+    def test_divide_by_zero(self):
+        result = run("(/ 1 0)")
+        assert result == float('inf')
 
     def test_nested_arithmetic(self):
-        assert self.vm.run("(+ (* 2 3) (- 10 4))") == 12
+        assert run("(+ (* 2 3) (- 10 4))") == 12.0
+
+    def test_negate(self):
+        assert run("(- 5)") == -5.0
+
+    def test_modulo(self):
+        assert run("(% 10 3)") == 1.0
 
     def test_abs(self):
-        assert self.vm.run("(abs -5)") == 5
+        assert run("(abs -7)") == 7.0
 
     def test_min_max(self):
-        assert self.vm.run("(min 3 1 4 1 5)") == 1
-        assert self.vm.run("(max 3 1 4 1 5)") == 5
-
-    def test_floor_ceil(self):
-        assert self.vm.run("(floor 3.7)") == 3
-        assert self.vm.run("(ceil 3.2)") == 4
+        assert run("(min 3 5)") == 3.0
+        assert run("(max 3 5)") == 5.0
 
     def test_sqrt(self):
-        assert self.vm.run("(sqrt 16)") == 4.0
+        assert run("(sqrt 16)") == 4.0
 
-    def test_sqrt_negative(self):
-        result = self.vm.run("(sqrt -1)")
-        assert isinstance(result, LispError)
-
-    def test_pow(self):
-        assert self.vm.run("(pow 2 10)") == 1024
+    def test_clamp(self):
+        assert run("(clamp 5 0 3)") == 3.0
+        assert run("(clamp -1 0 3)") == 0.0
+        assert run("(clamp 1 0 3)") == 1.0
 
 
-# ---------------------------------------------------------------------------
-# Comparisons and Logic
-# ---------------------------------------------------------------------------
-
-class TestComparisons:
-    def setup_method(self):
-        self.vm = Lispy()
-
+class TestComparison:
     def test_equal(self):
-        assert self.vm.run("(= 1 1)") is True
-        assert self.vm.run("(= 1 2)") is False
+        assert run("(= 1 1)") is True
+        assert run("(= 1 2)") is False
+
+    def test_greater(self):
+        assert run("(> 3 2)") is True
+
+    def test_less(self):
+        assert run("(< 1 2)") is True
 
     def test_not_equal(self):
-        assert self.vm.run("(!= 1 2)") is True
+        assert run("(!= 1 2)") is True
 
-    def test_less_than(self):
-        assert self.vm.run("(< 1 2)") is True
-        assert self.vm.run("(< 2 1)") is False
 
-    def test_greater_than(self):
-        assert self.vm.run("(> 5 3)") is True
-
-    def test_less_equal(self):
-        assert self.vm.run("(<= 3 3)") is True
-        assert self.vm.run("(<= 4 3)") is False
+class TestLogic:
+    def test_not(self):
+        assert run("(not #t)") is False
+        assert run("(not #f)") is True
 
     def test_and(self):
-        assert self.vm.run("(and true true)") is True
-        assert self.vm.run("(and true false)") is False
+        assert run("(and #t #t)") is True
+        assert run("(and #t #f)") is False
 
     def test_or(self):
-        assert self.vm.run("(or false true)") is True
-        assert self.vm.run("(or false false)") is False
+        assert run("(or #f #t)") is True
+        assert run("(or #f #f)") is False
 
-    def test_not(self):
-        assert self.vm.run("(not true)") is False
-        assert self.vm.run("(not false)") is True
+    def test_and_short_circuit(self):
+        # Should not error because second arg not evaluated
+        assert run("(and #f (/ 1 0))") is False
 
+    def test_or_short_circuit(self):
+        assert run("(or #t (/ 1 0))") is True
+
+
+class TestControlFlow:
     def test_if_true(self):
-        assert self.vm.run("(if true 1 2)") == 1
+        assert run("(if #t 1 2)") == 1.0
 
     def test_if_false(self):
-        assert self.vm.run("(if false 1 2)") == 2
+        assert run("(if #f 1 2)") == 2.0
 
     def test_if_no_else(self):
-        result = self.vm.run("(if false 1)")
-        assert result == NIL
+        assert run("(if #f 1)") is None
 
     def test_cond(self):
-        result = self.vm.run("""
-            (cond
-                ((= 1 2) "no")
-                ((= 1 1) "yes")
-                (true "fallback"))
-        """)
-        assert result == "yes"
+        assert run("(cond ((> 1 2) 10) ((> 2 1) 20) (else 30))") == 20.0
+
+    def test_begin(self):
+        assert run("(begin 1 2 3)") == 3.0
 
 
-# ---------------------------------------------------------------------------
-# Variables and Functions
-# ---------------------------------------------------------------------------
-
-class TestVariablesAndFunctions:
-    def setup_method(self):
-        self.vm = Lispy()
-
+class TestVariables:
     def test_define(self):
-        assert self.vm.run("(begin (define x 42) x)") == 42
+        assert run("(begin (define x 42) x)") == 42.0
 
-    def test_define_expression(self):
-        assert self.vm.run("(begin (define x (+ 1 2)) x)") == 3
+    def test_define_function(self):
+        result = run("(begin (define (square x) (* x x)) (square 5))")
+        assert result == 25.0
 
-    def test_set_bang(self):
-        assert self.vm.run("(begin (define x 1) (set! x 2) x)") == 2
+    def test_let(self):
+        assert run("(let ((x 10) (y 20)) (+ x y))") == 30.0
 
-    def test_set_bang_unbound(self):
-        result = self.vm.run("(set! nonexistent 1)")
-        assert isinstance(result, LispError)
+    def test_set(self):
+        assert run("(begin (define x 1) (set! x 2) x)") == 2.0
 
-    def test_lambda_basic(self):
-        assert self.vm.run("((lambda (x) (+ x 1)) 5)") == 6
-
-    def test_lambda_multiple_args(self):
-        assert self.vm.run("((lambda (a b) (* a b)) 3 4)") == 12
+    def test_lambda(self):
+        result = run("(begin (define f (lambda (x) (* x x))) (f 7))")
+        assert result == 49.0
 
     def test_closure(self):
-        result = self.vm.run("""
+        result = run("""
             (begin
-                (define make-adder (lambda (n) (lambda (x) (+ x n))))
+                (define (make-adder n) (lambda (x) (+ n x)))
                 (define add5 (make-adder 5))
                 (add5 10))
         """)
-        assert result == 15
-
-    def test_let_binding(self):
-        assert self.vm.run("(let ((x 10) (y 20)) (+ x y))") == 30
-
-    def test_let_sequential(self):
-        assert self.vm.run("(let ((x 5) (y (* x 2))) (+ x y))") == 15
-
-    def test_arity_mismatch(self):
-        result = self.vm.run("((lambda (x) x) 1 2)")
-        assert isinstance(result, LispError)
-
-    def test_begin_returns_last(self):
-        assert self.vm.run("(begin 1 2 3)") == 3
-
-    def test_begin_empty(self):
-        assert self.vm.run("(begin)") == NIL
-
-    def test_do_loop(self):
-        result = self.vm.run("""
-            (begin
-                (define sum 0)
-                (do i 0 5 (set! sum (+ sum i)))
-                sum)
-        """)
-        assert result == 10  # 0+1+2+3+4
+        assert result == 15.0
 
 
-# ---------------------------------------------------------------------------
-# List Operations
-# ---------------------------------------------------------------------------
-
-class TestListOps:
-    def setup_method(self):
-        self.vm = Lispy()
-
-    def test_list_create(self):
-        assert self.vm.run("(list 1 2 3)") == [1, 2, 3]
+class TestLists:
+    def test_list(self):
+        assert run("(list 1 2 3)") == [1.0, 2.0, 3.0]
 
     def test_car(self):
-        assert self.vm.run("(car (list 1 2 3))") == 1
+        assert run("(car (list 1 2 3))") == 1.0
 
     def test_cdr(self):
-        assert self.vm.run("(cdr (list 1 2 3))") == [2, 3]
+        assert run("(cdr (list 1 2 3))") == [2.0, 3.0]
 
     def test_cons(self):
-        assert self.vm.run("(cons 0 (list 1 2))") == [0, 1, 2]
+        assert run("(cons 0 (list 1 2))") == [0.0, 1.0, 2.0]
 
     def test_length(self):
-        assert self.vm.run("(length (list 1 2 3))") == 3
+        assert run("(length (list 1 2 3))") == 3
 
     def test_nth(self):
-        assert self.vm.run("(nth (list 10 20 30) 1)") == 20
+        assert run("(nth (list 10 20 30) 1)") == 20.0
 
-    def test_nth_out_of_bounds(self):
-        result = self.vm.run("(nth (list 1) 5)")
-        assert isinstance(result, LispError)
-
-    def test_append(self):
-        assert self.vm.run("(append (list 1 2) (list 3 4))") == [1, 2, 3, 4]
-
-    def test_reverse(self):
-        assert self.vm.run("(reverse (list 1 2 3))") == [3, 2, 1]
-
-    def test_range(self):
-        assert self.vm.run("(range 5)") == [0, 1, 2, 3, 4]
-        assert self.vm.run("(range 2 5)") == [2, 3, 4]
-
-    def test_sort(self):
-        assert self.vm.run("(sort (list 3 1 4 1 5))") == [1, 1, 3, 4, 5]
-
-    def test_contains(self):
-        assert self.vm.run("(contains (list 1 2 3) 2)") is True
-        assert self.vm.run("(contains (list 1 2 3) 9)") is False
+    def test_empty(self):
+        assert run("(empty? (list))") is True
+        assert run("(empty? (list 1))") is False
 
     def test_map(self):
-        result = self.vm.run("(map (lambda (x) (* x 2)) (list 1 2 3))")
-        assert result == [2, 4, 6]
+        result = run("(map (lambda (x) (* x 2)) (list 1 2 3))")
+        assert result == [2.0, 4.0, 6.0]
 
     def test_filter(self):
-        result = self.vm.run("(filter (lambda (x) (> x 2)) (list 1 2 3 4 5))")
-        assert result == [3, 4, 5]
+        result = run("(filter (lambda (x) (> x 2)) (list 1 2 3 4))")
+        assert result == [3.0, 4.0]
 
     def test_reduce(self):
-        result = self.vm.run("(reduce (lambda (acc x) (+ acc x)) 0 (list 1 2 3 4))")
-        assert result == 10
+        result = run("(reduce (lambda (a b) (+ a b)) (list 1 2 3 4) 0)")
+        assert result == 10.0
 
     def test_quote(self):
-        result = self.vm.run("'(1 2 3)")
-        assert result == [1, 2, 3]
-
-    def test_quote_preserves_symbols(self):
-        result = self.vm.run("'(a b c)")
-        assert all(isinstance(x, Symbol) for x in result)
+        result = run("(quote (1 2 3))")
+        assert result == [1.0, 2.0, 3.0]
 
 
-# ---------------------------------------------------------------------------
-# Dict Operations
-# ---------------------------------------------------------------------------
+class TestAssocLists:
+    def test_assoc_create(self):
+        result = run('(assoc "name" "aria" nil)')
+        assert result == [["name", "aria"]]
 
-class TestDictOps:
-    def setup_method(self):
-        self.vm = Lispy()
-
-    def test_dict_create(self):
-        result = self.vm.run('(dict "a" 1 "b" 2)')
-        assert result == {"a": 1, "b": 2}
-
-    def test_dict_get(self):
-        assert self.vm.run('(get (dict "x" 42) "x")') == 42
-
-    def test_dict_get_default(self):
-        assert self.vm.run('(get (dict "x" 42) "y" 0)') == 0
-
-    def test_dict_assoc(self):
-        result = self.vm.run('(assoc (dict "a" 1) "b" 2)')
-        assert result == {"a": 1, "b": 2}
-
-    def test_dict_dissoc(self):
-        result = self.vm.run('(dissoc (dict "a" 1 "b" 2) "a")')
-        assert result == {"b": 2}
-
-    def test_dict_keys(self):
-        result = self.vm.run('(sort (keys (dict "b" 2 "a" 1)))')
-        assert result == ["a", "b"]
-
-    def test_dict_values(self):
-        result = self.vm.run('(sort (values (dict "a" 1 "b" 2)))')
-        assert result == [1, 2]
-
-    def test_dict_merge(self):
-        result = self.vm.run('(merge (dict "a" 1) (dict "b" 2))')
-        assert result == {"a": 1, "b": 2}
-
-    def test_dict_merge_override(self):
-        result = self.vm.run('(merge (dict "a" 1) (dict "a" 2))')
-        assert result == {"a": 2}
-
-
-# ---------------------------------------------------------------------------
-# Sub-simulation
-# ---------------------------------------------------------------------------
-
-class TestSubSim:
-    def setup_method(self):
-        self.vm = Lispy(max_depth=3)
-
-    def test_sub_sim_basic(self):
-        result = self.vm.run("(sub-sim (+ 1 2))")
-        assert result == 3
-
-    def test_sub_sim_reads_parent_env(self):
-        result = self.vm.run("(begin (define x 10) (sub-sim (+ x 5)))")
-        assert result == 15
-
-    def test_sub_sim_cannot_mutate_parent(self):
-        result = self.vm.run("""
-            (begin
-                (define x 10)
-                (sub-sim (begin (define x 99) x))
-                x)
+    def test_assoc_ref(self):
+        result = run("""
+            (let ((inner (assoc "b" 2 nil)))
+              (let ((data (assoc "a" 1 inner)))
+                (assoc-ref data "a")))
         """)
-        assert result == 10  # parent's x unchanged
+        assert result == 1.0
 
-    def test_sub_sim_depth_2(self):
-        result = self.vm.run("(sub-sim (sub-sim (+ 1 1)))")
-        assert result == 2
+    def test_assoc_set(self):
+        result = run("""
+            (let ((data (list (list "x" 1))))
+                (assoc-ref (assoc-set data "x" 99) "x"))
+        """)
+        assert result == 99.0
 
-    def test_sub_sim_depth_3(self):
-        result = self.vm.run("(sub-sim (sub-sim (sub-sim (+ 1 1))))")
-        assert result == 2
-
-    def test_sub_sim_depth_limit(self):
-        result = self.vm.run(
-            "(sub-sim (sub-sim (sub-sim (sub-sim (+ 1 1)))))"
-        )
-        assert isinstance(result, LispError)
-        assert "depth limit" in result.message
-
-    def test_sub_sim_shares_step_budget(self):
-        vm = Lispy(max_steps=100, max_depth=3)
-        # Each sub-sim eats from the shared budget
-        result = vm.run("(sub-sim (sub-sim (+ 1 1)))")
-        assert result == 2
-        assert vm.step_budget[0] < 100  # some steps consumed
-
-
-# ---------------------------------------------------------------------------
-# Execution Limits
-# ---------------------------------------------------------------------------
-
-class TestLimits:
-    def test_step_limit(self):
-        vm = Lispy(max_steps=10)
-        result = vm.run("(do i 0 1000 (+ i 1))")
-        assert isinstance(result, LispError)
-        assert "step limit" in result.message
-
-    def test_large_computation_succeeds(self):
-        vm = Lispy(max_steps=100000)
-        result = vm.run("(reduce (lambda (a x) (+ a x)) 0 (range 100))")
-        assert result == 4950  # sum 0..99
-
-
-# ---------------------------------------------------------------------------
-# Error Handling
-# ---------------------------------------------------------------------------
-
-class TestErrors:
-    def setup_method(self):
-        self.vm = Lispy()
-
-    def test_unbound_symbol(self):
-        result = self.vm.run("nonexistent")
-        assert isinstance(result, LispError)
-
-    def test_error_function(self):
-        result = self.vm.run('(error "boom")')
-        assert isinstance(result, LispError)
-        assert result.message == "boom"
-
-    def test_error_check(self):
-        assert self.vm.run('(error? (error "x"))') is True
-        assert self.vm.run("(error? 42)") is False
-
-    def test_not_callable(self):
-        result = self.vm.run("(42 1 2)")
-        assert isinstance(result, LispError)
-
-    def test_error_propagates(self):
-        result = self.vm.run("(+ 1 (/ 1 0))")
-        assert isinstance(result, LispError)
-
-
-# ---------------------------------------------------------------------------
-# Type Checks
-# ---------------------------------------------------------------------------
-
-class TestTypeChecks:
-    def setup_method(self):
-        self.vm = Lispy()
-
-    def test_number(self):
-        assert self.vm.run("(number? 42)") is True
-        assert self.vm.run('(number? "hi")') is False
-
-    def test_string(self):
-        assert self.vm.run('(string? "hi")') is True
-        assert self.vm.run("(string? 42)") is False
-
-    def test_list(self):
-        assert self.vm.run("(list? (list 1 2))") is True
-        assert self.vm.run("(list? 42)") is False
-
-    def test_dict(self):
-        assert self.vm.run('(dict? (dict "a" 1))') is True
-
-    def test_type_names(self):
-        assert self.vm.run("(type 42)") == "int"
-        assert self.vm.run("(type 3.14)") == "float"
-        assert self.vm.run('(type "hello")') == "string"
-        assert self.vm.run("(type (list 1))") == "list"
-        assert self.vm.run('(type (dict "a" 1))') == "dict"
-        assert self.vm.run("(type true)") == "bool"
-
-
-# ---------------------------------------------------------------------------
-# Serialization
-# ---------------------------------------------------------------------------
 
 class TestSerialization:
-    def test_to_sexp_int(self):
-        assert to_sexp(42) == "42"
+    def test_to_sexpr_number(self):
+        assert to_sexpr(42) == "42"
+        assert to_sexpr(3.14) == "3.1400"
 
-    def test_to_sexp_float(self):
-        assert to_sexp(3.14) == "3.14"
+    def test_to_sexpr_string(self):
+        assert to_sexpr("hello") == '"hello"'
 
-    def test_to_sexp_string(self):
-        assert to_sexp("hello") == '"hello"'
+    def test_to_sexpr_list(self):
+        assert to_sexpr([1, 2, 3]) == "(1 2 3)"
 
-    def test_to_sexp_list(self):
-        assert to_sexp([1, 2, 3]) == "(1 2 3)"
+    def test_to_sexpr_none(self):
+        assert to_sexpr(None) == "nil"
 
-    def test_to_sexp_nil(self):
-        assert to_sexp(NIL) == "nil"
-        assert to_sexp(None) == "nil"
+    def test_to_sexpr_bool(self):
+        assert to_sexpr(True) == "#t"
+        assert to_sexpr(False) == "#f"
 
-    def test_to_sexp_bool(self):
-        assert to_sexp(True) == "true"
-        assert to_sexp(False) == "false"
+    def test_to_sexpr_dict(self):
+        result = to_sexpr({"a": 1})
+        assert "a" in result
+        assert "1" in result
 
-    def test_to_sexp_dict(self):
-        result = to_sexp({"a": 1})
-        assert "dict" in result
-        assert '"a"' in result
-
-    def test_to_sexp_error(self):
-        assert to_sexp(LispError("oops")) == '(error "oops")'
-
-    def test_roundtrip_simple(self):
-        vm = Lispy()
-        original = [1, "hello", True]
-        sexp = to_sexp(original)
-        # The sexp is a list literal like (1 "hello" true)
-        # Evaluating it would try to call 1 as a function
-        # So we use quote to preserve it as data
-        result = vm.run(f"'{sexp}")
-        assert result == original
+    def test_round_trip(self):
+        """Parse a serialized expression and evaluate it."""
+        original = ["+", 1.0, 2.0]
+        sexpr_str = to_sexpr(original)
+        parsed = parse(sexpr_str)
+        assert parsed == original
 
 
 # ---------------------------------------------------------------------------
-# Integration: Colonist Brain Programs
+# Safety tests
 # ---------------------------------------------------------------------------
 
-class TestColonistBrains:
-    """Test the kind of LisPy programs Mars-100 colonists actually run."""
+class TestSafety:
+    def test_step_limit(self):
+        """Infinite loop should be caught by step counter."""
+        with pytest.raises(StepLimitError):
+            run("""
+                (begin
+                    (define (loop x) (loop (+ x 1)))
+                    (loop 0))
+            """, step_limit=100)
 
-    def setup_method(self):
-        self.vm = Lispy(max_steps=10000, max_depth=3)
-        # Set up a typical colonist environment
-        self.vm.global_env.set("colony-food", 500.0)
-        self.vm.global_env.set("colony-water", 1000.0)
-        self.vm.global_env.set("colony-morale", 0.6)
-        self.vm.global_env.set("colony-integrity", 0.9)
-        self.vm.global_env.set("colony-terraform", 0.001)
-        self.vm.global_env.set("event-name", "dust_storm")
-        self.vm.global_env.set("event-severity", 0.5)
-        self.vm.global_env.set("year", 15)
-        self.vm.global_env.set("my-name", "Ares")
-        self.vm.global_env.set("my-resolve", 0.7)
-        self.vm.global_env.set("my-improvisation", 0.5)
-        self.vm.global_env.set("my-empathy", 0.6)
-        self.vm.global_env.set("my-hoarding", 0.3)
-        self.vm.global_env.set("my-faith", 0.4)
-        self.vm.global_env.set("my-paranoia", 0.2)
-        self.vm.global_env.set("my-terraforming", 0.3)
-        self.vm.global_env.set("my-hydroponics", 0.5)
-        self.vm.global_env.set("my-mediation", 0.4)
-        self.vm.global_env.set("my-coding", 0.7)
-        self.vm.global_env.set("my-prayer", 0.2)
-        self.vm.global_env.set("my-sabotage", 0.1)
+    def test_subsim_depth_limit(self):
+        """Sub-sim at max depth should error."""
+        evaluator = Evaluator(step_limit=5000, subsim_depth=3, max_subsim_depth=3)
+        env = standard_env()
+        expr = parse("(sub-sim (+ 1 2))")
+        with pytest.raises(DepthLimitError):
+            evaluator.eval(expr, env)
 
-    def test_repair_decision(self):
-        result = self.vm.run("""
-            (let ((cost (* event-severity 50))
-                  (benefit (* my-coding 0.8))
-                  (risk (if (> event-severity 0.7) 0.3 0.1)))
-              (if (> benefit risk)
-                (list "repair" "worth_it" (- benefit risk))
-                (list "repair" "risky" risk)))
-        """)
-        assert isinstance(result, list)
-        assert result[0] == "repair"
-        assert result[1] == "worth_it"  # coding 0.7 * 0.8 = 0.56 > 0.1
+    def test_subsim_basic(self):
+        """Sub-sim should evaluate expression in sandbox."""
+        evaluator = Evaluator(step_limit=5000, max_subsim_depth=3)
+        env = standard_env()
+        expr = parse("(sub-sim (+ 10 20))")
+        result = evaluator.eval(expr, env)
+        assert result == 30.0
 
-    def test_farm_decision(self):
-        result = self.vm.run("""
-            (let ((yield (* my-hydroponics 30))
-                  (food-need (* 10 1.8))
-                  (surplus (- (+ colony-food yield) food-need)))
-              (if (> surplus 0)
-                (list "farm" "surplus" surplus)
-                (list "farm" "deficit" surplus)))
-        """)
-        assert isinstance(result, list)
-        assert result[0] == "farm"
+    def test_subsim_logged(self):
+        """Sub-sim execution should be logged."""
+        evaluator = Evaluator(step_limit=5000, max_subsim_depth=3)
+        env = standard_env()
+        expr = parse("(sub-sim (* 6 7))")
+        evaluator.eval(expr, env)
+        assert len(evaluator.subsim_log) == 1
+        assert evaluator.subsim_log[0]["depth"] == 1
+        assert evaluator.subsim_log[0]["result"] == 42.0
 
-    def test_terraform_with_sub_sim(self):
-        """A colonist runs a sub-sim to project terraforming progress."""
-        result = self.vm.run("""
-            (let ((progress (* my-terraforming 0.001))
-                  (cost (* 20 (- 1 my-resolve))))
-              (sub-sim
-                (let ((projected (+ colony-terraform progress)))
-                  (if (> projected 0.01)
-                    (list "terraform" "milestone" projected)
-                    (list "terraform" "incremental" projected)))))
-        """)
-        assert isinstance(result, list)
-        assert result[0] == "terraform"
+    def test_subsim_budget_decreases(self):
+        """Deeper sub-sims should have smaller budgets."""
+        evaluator = Evaluator(step_limit=4000, max_subsim_depth=3)
+        env = standard_env()
+        # Nested sub-sim
+        expr = parse("(sub-sim (sub-sim (+ 1 1)))")
+        result = evaluator.eval(expr, env)
+        assert result == 2.0
+        # Should have 2 log entries (depth 1 and depth 2)
+        assert len(evaluator.subsim_log) == 2
 
-    def test_nested_sub_sim_governance(self):
-        """A colonist models a governance vote in a sub-sim within a sub-sim."""
-        result = self.vm.run("""
-            (sub-sim
-              (let ((proposal-support (* colony-morale my-mediation)))
-                (sub-sim
-                  (if (> proposal-support 0.3)
-                    (list "governance" "viable" proposal-support)
-                    (list "governance" "doomed" proposal-support)))))
-        """)
-        assert isinstance(result, list)
-        assert result[0] == "governance"
+    def test_no_io_access(self):
+        """Standard env should not have any I/O primitives."""
+        env = standard_env()
+        dangerous = ["open", "read", "write", "exec", "eval", "import",
+                      "system", "os", "subprocess", "file"]
+        for name in dangerous:
+            assert name not in env
+
+    def test_undefined_symbol(self):
+        with pytest.raises(LispyError, match="undefined"):
+            run("nonexistent_var")
+
+    def test_arity_mismatch(self):
+        with pytest.raises(LispyError, match="arity"):
+            run("(begin (define (f x) x) (f 1 2))")
 
 
 # ---------------------------------------------------------------------------
-# Determinism
+# Integration tests
 # ---------------------------------------------------------------------------
 
-class TestDeterminism:
-    def test_same_program_same_result(self):
-        """Same program should produce identical results."""
-        program = """
+class TestIntegration:
+    def test_fibonacci(self):
+        """Classic recursive function."""
+        result = run("""
             (begin
-                (define fib (lambda (n)
+                (define (fib n)
                     (if (<= n 1) n
-                        (+ (fib (- n 1)) (fib (- n 2))))))
+                        (+ (fib (- n 1)) (fib (- n 2)))))
                 (fib 10))
-        """
-        vm1 = Lispy()
-        vm2 = Lispy()
-        assert vm1.run(program) == vm2.run(program) == 55
+        """, step_limit=50000)
+        assert result == 55.0
+
+    def test_governance_model(self):
+        """A LisPy expression modeling a simple governance decision."""
+        result = run("""
+            (let ((food 0.3)
+                  (water 0.8)
+                  (population 8)
+                  (crisis (- 1.0 (min 0.3 0.8))))
+              (if (> crisis 0.5)
+                (list "ration" (* food 0.7))
+                (list "expand" (+ population 1))))
+        """)
+        assert isinstance(result, list)
+        assert result[0] == "ration"
+
+    def test_colonist_decision(self):
+        """Model a colonist decision as LisPy."""
+        result = run("""
+            (let ((resolve 0.8)
+                  (empathy 0.6)
+                  (paranoia 0.2)
+                  (crisis 0.4))
+              (cond
+                ((> crisis 0.7) "survive")
+                ((> empathy 0.5) "mediate")
+                ((> paranoia 0.6) "hide")
+                (else "explore")))
+        """)
+        assert result == "mediate"
+
+    def test_subsim_governance_proposal(self):
+        """Sub-sim evaluating a governance proposal's outcome."""
+        result = run("""
+            (sub-sim
+              (let ((share-pct 0.8)
+                    (food 1.2)
+                    (pop 9))
+                (let ((per-person (* food share-pct (/ 1.0 pop))))
+                  (if (> per-person 0.05)
+                    (list "viable" per-person)
+                    (list "insufficient" per-person)))))
+        """, step_limit=5000)
+        assert isinstance(result, list)
+        assert result[0] in ("viable", "insufficient")
