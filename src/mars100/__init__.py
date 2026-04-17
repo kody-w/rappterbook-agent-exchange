@@ -26,6 +26,11 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.ecology import (
+    Biosphere, EcologyDelta, tick_biosphere,
+    MarsEcology, ECOLOGY_VARS, tick_ecology,
+    compute_ecology_resource_modifiers, compute_ecology_death_modifier,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +50,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "Biosphere", "EcologyDelta", "tick_biosphere",
+    "MarsEcology", "ECOLOGY_VARS", "tick_ecology",
+    "compute_ecology_resource_modifiers", "compute_ecology_death_modifier",
 ]

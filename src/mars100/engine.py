@@ -29,6 +29,11 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.ecology import (
+    Biosphere, tick_biosphere, MarsEcology,
+    tick_ecology, compute_ecology_resource_modifiers,
+    compute_ecology_death_modifier,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +62,8 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
+    biosphere: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +80,8 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "ecology": self.ecology,
+            "biosphere": self.biosphere,
         }
 
 
@@ -93,10 +102,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    final_ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +124,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "final_ecology": self.final_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +145,8 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.biosphere = Biosphere()
+        self.ecology = MarsEcology()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -325,6 +338,8 @@ class Mars100Engine:
     def _check_death(self, colonist: Colonist) -> str | None:
         rate = BASE_DEATH_RATE
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
+        eco_death_mult = compute_ecology_death_modifier(self.ecology)
+        death_rate_mult *= eco_death_mult
         rate *= death_rate_mult
         for name in RESOURCE_NAMES:
             val = getattr(self.resources, name)
@@ -509,6 +524,26 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # Planetary ecology: tick Mars environment
+        terraformers = sum(1 for a in actions.values() if a == "terraform")
+        eco_delta = tick_ecology(
+            self.ecology, len(active), terraformers,
+            self.infra.completed,
+            rng_drift=self.rng.uniform(-1, 1),
+        )
+
+        # Merge ecology resource modifiers into infra modifiers
+        eco_mods = compute_ecology_resource_modifiers(self.ecology)
+        for k, v in eco_mods.items():
+            infra_mods[k] = infra_mods.get(k, 1.0) * v
+
+        # Biosphere: tick organic layer (air/food deltas)
+        farmers = sum(1 for a in actions.values() if a == "farm")
+        max_severity = max((e.severity for e in events), default=0.0)
+        bio_delta = tick_biosphere(self.biosphere, farmers, max_severity)
+        event_effects["air"] = event_effects.get("air", 0.0) + bio_delta.air_delta
+        event_effects["food"] = event_effects.get("food", 0.0) + bio_delta.food_delta
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
                                         infra_modifiers=infra_mods)
@@ -586,6 +621,8 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            ecology=eco_delta,
+            biosphere=self.biosphere.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +655,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            final_ecology=self.ecology.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
