@@ -4,7 +4,8 @@ from __future__ import annotations
 from src.mars100.colonist import (
     Colonist, ColonistStats, ColonistSkills, MemoryEntry,
     ELEMENTS, STAT_NAMES, SKILL_NAMES, COLONIST_NAMES,
-    create_founding_ten, create_child,
+    create_founding_ten, create_child, create_immigrant,
+    IMMIGRANT_ARCHETYPES,
 )
 from src.mars100.colony import (
     Resources, SocialGraph, Relationship, RESOURCE_NAMES,
@@ -30,12 +31,18 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure, transmit_to_child,
 )
+from src.mars100.earth import (
+    EarthState, EarthMessage, EarthTickResult, SupplyShip,
+    tick_earth, compute_maintenance_modifier,
+    check_independence_conditions, declare_independence,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
     "Colonist", "ColonistStats", "ColonistSkills", "MemoryEntry",
     "ELEMENTS", "STAT_NAMES", "SKILL_NAMES", "COLONIST_NAMES",
-    "create_founding_ten", "create_child",
+    "create_founding_ten", "create_child", "create_immigrant",
+    "IMMIGRANT_ARCHETYPES",
     "Resources", "SocialGraph", "Relationship", "RESOURCE_NAMES",
     "compute_value_convergence", "tick_resources",
     "Event", "generate_events", "EVENT_TEMPLATES",
@@ -49,4 +56,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "EarthState", "EarthMessage", "EarthTickResult", "SupplyShip",
+    "tick_earth", "compute_maintenance_modifier",
+    "check_independence_conditions", "declare_independence",
 ]

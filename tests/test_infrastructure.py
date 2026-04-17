@@ -44,7 +44,7 @@ POOR = {"food": 0.0, "water": 0.0, "power": 0.0, "air": 0.0, "medicine": 0.0}
 
 class TestTechTreeStructure:
     def test_six_techs(self):
-        assert len(TECH_TREE) == 6
+        assert len(TECH_TREE) == 7
     def test_unique_ids(self):
         ids = [t.id for t in TECH_TREE]
         assert len(ids) == len(set(ids))
@@ -93,12 +93,12 @@ class TestInfrastructureState:
 
 class TestAvailableTechs:
     def test_all_available_initially(self):
-        assert len(available_techs(InfrastructureState())) == 6
+        assert len(available_techs(InfrastructureState())) == 7
     def test_excludes_completed(self):
         s = InfrastructureState(completed=["greenhouse_dome"])
         ids = [t.id for t in available_techs(s)]
         assert "greenhouse_dome" not in ids
-        assert len(ids) == 5
+        assert len(ids) == 6
     def test_excludes_abandoned(self):
         s = InfrastructureState(abandoned=["power_grid"])
         ids = [t.id for t in available_techs(s)]

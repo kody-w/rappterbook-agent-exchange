@@ -87,6 +87,14 @@ TECH_TREE = [
         effects={"subsim_budget_mult": 1.5},
         operating_cost={"power": 0.006},
     ),
+    TechSpec(
+        id="air_recycler", name="Air Recycler",
+        description="Closed-loop atmospheric processor -- cuts air spoilage by 60 pct and maintenance by 40 pct.",
+        build_time=5, workers_needed=2,
+        resource_cost={"power": 0.15, "water": 0.05},
+        effects={"air_spoilage_mult": 0.4, "air_maintenance_mult": 0.6},
+        operating_cost={"power": 0.005},
+    ),
 ]
 
 TECH_BY_ID = {t.id: t for t in TECH_TREE}
