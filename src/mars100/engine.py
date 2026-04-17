@@ -37,6 +37,9 @@ from src.mars100.earth import (
     EarthState, tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, EconomicAgent, tick_economics, economic_governance_pressure,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -70,6 +73,7 @@ class YearResult:
     earth: dict = field(default_factory=dict)
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
+    economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +94,7 @@ class YearResult:
             "earth": self.earth,
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
+            "economy": self.economy,
         }
 
 
@@ -114,10 +119,11 @@ class SimulationResult:
     final_earth: dict = field(default_factory=dict)
     total_immigrants: int = 0
     total_ships: int = 0
+    final_economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "6.0",
+            "_meta": {"engine": "mars-100", "version": "7.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -139,6 +145,7 @@ class SimulationResult:
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
             "final_earth": self.final_earth,
+            "final_economy": self.final_economy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -163,6 +170,10 @@ class Mars100Engine:
         self.culture_rng = random.Random(seed + 7919)
         self.earth = EarthState()
         self.earth_rng = random.Random(seed + 6151)
+        self.economy = EconomicState(agents={
+            c.id: EconomicAgent(c.id) for c in self.colonists
+        })
+        self.econ_rng = random.Random(seed + 8837)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -703,6 +714,19 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # --- Economics tick ---
+        active_now = self._active_colonists()
+        econ_active_ids = [c.id for c in active_now]
+        econ_skills = {c.id: c.skills.to_dict() for c in active_now}
+        econ_stats = {c.id: c.stats.to_dict() for c in active_now}
+        econ_summary = tick_economics(
+            self.economy, econ_active_ids, actions,
+            econ_skills, econ_stats,
+            self.resources.average(),
+            lambda a, b: self.social.get(a, b),
+            self.econ_rng,
+        )
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -721,6 +745,7 @@ class Mars100Engine:
             earth=self.earth.to_dict(),
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
+            economy=econ_summary,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -759,6 +784,7 @@ class Mars100Engine:
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
             final_earth=self.earth.to_dict(),
+            final_economy=self.economy.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
