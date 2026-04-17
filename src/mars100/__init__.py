@@ -12,6 +12,7 @@ from src.mars100.colony import (
 )
 from src.mars100.engine import Mars100Engine, YearResult, SimulationResult
 from src.mars100.events import Event, generate_events, EVENT_TEMPLATES
+from src.mars100.codex import Codex, CodexEntry, imprint_child
 from src.mars100.governance import (
     GovernanceProposal, GovernanceState,
     generate_proposal, resolve_vote, should_propose, apply_governance,
@@ -33,4 +34,5 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "Codex", "CodexEntry", "imprint_child",
 ]

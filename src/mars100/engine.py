@@ -25,6 +25,7 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.codex import Codex, imprint_child as codex_imprint
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +53,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    codex_snapshot: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +69,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "codex_snapshot": self.codex_snapshot,
         }
 
 
@@ -86,10 +89,11 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    final_codex: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -106,6 +110,7 @@ class SimulationResult:
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "final_codex": self.final_codex,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -126,6 +131,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self.codex = Codex()
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -135,12 +141,18 @@ class Mars100Engine:
     def _active_ids(self) -> list[str]:
         return [c.id for c in self._active_colonists()]
 
+    def _full_bindings(self, colonist: 'Colonist') -> dict:
+        """Merge colonist bindings with colony-wide codex bindings."""
+        b = colonist.lispy_bindings()
+        b.update(self.codex.get_bindings())
+        return b
+
     def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
         """Choose an action for a colonist based on personality and events."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
-                              extra_bindings=colonist.lispy_bindings(),
+                              extra_bindings=self._full_bindings(colonist),
                               max_steps=1000)
             if not isinstance(score, (int, float)):
                 score = 0.5
@@ -230,7 +242,7 @@ class Mars100Engine:
         if self.rng.random() > subsim_chance:
             return None
         expr = self._generate_subsim_expression(colonist, events)
-        bindings = colonist.lispy_bindings()
+        bindings = self._full_bindings(colonist)
         bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
         result = spawn_subsim(expression=expr, colonist_id=colonist.id,
                               year=self.year, bindings=bindings,
@@ -468,7 +480,7 @@ class Mars100Engine:
             if subsim_budget.can_spawn(proposer.id):
                 gov_expr = "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))"
                 gov_sim = spawn_subsim(expression=gov_expr, colonist_id=proposer.id,
-                                       year=self.year, bindings=proposer.lispy_bindings(),
+                                       year=self.year, bindings=self._full_bindings(proposer),
                                        depth=1, budget=subsim_budget, log=subsim_log)
                 gov_proposal.subsim_result = gov_sim.to_dict()
             for colonist in active:
@@ -525,6 +537,7 @@ class Mars100Engine:
                 meta_events.append(meta)
 
         convergence = compute_value_convergence(self._active_colonists())
+        self._tick_codex(events, deaths, gov_proposal, year_births)
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
@@ -541,7 +554,40 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            codex_snapshot=self.codex.snapshot(),
         )
+
+
+    def _tick_codex(self, events: list, deaths: list[dict],
+                    gov_proposal: Any, year_births: list[dict]) -> None:
+        """Update colony codex with this year's cultural events."""
+        for ev in events:
+            name = ev.name if hasattr(ev, 'name') else str(ev)
+            severity = ev.severity if hasattr(ev, 'severity') else 0.5
+            self.codex.add_event(name, impact=severity)
+
+        for d in deaths:
+            cid = d.get("id", "")
+            col = next((c for c in self.colonists if c.id == cid), None)
+            if col:
+                memories = [m.to_dict() if hasattr(m, 'to_dict') else m
+                            for m in getattr(col, 'memories', [])]
+                self.codex.add_ancestor_wisdom(cid, memories)
+
+        if gov_proposal and getattr(gov_proposal, 'passed', False):
+            desc = getattr(gov_proposal, 'rationale', '') or getattr(gov_proposal, 'gov_type', str(gov_proposal))
+            self.codex.add_law(desc)
+
+        for b in year_births:
+            child_id = b.get("child_id", "")
+            child = next((c for c in self.colonists if c.id == child_id), None)
+            if child:
+                new_stats = codex_imprint(self.codex, child.stats.to_dict())
+                for k, v in new_stats.items():
+                    if hasattr(child.stats, k):
+                        setattr(child.stats, k, v)
+
+        self.codex.tick_decay()
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
@@ -572,6 +618,7 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            final_codex=self.codex.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
