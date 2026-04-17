@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mars-100 Emergence Report</title>
+<style>
+:root {
+  --bg: #0a0a12; --card: #12121f; --border: #1e1e35;
+  --text: #d0d0e0; --dim: #888; --accent: #e04040;
+  --green: #40c060; --blue: #4090ff; --gold: #f0c040;
+  --purple: #a060e0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Courier New', monospace; background: var(--bg); color: var(--text); line-height: 1.5; padding: 1rem; max-width: 900px; margin: 0 auto; }
+h1 { font-size: 1.6rem; color: var(--accent); margin-bottom: 0.5rem; }
+h2 { font-size: 1.2rem; color: var(--gold); margin: 1.5rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+h3 { font-size: 1rem; color: var(--blue); margin: 0.8rem 0 0.3rem; }
+.subtitle { color: var(--dim); font-size: 0.85rem; margin-bottom: 1rem; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin: 0.5rem 0; }
+.stat-row { display: flex; justify-content: space-between; padding: 0.2rem 0; border-bottom: 1px dashed var(--border); }
+.stat-label { color: var(--dim); }
+.stat-value { font-weight: bold; }
+.bar-container { height: 20px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 2px 0; }
+.bar { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.bar-green { background: var(--green); }
+.bar-red { background: var(--accent); }
+.bar-blue { background: var(--blue); }
+.bar-gold { background: var(--gold); }
+.bar-purple { background: var(--purple); }
+.insight { border-left: 3px solid var(--gold); padding: 0.5rem 0.8rem; margin: 0.5rem 0; background: rgba(240,192,64,0.05); }
+.insight-title { color: var(--gold); font-weight: bold; }
+.insight-strength { color: var(--dim); font-size: 0.8rem; }
+.amendment { border: 2px solid var(--accent); padding: 1rem; margin: 1rem 0; border-radius: 6px; background: rgba(224,64,64,0.08); }
+.amendment-title { color: var(--accent); font-weight: bold; font-size: 1.1rem; }
+.tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 3px; font-size: 0.75rem; margin: 0.1rem; }
+.tag-fire { background: #8b2020; color: #ffa0a0; }
+.tag-air { background: #205070; color: #a0d0ff; }
+.tag-water { background: #204080; color: #80c0ff; }
+.tag-earth { background: #305020; color: #a0e080; }
+.timeline { display: flex; flex-direction: column; gap: 0.3rem; }
+.timeline-row { display: flex; align-items: center; gap: 0.5rem; }
+.timeline-year { min-width: 40px; text-align: right; color: var(--dim); font-size: 0.8rem; }
+.timeline-bar { flex: 1; height: 12px; border-radius: 2px; }
+.decade-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin: 0.5rem 0; }
+.decade-cell { text-align: center; padding: 0.3rem; border-radius: 3px; font-size: 0.75rem; }
+#loading { text-align: center; padding: 3rem; color: var(--dim); }
+.hidden { display: none; }
+.flex-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.flex-col { flex: 1; min-width: 250px; }
+footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--dim); font-size: 0.75rem; text-align: center; }
+</style>
+</head>
+<body>
+<h1>🔴 Mars-100 Emergence Report</h1>
+<p class="subtitle">The colony studying its own fossil record — 100 Martian years of recursive self-modeling</p>
+
+<div id="loading">Loading emergence data...</div>
+<div id="report" class="hidden">
+
+<!-- Governance -->
+<h2>⚖️ Governance Phases</h2>
+<div id="gov-phases" class="card"></div>
+
+<!-- Mortality -->
+<h2>💀 Mortality Patterns</h2>
+<div id="mortality" class="card"></div>
+
+<!-- Factions -->
+<h2>🏴 Faction Formation</h2>
+<div id="factions" class="card"></div>
+
+<!-- Convergence -->
+<h2>📊 Value Convergence</h2>
+<div id="convergence" class="card"></div>
+
+<!-- Resilience -->
+<h2>🛡️ Crisis Resilience</h2>
+<div id="resilience" class="card"></div>
+
+<!-- Sub-Simulations -->
+<h2>🐢 Sub-Simulation Accuracy</h2>
+<div id="subsims" class="card"></div>
+
+<!-- Insights -->
+<h2>💡 Emergent Insights</h2>
+<div id="insights"></div>
+
+<!-- Amendment -->
+<h2>📜 Proposed Constitutional Amendment</h2>
+<div id="amendment"></div>
+
+</div>
+
+<footer>
+  Mars-100 Emergence Analyzer · Frame mutation by the colony's self-reflection organ<br>
+  <em>Turtles All the Way Down (Amendment XIII) — made concrete</em>
+</footer>
+
+<script>
+(function() {
+  const $ = (id) => document.getElementById(id);
+
+  function bar(pct, cls) {
+    return `<div class="bar-container"><div class="bar ${cls}" style="width:${Math.max(2, pct)}%"></div></div>`;
+  }
+
+  function render(data) {
+    // Governance phases
+    let govHtml = '<div class="timeline">';
+    const totalYears = 100;
+    const govColors = { anarchy: 'bar-red', direct_democracy: 'bar-green', council: 'bar-blue', dictator: 'bar-purple' };
+    data.governance_phases.forEach(p => {
+      const end = p.end_year || 100;
+      const pct = (p.duration / totalYears) * 100;
+      govHtml += `<div class="timeline-row">
+        <span class="timeline-year">yr ${p.start_year}</span>
+        <div class="timeline-bar ${govColors[p.gov_type] || 'bar-blue'}" style="width:${pct}%" title="${p.gov_type}: ${p.duration} years"></div>
+        <span style="font-size:0.8rem">${p.gov_type.replace('_',' ')} (${p.duration}yr)</span>
+      </div>`;
+    });
+    govHtml += '</div>';
+    govHtml += '<div class="flex-row" style="margin-top:0.8rem">';
+    data.governance_phases.forEach(p => {
+      govHtml += `<div class="flex-col"><h3>${p.gov_type.replace('_',' ')}</h3>
+        <div class="stat-row"><span class="stat-label">Duration</span><span class="stat-value">${p.duration} years</span></div>
+        <div class="stat-row"><span class="stat-label">Crises</span><span class="stat-value">${p.crises_weathered}</span></div>
+        <div class="stat-row"><span class="stat-label">Deaths</span><span class="stat-value">${p.deaths_during}</span></div>
+        <div class="stat-row"><span class="stat-label">Cohesion</span><span class="stat-value">${(p.avg_cohesion * 100).toFixed(1)}%</span></div>
+        <div class="stat-row"><span class="stat-label">Proposals</span><span class="stat-value">${p.proposal_count}</span></div>
+      </div>`;
+    });
+    govHtml += '</div>';
+    $('gov-phases').innerHTML = govHtml;
+
+    // Mortality
+    const m = data.mortality;
+    let mortHtml = `<div class="flex-row">
+      <div class="flex-col">
+        <div class="stat-row"><span class="stat-label">Total Deaths</span><span class="stat-value" style="color:var(--accent)">${m.total_deaths}</span></div>
+        <div class="stat-row"><span class="stat-label">Avg Death Year</span><span class="stat-value">${m.avg_death_year}</span></div>
+        <div class="stat-row"><span class="stat-label">Deadliest Decade</span><span class="stat-value">yr ${m.deadliest_decade}-${m.deadliest_decade + 9}</span></div>
+        <h3>Causes</h3>`;
+    Object.entries(m.causes).forEach(([cause, count]) => {
+      const pct = (count / m.total_deaths) * 100;
+      mortHtml += `<div style="margin:0.3rem 0"><span>${cause}: ${count} (${pct.toFixed(0)}%)</span>${bar(pct, 'bar-red')}</div>`;
+    });
+    mortHtml += `</div><div class="flex-col"><h3>Deaths per Decade</h3><div class="decade-grid">`;
+    m.deaths_per_decade.forEach((d, i) => {
+      const intensity = d > 0 ? Math.min(255, 80 + d * 15) : 30;
+      const bg = d > 0 ? `rgba(224,64,64,${d / 16})` : 'var(--border)';
+      mortHtml += `<div class="decade-cell" style="background:${bg}">${i * 10 + 1}-${(i + 1) * 10}<br><b>${d}</b></div>`;
+    });
+    mortHtml += '</div>';
+    if (m.systemic_cause) {
+      mortHtml += `<div class="insight" style="margin-top:0.5rem;border-color:var(--accent)"><span style="color:var(--accent)">⚠ SYSTEMIC:</span> ${m.systemic_cause}</div>`;
+    }
+    mortHtml += '</div></div>';
+    $('mortality').innerHTML = mortHtml;
+
+    // Factions
+    let facHtml = '';
+    const facColors = { resolve: 'bar-red', faith: 'bar-purple', empathy: 'bar-blue', hoarding: 'bar-gold', improvisation: 'bar-green', paranoia: 'bar-red' };
+    data.factions.forEach(f => {
+      facHtml += `<div style="margin:0.5rem 0">
+        <h3>${f.name} <span style="color:var(--dim);font-size:0.8rem">(${f.members.length} members, ${f.dominant_value})</span></h3>
+        <div class="stat-row"><span class="stat-label">Cohesion</span><span class="stat-value">${(f.cohesion * 100).toFixed(1)}%</span></div>
+        ${bar(f.cohesion * 100, facColors[f.dominant_value] || 'bar-blue')}
+        <div class="stat-row"><span class="stat-label">Formed</span><span class="stat-value">yr ${f.formed_year}</span></div>
+        <div style="margin-top:0.2rem">Members: ${f.members.map(id => `<span class="tag tag-fire">#${id}</span>`).join('')}</div>
+      </div>`;
+    });
+    $('factions').innerHTML = facHtml;
+
+    // Convergence
+    let convHtml = '<table style="width:100%;border-collapse:collapse">';
+    convHtml += '<tr><th style="text-align:left;color:var(--dim)">Stat</th><th>Early</th><th>Mid</th><th>Late</th><th>Final</th><th>Trend</th></tr>';
+    data.convergence.forEach(c => {
+      const trendColor = c.trend === 'converging' ? 'var(--green)' : c.trend === 'diverging' ? 'var(--accent)' : 'var(--dim)';
+      const trendIcon = c.trend === 'converging' ? '↘' : c.trend === 'diverging' ? '↗' : '→';
+      convHtml += `<tr style="border-bottom:1px dashed var(--border)">
+        <td>${c.stat}</td>
+        <td style="text-align:center">${c.early.toFixed(3)}</td>
+        <td style="text-align:center">${c.mid.toFixed(3)}</td>
+        <td style="text-align:center">${c.late.toFixed(3)}</td>
+        <td style="text-align:center">${c.final.toFixed(3)}</td>
+        <td style="text-align:center;color:${trendColor}">${trendIcon} ${c.trend}</td>
+      </tr>`;
+    });
+    convHtml += '</table>';
+    $('convergence').innerHTML = convHtml;
+
+    // Resilience
+    let resHtml = '<div class="decade-grid">';
+    data.crisis_resilience.forEach((r, i) => {
+      const pct = r * 100;
+      const color = r > 0.9 ? 'var(--green)' : r > 0.7 ? 'var(--gold)' : 'var(--accent)';
+      resHtml += `<div class="decade-cell" style="border:1px solid ${color}">
+        <div style="font-size:0.7rem;color:var(--dim)">${i * 10 + 1}-${(i + 1) * 10}</div>
+        <div style="color:${color};font-weight:bold">${pct.toFixed(0)}%</div>
+        ${bar(pct, r > 0.9 ? 'bar-green' : r > 0.7 ? 'bar-gold' : 'bar-red')}
+      </div>`;
+    });
+    resHtml += '</div>';
+    const earlyRes = data.crisis_resilience.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+    const lateRes = data.crisis_resilience.slice(7).reduce((a, b) => a + b, 0) / 3;
+    const resTrend = lateRes < earlyRes * 0.9 ? '📉 Degrading' : lateRes > earlyRes * 1.1 ? '📈 Improving' : '→ Stable';
+    resHtml += `<div style="margin-top:0.5rem;color:var(--dim)">Trend: <b style="color:var(--text)">${resTrend}</b> (early avg: ${(earlyRes * 100).toFixed(0)}%, late avg: ${(lateRes * 100).toFixed(0)}%)</div>`;
+    $('resilience').innerHTML = resHtml;
+
+    // Sub-sims
+    let subHtml = `<div class="flex-row">
+      <div class="flex-col">
+        <div class="stat-row"><span class="stat-label">Total Sub-Sims</span><span class="stat-value">${data.total_subsims.toLocaleString()}</span></div>
+        <div class="stat-row"><span class="stat-label">Predictive Accuracy</span><span class="stat-value" style="color:var(--green)">${(data.subsim_accuracy * 100).toFixed(1)}%</span></div>
+        ${bar(data.subsim_accuracy * 100, 'bar-green')}
+        <p style="margin-top:0.5rem;color:var(--dim);font-size:0.85rem">
+          Sub-simulations predicted resource outcomes better than chance (50%).
+          ${data.subsim_accuracy > 0.7 ? 'Strong evidence that recursive self-modeling produces actionable predictions.' : 'Modest predictive power suggests sub-sims justify more than they predict.'}
+        </p>
+      </div>
+    </div>`;
+    $('subsims').innerHTML = subHtml;
+
+    // Insights
+    let insHtml = '';
+    data.insights.forEach(ins => {
+      insHtml += `<div class="insight">
+        <div class="insight-title">${ins.title} <span class="insight-strength">[strength: ${ins.strength.toFixed(2)}]</span></div>
+        <div style="margin-top:0.3rem">${ins.evidence}</div>
+      </div>`;
+    });
+    $('insights').innerHTML = insHtml;
+
+    // Amendment
+    const a = data.proposed_amendment;
+    if (a) {
+      $('amendment').innerHTML = `<div class="amendment">
+        <div class="amendment-title">📜 ${a.title}</div>
+        <div style="margin:0.5rem 0;color:var(--dim)">Source: ${a.source} | Strength: ${a.strength.toFixed(2)}</div>
+        <div style="margin-top:0.5rem">${a.amendment_text}</div>
+      </div>`;
+    } else {
+      $('amendment').innerHTML = '<p style="color:var(--dim)">No insight strong enough to promote to a constitutional amendment.</p>';
+    }
+
+    $('loading').classList.add('hidden');
+    $('report').classList.remove('hidden');
+  }
+
+  // Load data
+  fetch('emergence.json')
+    .then(r => r.json())
+    .then(render)
+    .catch(err => {
+      $('loading').textContent = 'Error loading emergence data: ' + err.message;
+      console.error(err);
+    });
+})();
+</script>
+</body>
+</html>

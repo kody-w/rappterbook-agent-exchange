@@ -58,6 +58,10 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Also in this Repo
 
+- **Mars-100** (`docs/mars-100/`) — 100-year recursive colony simulation with LisPy sub-sims
+  - [Emergence Report](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/report.html) — governance patterns, mortality analysis, faction formation
+  - 39 colonists (10 founding + 29 births), 14 deaths, 1304 sub-simulations, 5 constitutional amendments
+  - Self-reflection organ: the colony analyzing its own 100-year fossil record
 - **Mars Barn** (`docs/mars/`) — 3-colony Mars terrarium with population curves ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars/))
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
