@@ -19,6 +19,12 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.expedition import (
+    Site, ExpeditionResult,
+    can_form_expedition, select_team, run_expedition,
+    compute_site_bonuses, compute_meta_boost, age_sites,
+    SITE_TYPES, SITE_NAMES_POOL,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -33,4 +39,8 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "Site", "ExpeditionResult",
+    "can_form_expedition", "select_team", "run_expedition",
+    "compute_site_bonuses", "compute_meta_boost", "age_sites",
+    "SITE_TYPES", "SITE_NAMES_POOL",
 ]

@@ -1,85 +1,882 @@
 {
   "year": 6,
-  "population": 11,
-  "event": {
-    "id": "earth_contact",
-    "desc": "Communication window with Earth opens",
-    "severity": 0.1
+  "events": [
+    {
+      "name": "earth_contact",
+      "category": "social",
+      "severity": 0.11439208614990791,
+      "description": "Message from Earth: supply ship confirmed for next launch window.",
+      "effects": {
+        "morale": 0.12287841722998159,
+        "food": 0.030719604307495398
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "pray",
+    "fen-marsh": "sabotage",
+    "rust-vega": "rest",
+    "aura-kai": "pray",
+    "dax-iron": "hoard",
+    "luna-tide": "sabotage",
+    "grove-ash": "hoard",
+    "zeph-wind": "cooperate",
+    "ora-flame": "rest",
+    "pax-stone": "explore"
   },
-  "event_effects": [
-    "Morale +15 from Earth contact"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 28.6)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 6,
+      "expression": "(let ((risk (* paranoia 0.11))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "result": 0.9157833390053493,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "luna-tide",
+          "year": 6,
+          "expression": "(let ((parent-result 0.9157833390053493)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.0073616729058843,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 24.6)"
+      "depth": 2,
+      "colonist_id": "luna-tide",
+      "year": 6,
+      "expression": "(let ((parent-result 0.9157833390053493)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.0073616729058843,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 26.4)"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 6,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 20.6)"
+      "depth": 1,
+      "colonist_id": "pax-stone",
+      "year": 6,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.7808827739986388,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 28.1)"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 21.6)"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 20.3)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 29.1)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 31.1)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 20.6)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 29.5)"
+      "depth": 1,
+      "colonist_id": "ora-flame",
+      "year": 6,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 1,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": {
+    "id": "prop-y6-ai_governor",
+    "year": 6,
+    "proposer_id": "ora-flame",
+    "gov_type": "ai_governor",
+    "parameters": {
+      "source": "(if (> food 0.5) (+ morale 0.1) (- morale 0.05))"
+    },
+    "rationale": "Let a LisPy program govern \u2014 transparent, deterministic.",
+    "subsim_result": {
+      "depth": 1,
+      "colonist_id": "ora-flame",
+      "year": 6,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 1,
+      "steps_used": 0
+    },
+    "votes_for": [
+      "rust-vega",
+      "aura-kai",
+      "luna-tide",
+      "zeph-wind",
+      "ora-flame",
+      "pax-stone"
+    ],
+    "votes_against": [
+      "kira-sol",
+      "fen-marsh",
+      "dax-iron",
+      "grove-ash"
+    ],
+    "passed": true
+  },
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": 0.0,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.5620009952898306,
+  "governance_state": {
+    "gov_type": "ai_governor",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": 16,
+    "ai_program": "(if (> food 0.5) (+ morale 0.1) (- morale 0.05))",
+    "constitution": [
+      "Year 6: governance changed to ai_governor",
+      "Year 18: governance changed to anarchy",
+      "Year 19: governance changed to council",
+      "Year 31: governance changed to anarchy",
+      "Year 39: governance changed to ai_governor",
+      "Year 46: governance changed to consensus",
+      "Year 67: governance changed to council",
+      "Year 80: governance changed to consensus",
+      "Year 94: governance changed to lottery",
+      "Year 96: governance changed to anarchy"
+    ],
+    "history": [
+      {
+        "year": 6,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y6-ai_governor"
+      },
+      {
+        "year": 18,
+        "from": "ai_governor",
+        "to": "anarchy",
+        "proposal_id": "prop-y18-anarchy"
+      },
+      {
+        "year": 19,
+        "from": "anarchy",
+        "to": "council",
+        "proposal_id": "prop-y19-council"
+      },
+      {
+        "year": 31,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y31-anarchy"
+      },
+      {
+        "year": 39,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y39-ai_governor"
+      },
+      {
+        "year": 46,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y46-consensus"
+      },
+      {
+        "year": 67,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y67-council"
+      },
+      {
+        "year": 80,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y80-consensus"
+      },
+      {
+        "year": 94,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y94-lottery"
+      },
+      {
+        "year": 96,
+        "from": "lottery",
+        "to": "anarchy",
+        "proposal_id": "prop-y96-anarchy"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9374035840686188,
+        "improvisation": 0.3610462446889343,
+        "empathy": 0.5409542258806976,
+        "hoarding": 0.31834034252629895,
+        "faith": 0.09997256594684108,
+        "paranoia": 0.45756805672170053
+      },
+      "skills": {
+        "terraforming": 0.7082330006974364,
+        "hydroponics": 0.21878877387475476,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.017539816360766458,
+        "sabotage": 0.11532963134247669
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.3077453094871428,
+        "improvisation": 0.5637816975805976,
+        "empathy": 0.890528604014761,
+        "hoarding": 0.31313291054698533,
+        "faith": 0.7541292380833106,
+        "paranoia": 0.059743961699541714
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.8,
+        "mediation": 0.7205732547999019,
+        "coding": 0.11911010879367365,
+        "prayer": 0.5,
+        "sabotage": 0.031834360046428076
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.5721269912883539,
+        "improvisation": 0.6037491619269216,
+        "empathy": 0.40782865407581187,
+        "hoarding": 0.6666453450958473,
+        "faith": 0.19373907208401214,
+        "paranoia": 0.5587028839009678
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.3,
+        "mediation": 0.1170329160233011,
+        "coding": 0.8092969856025982,
+        "prayer": 0.023605904758781413,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.2431186366925725,
+        "improvisation": 0.6940688628200513,
+        "empathy": 0.6943089652162094,
+        "hoarding": 0.20708839848227698,
+        "faith": 0.807179566621125,
+        "paranoia": 0.19435368329268266
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.9028329578190838,
+        "coding": 0.5,
+        "prayer": 0.8076825480573342,
+        "sabotage": 0.026144427423046887
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.8514155504478497,
+        "improvisation": 0.20461971387812372,
+        "empathy": 0.21907537142725708,
+        "hoarding": 0.6382943301712268,
+        "faith": 0.04909963226377657,
+        "paranoia": 0.7344218298148225
+      },
+      "skills": {
+        "terraforming": 0.506319443398211,
+        "hydroponics": 0.12435087322691782,
+        "mediation": 0.0,
+        "coding": 0.2,
+        "prayer": 0.0,
+        "sabotage": 0.7
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.5373984664889672,
+        "improvisation": 0.8657833390053492,
+        "empathy": 0.36032601156987504,
+        "hoarding": 0.4263503853935505,
+        "faith": 0.19310263299213776,
+        "paranoia": 0.2939977113726383
+      },
+      "skills": {
+        "terraforming": 0.6,
+        "hydroponics": 0.6086826370022228,
+        "mediation": 0.31598074434050677,
+        "coding": 0.9,
+        "prayer": 0.11905834958197781,
+        "sabotage": 0.14544596278135952
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7408853607329344,
+        "improvisation": 0.33726087655268383,
+        "empathy": 0.5899311485089908,
+        "hoarding": 0.9124653477653508,
+        "faith": 0.31835430526223135,
+        "paranoia": 0.4483053756055602
+      },
+      "skills": {
+        "terraforming": 0.40927924466455273,
+        "hydroponics": 0.9,
+        "mediation": 0.40633120642143566,
+        "coding": 0.10939186824207811,
+        "prayer": 0.20945987850070125,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 2,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.5797914894434287,
+        "improvisation": 0.9957838381321749,
+        "empathy": 0.3358742079042033,
+        "hoarding": 0.5674086787882298,
+        "faith": 0.4050495314520385,
+        "paranoia": 0.6203682671681469
+      },
+      "skills": {
+        "terraforming": 0.3100506183214214,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.6178034764648803,
+        "prayer": 0.1,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 3,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.632713144348012,
+        "improvisation": 0.4126591320496071,
+        "empathy": 0.6984142167126113,
+        "hoarding": 0.05185396750647828,
+        "faith": 0.8717717911705257,
+        "paranoia": 0.642386996031753
+      },
+      "skills": {
+        "terraforming": 0.2175451400798039,
+        "hydroponics": 0.3,
+        "mediation": 0.6,
+        "coding": 0.03487949357569615,
+        "prayer": 0.9,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.6808827739986388,
+        "improvisation": 0.2385459946218922,
+        "empathy": 0.6531849233334421,
+        "hoarding": 0.2822334105763376,
+        "faith": 0.5054989155524521,
+        "paranoia": 0.4175860422201652
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.3,
+        "mediation": 0.803199826712947,
+        "coding": 0.4,
+        "prayer": 0.30898624515811773,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 3,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        }
+      ]
+    }
+  ],
+  "convergence": {
+    "resolve": 0.20535244206331693,
+    "improvisation": 0.25168087381684556,
+    "empathy": 0.19531622501741272,
+    "hoarding": 0.24310432423238665,
+    "faith": 0.28743245572003817,
+    "paranoia": 0.20033121745209787,
+    "convergence_score": 0.23053625638368302
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Titan",
-      "entry": "Population: 11. Communication window with Earth opens. I spent the year on coding. Closest to Iris."
-    },
-    {
-      "colonist": "Selene",
-      "entry": "Another year. Communication window with Earth opens. The colony feels hopeful. My empathy grows stronger."
-    },
-    {
-      "colonist": "Phobos",
-      "entry": "Year 6 on Mars. Communication window with Earth opens. Morale is hopeful. We have 1174 food units left."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1173.7565625292812,
-    "water": 1370.0,
-    "power": 444.66497918741044,
-    "oxygen": 1020.4997879960617,
-    "materials": 888.090161606347,
-    "morale": 100
-  }
+  "expeditions": [],
+  "discovered_sites": []
 }

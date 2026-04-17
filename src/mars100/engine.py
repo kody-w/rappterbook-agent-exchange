@@ -25,6 +25,11 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.expedition import (
+    Site, ExpeditionResult,
+    can_form_expedition, select_team, run_expedition,
+    compute_site_bonuses, compute_meta_boost, age_sites,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +57,8 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    expeditions: list[dict] = field(default_factory=list)
+    discovered_sites: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +74,8 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "expeditions": self.expeditions,
+            "discovered_sites": self.discovered_sites,
         }
 
 
@@ -86,10 +95,13 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    total_expeditions: int = 0
+    total_sites_discovered: int = 0
+    final_map: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "2.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +113,14 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_expeditions": self.total_expeditions,
+                "total_sites_discovered": self.total_sites_discovered,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "final_map": self.final_map,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -125,6 +140,7 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.known_sites: list[Site] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -344,10 +360,12 @@ class Mars100Engine:
             avg_trust /= count
         return avg_trust < 0.15 and colonist.skills.sabotage > 0.5
 
-    def _check_meta_awareness(self, colonist: Colonist) -> dict | None:
+    def _check_meta_awareness(self, colonist: Colonist,
+                              site_boost: float = 0.0) -> dict | None:
         prob = (META_AWARENESS_BASE * self.year +
                 colonist.stats.faith * 0.005 +
-                colonist.stats.improvisation * 0.003)
+                colonist.stats.improvisation * 0.003 +
+                site_boost)
         if 45 <= self.year <= 55:
             prob *= 3.0
         if self.rng.random() < prob:
@@ -461,6 +479,32 @@ class Mars100Engine:
             colonist.evolve_skills(action, self.rng)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
+        # ── Expedition phase ─────────────────────────────────────────
+        explorers = [c for c in active if actions.get(c.id) == "explore"]
+        expedition_ids: set[str] = set()
+        year_expeditions: list[ExpeditionResult] = []
+        year_new_sites: list[dict] = []
+
+        if can_form_expedition(explorers, self.resources.food, self.resources.power):
+            team = select_team(explorers, self.rng)
+            expedition_ids = {c.id for c in team}
+            max_severity = max((e.severity for e in events), default=0.3)
+            self.resources.food = max(0.0, self.resources.food - 0.04)
+            self.resources.power = max(0.0, self.resources.power - 0.02)
+            exp_result = run_expedition(
+                self.year, team, self.known_sites, max_severity, self.rng)
+            year_expeditions.append(exp_result)
+            if exp_result.site:
+                year_new_sites.append(exp_result.site)
+            # Apply expedition bonds to social graph
+            for a_id, b_id in exp_result.bonds:
+                self.social.update_from_cooperation(a_id, b_id, self.rng)
+            # Expedition deaths are already applied to colonists by run_expedition
+            # Collect them for the year result
+            for d in exp_result.deaths:
+                # Remove from active for subsequent checks
+                pass  # colonist.die() already called in run_expedition
+
         gov_proposal: GovernanceProposal | None = None
         if should_propose(self.year, self.governance, self.rng) and active:
             proposer = self.rng.choice(active)
@@ -483,7 +527,16 @@ class Mars100Engine:
             if gov_proposal.passed:
                 apply_governance(gov_proposal, self.governance, active_ids, self.rng)
 
-        skill_bonuses = self._compute_skill_bonuses(actions)
+        # Expedition members don't contribute normal skill bonuses (they're away)
+        non_expedition_actions = {k: v for k, v in actions.items()
+                                  if k not in expedition_ids}
+        skill_bonuses = self._compute_skill_bonuses(non_expedition_actions)
+
+        # Add ongoing site bonuses to resource effects
+        site_bonuses = compute_site_bonuses(self.known_sites)
+        for resource, bonus in site_bonuses.items():
+            skill_bonuses[resource] = skill_bonuses.get(resource, 0.0) + bonus
+
         event_effects: dict[str, float] = {}
         for ev in events:
             for k, v in ev.effects.items():
@@ -506,8 +559,13 @@ class Mars100Engine:
         year_births = self._check_births()
 
         deaths: list[dict] = []
+        # Include expedition deaths (already applied to colonist objects)
+        for exp in year_expeditions:
+            deaths.extend(exp.deaths)
         exiles: list[dict] = []
         for colonist in list(active):
+            if not colonist.is_active():
+                continue  # already dead from expedition
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
@@ -518,11 +576,16 @@ class Mars100Engine:
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
+        # Meta-awareness boosted by anomaly site discoveries
+        meta_boost = compute_meta_boost(self.known_sites)
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
-            meta = self._check_meta_awareness(colonist)
+            meta = self._check_meta_awareness(colonist, meta_boost)
             if meta:
                 meta_events.append(meta)
+
+        # Age all known sites
+        age_sites(self.known_sites)
 
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
@@ -541,12 +604,15 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            expeditions=[e.to_dict() for e in year_expeditions],
+            discovered_sites=year_new_sites,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_expeditions = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +622,7 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_expeditions += len(result.expeditions)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +639,9 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_expeditions=total_expeditions,
+            total_sites_discovered=len(self.known_sites),
+            final_map=[s.to_dict() for s in self.known_sites],
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

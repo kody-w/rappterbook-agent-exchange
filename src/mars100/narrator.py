@@ -49,6 +49,19 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
             depth = ss.get("depth", 1)
             res = str(ss.get("result", "err"))[:40]
             lines.append(f"- depth-{depth} {ss['colonist_id']}: {res}")
+    expeditions = year_result.get("expeditions", [])
+    discovered = year_result.get("discovered_sites", [])
+    if expeditions:
+        lines.append(f"\n### Expeditions ({len(expeditions)})")
+        for exp in expeditions:
+            team = ", ".join(exp.get("team", []))
+            outcome = "SUCCESS" if exp.get("success") else "FAILED"
+            lines.append(f"- [{outcome}] Team: {team}")
+            if exp.get("site"):
+                site = exp["site"]
+                lines.append(f"  Discovered **{site['name']}** ({site['label']}): {site['description']}")
+            for d_info in exp.get("deaths", []):
+                lines.append(f"  ** EXPEDITION DEATH: {d_info} **")
     if governance:
         passed = "PASSED" if governance.get("passed") else "REJECTED"
         lines.append(f"\n### Governance: {governance['gov_type']} [{passed}]")
@@ -104,6 +117,15 @@ def generate_diary_entries(year_result: dict, colonist_snapshots: list[dict],
         for ev in events[:2]:
             if ev["name"] in event_reactions:
                 text_lines.append(event_reactions[ev["name"]])
+        # Expedition references
+        expeditions = year_result.get("expeditions", [])
+        for exp in expeditions:
+            if colonist["id"] in exp.get("team", []):
+                if exp.get("success") and exp.get("site"):
+                    site = exp["site"]
+                    text_lines.append(f"We found {site['name']} — {site['description']}")
+                elif not exp.get("success"):
+                    text_lines.append("The expedition failed. We barely made it back.")
         text_lines.extend(["", f"*— {name}, {archetype}*"])
         entries.append({"colonist_id": colonist["id"], "year": year_result["year"],
                         "text": "\n".join(text_lines)})
@@ -122,11 +144,23 @@ def generate_final_report(sim_result: dict) -> str:
              f"- **Duration:** {len(years_data)} Martian years",
              f"- **Deaths:** {summary.get('total_deaths', 0)}",
              f"- **Exiles:** {summary.get('total_exiles', 0)}",
+             f"- **Expeditions:** {summary.get('total_expeditions', 0)}",
+             f"- **Sites discovered:** {summary.get('total_sites_discovered', 0)}",
              f"- **Sub-simulations:** {summary.get('total_subsims', 0)}",
              f"- **Governance changes:** {summary.get('governance_changes', 0)}",
              f"- **Meta-awareness events:** {summary.get('meta_awareness_events', 0)}",
              f"- **Final cohesion:** {summary.get('final_cohesion', 0):.0%}",
              f"- **Final governance:** {final_gov.get('gov_type', 'unknown')}", ""]
+
+    final_map = sim_result.get("final_map", [])
+    if final_map:
+        lines.extend(["## Discovered Sites", ""])
+        for site in final_map:
+            label = site.get("label", site.get("type", "unknown"))
+            year = site.get("discovered_year", "?")
+            team = ", ".join(site.get("discovered_by", []))
+            lines.append(f"- **{site['name']}** ({label}) — Year {year} by {team}")
+        lines.append("")
 
     history = final_gov.get("history", [])
     if history:

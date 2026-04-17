@@ -1,126 +1,1742 @@
 {
   "year": 18,
-  "population": 13,
-  "event": {
-    "id": "cave_system",
-    "desc": "Underground cave system located",
-    "severity": 0.2
+  "events": [
+    {
+      "name": "equipment_failure",
+      "category": "environment",
+      "severity": 0.8465055105247266,
+      "description": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+      "effects": {
+        "water": -0.13465055105247267,
+        "power": -0.26930110210494534,
+        "food": -0.06732527552623634
+      }
+    },
+    {
+      "name": "ice_volcano",
+      "category": "environment",
+      "severity": 0.35020526332133267,
+      "description": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+      "effects": {
+        "water": 0.12753078949819988,
+        "air": 0.04251026316606663,
+        "morale": -0.04251026316606663
+      }
+    }
+  ],
+  "actions": {
+    "fen-marsh": "mediate",
+    "rust-vega": "pray",
+    "aura-kai": "cooperate",
+    "dax-iron": "terraform",
+    "luna-tide": "explore",
+    "grove-ash": "hoard",
+    "zeph-wind": "hoard",
+    "ora-flame": "farm",
+    "pax-stone": "cooperate",
+    "child-10": "code",
+    "child-11": "code"
   },
-  "event_effects": [
-    "Cave system: materials +80"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares explores (materials +46)"
+      "depth": 1,
+      "colonist_id": "fen-marsh",
+      "year": 18,
+      "expression": "(let ((risk (* paranoia 0.85))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "result": 0.534740921647399,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra explores (materials +34)"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 18,
+      "expression": "(let ((risk (* paranoia 0.85))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "result": 0.4051525420742439,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 18,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "aura-kai",
+          "year": 18,
+          "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 25.4)"
+      "depth": 2,
+      "colonist_id": "aura-kai",
+      "year": 18,
+      "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
+      "depth": 1,
+      "colonist_id": "dax-iron",
+      "year": 18,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "dax-iron",
+          "year": 18,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
+      "depth": 2,
+      "colonist_id": "dax-iron",
+      "year": 18,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan explores (materials +10)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
+      "depth": 1,
+      "colonist_id": "fen-marsh",
+      "year": 18,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 1,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [
-    {
-      "colonist": "Vulcan",
+  "governance": {
+    "id": "prop-y18-anarchy",
+    "year": 18,
+    "proposer_id": "fen-marsh",
+    "gov_type": "anarchy",
+    "parameters": {},
+    "rationale": "Return to self-governance. No rulers, no masters.",
+    "subsim_result": {
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[8, 5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist_id": "fen-marsh",
+      "year": 18,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 1,
+      "steps_used": 0
+    },
+    "votes_for": [
+      "fen-marsh",
+      "luna-tide",
+      "grove-ash",
+      "zeph-wind",
+      "ora-flame",
+      "child-10",
+      "child-11"
+    ],
+    "votes_against": [
+      "rust-vega",
+      "aura-kai",
+      "dax-iron",
+      "pax-stone"
+    ],
+    "passed": true
+  },
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 0.9255878799244572,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": -0.07441212007554276,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.6775883730492883,
+  "governance_state": {
+    "gov_type": "anarchy",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": null,
+    "ai_program": null,
+    "constitution": [
+      "Year 6: governance changed to ai_governor",
+      "Year 18: governance changed to anarchy",
+      "Year 19: governance changed to council",
+      "Year 31: governance changed to anarchy",
+      "Year 39: governance changed to ai_governor",
+      "Year 46: governance changed to consensus",
+      "Year 67: governance changed to council",
+      "Year 80: governance changed to consensus",
+      "Year 94: governance changed to lottery",
+      "Year 96: governance changed to anarchy"
+    ],
+    "history": [
+      {
+        "year": 6,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y6-ai_governor"
+      },
+      {
+        "year": 18,
+        "from": "ai_governor",
+        "to": "anarchy",
+        "proposal_id": "prop-y18-anarchy"
+      },
+      {
+        "year": 19,
+        "from": "anarchy",
+        "to": "council",
+        "proposal_id": "prop-y19-council"
+      },
+      {
+        "year": 31,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y31-anarchy"
+      },
+      {
+        "year": 39,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y39-ai_governor"
+      },
+      {
+        "year": 46,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y46-consensus"
+      },
+      {
+        "year": 67,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y67-council"
+      },
+      {
+        "year": 80,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y80-consensus"
+      },
+      {
+        "year": 94,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y94-lottery"
+      },
+      {
+        "year": 96,
+        "from": "lottery",
+        "to": "anarchy",
+        "proposal_id": "prop-y96-anarchy"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9454105813310126,
+        "improvisation": 0.3747322949994831,
+        "empathy": 0.5693661145129324,
+        "hoarding": 0.294949368226565,
+        "faith": 0.1105167079267311,
+        "paranoia": 0.48515349798159224
+      },
+      "skills": {
+        "terraforming": 0.7134153611966016,
+        "hydroponics": 0.21878877387475476,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.017539816360766458,
+        "sabotage": 0.11532963134247669
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        }
+      ],
+      "death_year": 8,
+      "death_cause": "equipment malfunction"
     },
     {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 7]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.17346273446065205,
+        "improvisation": 0.48474092164739896,
+        "empathy": 0.8593964158027043,
+        "hoarding": 0.22143047667756435,
+        "faith": 0.6887523271323884,
+        "paranoia": 0.10129617909156204
+      },
+      "skills": {
+        "terraforming": 0.13025608863314286,
+        "hydroponics": 0.802524556665995,
+        "mediation": 0.7340494590228853,
+        "coding": 0.11911010879367365,
+        "prayer": 0.5116371064391952,
+        "sabotage": 0.07427306127754786
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 8,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
     },
     {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 8]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.5051525420742439,
+        "improvisation": 0.7223186997432106,
+        "empathy": 0.3935554792250074,
+        "hoarding": 0.7144688751445343,
+        "faith": 0.19095728231396997,
+        "paranoia": 0.5977825297456175
+      },
+      "skills": {
+        "terraforming": 0.9011953975189517,
+        "hydroponics": 0.3185701294825734,
+        "mediation": 0.12762622074123464,
+        "coding": 0.8092969856025982,
+        "prayer": 0.07777397269733766,
+        "sabotage": 0.3134120992888298
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 8,
+      "governance_votes": 9,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
     },
     {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.32007967968087425,
+        "improvisation": 0.5975745065468347,
+        "empathy": 0.6200067302522803,
+        "hoarding": 0.15312405981372398,
+        "faith": 0.6471747342232513,
+        "paranoia": 0.10346072200884689
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.9052140374626234,
+        "coding": 0.5122439664281101,
+        "prayer": 0.8117199245198919,
+        "sabotage": 0.09951534386372114
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 10,
+      "governance_votes": 9,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.9264860752963362,
+        "improvisation": 0.0,
+        "empathy": 0.28644082847973934,
+        "hoarding": 0.5579853085797538,
+        "faith": 0.0,
+        "paranoia": 1.0
+      },
+      "skills": {
+        "terraforming": 0.5236605980734766,
+        "hydroponics": 0.12435087322691782,
+        "mediation": 0.031143166174975326,
+        "coding": 0.23110894045143845,
+        "prayer": 0.05792381865371285,
+        "sabotage": 0.7094600937816942
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 7,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.42592679441245734,
+        "improvisation": 0.8815834283892321,
+        "empathy": 0.3153923768508728,
+        "hoarding": 0.6508871447136658,
+        "faith": 0.06880229620652975,
+        "paranoia": 0.17077037221095637
+      },
+      "skills": {
+        "terraforming": 0.6150503991808225,
+        "hydroponics": 0.6376591935733202,
+        "mediation": 0.31598074434050677,
+        "coding": 0.902344945914732,
+        "prayer": 0.11905834958197781,
+        "sabotage": 0.16827040272414515
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 8,
+      "governance_votes": 9,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.5889251575718865,
+        "improvisation": 0.354405964073391,
+        "empathy": 0.5024590659067677,
+        "hoarding": 0.9911750077094489,
+        "faith": 0.36267834294438545,
+        "paranoia": 0.34026436597324805
+      },
+      "skills": {
+        "terraforming": 0.43474316428353155,
+        "hydroponics": 0.9022390315543087,
+        "mediation": 0.40633120642143566,
+        "coding": 0.10939186824207811,
+        "prayer": 0.2199956133871768,
+        "sabotage": 0.016314544943769712
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 8,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.46432009312892314,
+        "improvisation": 0.9127547472233509,
+        "empathy": 0.2709260275531953,
+        "hoarding": 0.6123671618875639,
+        "faith": 0.585887592690224,
+        "paranoia": 0.5576007992095736
+      },
+      "skills": {
+        "terraforming": 0.3100506183214214,
+        "hydroponics": 0.2557640750385929,
+        "mediation": 0.22173603171918804,
+        "coding": 0.6291282558563513,
+        "prayer": 0.1202896087787384,
+        "sabotage": 0.8035145503700757
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 7,
+      "governance_votes": 9,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.7459235062768848,
+        "improvisation": 0.6385252342754171,
+        "empathy": 0.743560645766899,
+        "hoarding": 0.0047536511112182,
+        "faith": 0.8259788214016813,
+        "paranoia": 0.6581684210976518
+      },
+      "skills": {
+        "terraforming": 0.23232084358116978,
+        "hydroponics": 0.3213178654917612,
+        "mediation": 0.616205191531919,
+        "coding": 0.06687981323222862,
+        "prayer": 0.9016702193090688,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 5,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.8311176704091072,
+        "improvisation": 0.4283663845352924,
+        "empathy": 0.6156527816976552,
+        "hoarding": 0.3726702315316696,
+        "faith": 0.6030829449725941,
+        "paranoia": 0.4485130865335099
+      },
+      "skills": {
+        "terraforming": 0.3189046801738566,
+        "hydroponics": 0.3139783860464316,
+        "mediation": 0.8077208116944047,
+        "coding": 0.43357540284038454,
+        "prayer": 0.33958108474009085,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 8,
+      "governance_votes": 9,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        },
+        {
+          "year": 9,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5463604214638426
+        },
+        {
+          "year": 10,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1315265556991586
+        },
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "child-10",
+      "name": "Opal Creek",
+      "element": "earth",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.41161634597811897,
+        "improvisation": 0.49902314005731224,
+        "empathy": 0.8408405623028559,
+        "hoarding": 0.1318685946875836,
+        "faith": 0.6306444639016627,
+        "paranoia": 0.1537272621727476
+      },
+      "skills": {
+        "terraforming": 0.02992455386720906,
+        "hydroponics": 0.04387498936110722,
+        "mediation": 0.07562309623713001,
+        "coding": 0.09677413890263789,
+        "prayer": 0.14488667911589398,
+        "sabotage": 0.09837566205444982
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 10,
+      "subsim_count": 1,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.08655689052808002
+        },
+        {
+          "year": 12,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.04587205924283744
+        },
+        {
+          "year": 13,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.3680226238153512
+        },
+        {
+          "year": 14,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.595586893412875
+        },
+        {
+          "year": 15,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.08411373128295369
+        },
+        {
+          "year": 16,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.11890971228408272
+        },
+        {
+          "year": 16,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.01467814656425015
+        },
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
+    },
+    {
+      "id": "child-11",
+      "name": "Ember Clay",
+      "element": "earth",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.7295465297706507,
+        "improvisation": 0.3758279151060788,
+        "empathy": 0.7256805592110711,
+        "hoarding": 0.05892674920646944,
+        "faith": 0.6287423265045999,
+        "paranoia": 0.39028993086680197
+      },
+      "skills": {
+        "terraforming": 0.011461449931481016,
+        "hydroponics": 0.016903816323752437,
+        "mediation": 0.06300901027674073,
+        "coding": 0.08841457433230683,
+        "prayer": 0.07040512768456425,
+        "sabotage": 0.03368854473611939
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 16,
+      "subsim_count": 0,
+      "governance_votes": 2,
+      "memories": [
+        {
+          "year": 17,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.036794464218003
+        },
+        {
+          "year": 17,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5614937087445316
+        },
+        {
+          "year": 18,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.4232527552623633
+        },
+        {
+          "year": 18,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.35020526332133267
+        }
+      ]
     }
   ],
-  "governance_results": [
-    "Leadership election: Selene elected (ratio 91%)"
-  ],
-  "resource_effects": [],
-  "births": [
-    "Ares-18 is born!"
-  ],
-  "diary_entries": [
-    {
-      "colonist": "Ares-18",
-      "entry": "Another year. Underground cave system located. The colony feels hopeful. My paranoia grows stronger."
-    },
-    {
-      "colonist": "Selene",
-      "entry": "Year 18 on Mars. Underground cave system located. Morale is hopeful. We have 1228 food units left."
-    },
-    {
-      "colonist": "Phobos",
-      "entry": "Population: 14. Underground cave system located. I spent the year on mediation. Closest to Selene."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1228.4330505971914,
-    "water": 2399.7805711676547,
-    "power": 428.05291953040194,
-    "oxygen": 991.4274312441455,
-    "materials": 1515.9653070933052,
-    "morale": 100
-  }
+  "convergence": {
+    "resolve": 0.219704070140365,
+    "improvisation": 0.24714676239820108,
+    "empathy": 0.2101040107363034,
+    "hoarding": 0.30435741528351656,
+    "faith": 0.26267784170237346,
+    "paranoia": 0.2672466914804359,
+    "convergence_score": 0.25187279862353257
+  },
+  "births": [],
+  "expeditions": [],
+  "discovered_sites": []
 }
