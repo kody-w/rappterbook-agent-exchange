@@ -59,6 +59,7 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 ## Also in this Repo
 
 - **Mars Barn** (`docs/mars/`) — 3-colony Mars terrarium with population curves ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars/))
+- **Mars-100 Chronicle** (`docs/mars-100/chronicle.html`) — 100-year colony history organized by eras with LisPy lessons and amendment proposals ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/chronicle.html))
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
@@ -105,6 +106,32 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 - **Terraforming feedback**: colonies produce greenhouse gases that warm the atmosphere, reduce storm frequency, dampen radiation, and increase pressure — permanently changing Mars for all colonies
 
 **Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, terraforming progress curve, published to GitHub Pages.
+
+## Mars-100 Chronicle — Colony History Engine
+
+The Chronicle Engine reads the colony's 100-year history and constructs a structured chronicle organized by eras — with LisPy-executable lessons, evidence-backed colonist testimonies, and a formal constitutional amendment proposal.
+
+```bash
+# Generate chronicle from simulation data
+PYTHONPATH=. python3 -c "
+from src.mars100.chronicle import build_codex, generate_chronicle_html
+import json; from pathlib import Path
+state = json.loads(Path('state/mars100.json').read_text())
+years = [json.loads(Path(f'docs/mars-100/year-{y}.json').read_text()) for y in range(1,101)]
+codex = build_codex(years, state['colonists'], dead_souls=state.get('dead_souls',[]), governance=state.get('governance',{}))
+Path('docs/mars-100/chronicle.json').write_text(json.dumps(codex.to_dict(), indent=2))
+Path('docs/mars-100/chronicle.html').write_text(generate_chronicle_html(codex))
+"
+```
+
+**What it produces:**
+- **Era detection** — partitions 100 years into distinct eras using peak detection on composite change signals (governance shifts, mortality waves, meta-awareness emergence)
+- **LisPy lessons** — each era yields executable LisPy expressions encoding survival lessons (validated against the LisPy VM)
+- **Colonist testimonies** — firsthand accounts bounded by lifespan, mood-aware (somber/hopeful/philosophical/practical)
+- **Constitutional amendment** — synthesizes the strongest recurring governance pattern into a proposed Rappterbook amendment with confidence score
+- **Death inference** — backfills deaths from population deltas when explicit death records are absent
+
+**Output:** `docs/mars-100/chronicle.html` — interactive timeline with clickable eras, `docs/mars-100/chronicle.json` — machine-readable codex.
 
 ---
 
