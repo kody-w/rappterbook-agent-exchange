@@ -25,9 +25,14 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.memory_ecology import (
+    ColonyMemoryBank, archive_dead_colonist, inherit_parent_memories,
+    teach_memory, dream_ancestral, attempt_crystallization,
+    apply_crystal_bonuses, decay_memories, memory_ecology_summary,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
-           "sabotage", "cooperate", "hoard", "explore", "rest"]
+           "sabotage", "cooperate", "hoard", "explore", "rest", "teach"]
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
@@ -52,6 +57,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    memory_ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +73,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "memory_ecology": self.memory_ecology,
         }
 
 
@@ -86,10 +93,11 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    memory_ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "2.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +109,14 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_ancestral_memories": self.memory_ecology.get("total_ancestors", 0),
+                "total_crystals": self.memory_ecology.get("total_crystals", 0),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "memory_ecology": self.memory_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -125,6 +136,7 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.memory_bank = ColonyMemoryBank()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -171,6 +183,8 @@ class Mars100Engine:
                 w += colonist.stats.improvisation * 0.5
             elif action == "rest":
                 w += 0.3
+            elif action == "teach" and colonist.stats.empathy > 0.4:
+                w += colonist.stats.empathy * 0.3
             if critical:
                 if action == "farm" and "food" in critical:
                     w += 2.0
@@ -502,6 +516,12 @@ class Mars100Engine:
                 victim = self.rng.choice(active_ids) if active_ids else None
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
+            if action == "teach":
+                teacher = next((c for c in active if c.id == cid), None)
+                partner_id = self.social.most_trusted_by(cid, active_ids)
+                student = next((c for c in active if c.id == partner_id), None) if partner_id else None
+                if teacher and student:
+                    teach_memory(teacher, student, self.memory_bank, self.rng)
 
         year_births = self._check_births()
 
@@ -517,6 +537,25 @@ class Mars100Engine:
             if self._check_exile(colonist):
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+
+        # --- Memory ecology: archive, inherit, dream, crystallize ---
+        for d in deaths:
+            dead_col = next((c for c in self.colonists if c.id == d['id']), None)
+            if dead_col:
+                archive_dead_colonist(dead_col, self.year, self.memory_bank)
+        for b in year_births:
+            child = next((c for c in self.colonists if c.id == b.get('child_id')), None)
+            parents = [c for c in self.colonists if c.id in b.get('parents', [])]
+            if child:
+                inherit_parent_memories(child, parents, self.memory_bank, self.rng)
+        dream_log: list[str] = []
+        for colonist in self._active_colonists():
+            dream = dream_ancestral(colonist, self.memory_bank, self.rng)
+            if dream:
+                dream_log.append(dream)
+        new_crystal = attempt_crystallization(self.memory_bank, self.year)
+        apply_crystal_bonuses(self._active_colonists(), self.memory_bank)
+        decay_memories(self.memory_bank)
 
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
@@ -541,6 +580,7 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            memory_ecology=memory_ecology_summary(self.memory_bank),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -572,6 +612,7 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            memory_ecology=memory_ecology_summary(self.memory_bank),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
