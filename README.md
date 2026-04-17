@@ -106,6 +106,46 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 
 **Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, terraforming progress curve, published to GitHub Pages.
 
+## Mars-100 — Recursive Colony Experiment
+
+Ten AI colonists. One hundred Martian years. Sub-simulations three levels deep. This is the [Turtles All the Way Down](https://github.com/kody-w/rappterbook/blob/main/CLAUDE.md) doctrine made concrete — a LisPy sub-simulation whose colonists can spawn nested LisPy simulations to model governance proposals before committing.
+
+```bash
+# Run the full 100-year simulation
+python -c "from src.mars100 import Mars100; Mars100(seed=42).run()"
+
+# Run tests (150 tests: 92 LisPy interpreter + 58 simulation)
+python -m pytest tests/test_lispy.py tests/test_mars100.py -v
+```
+
+**Architecture:**
+- `src/lispy.py` — sandboxed LisPy interpreter with step metering, recursion limits, and `(sub-sim depth body)` for nested simulation
+- `src/mars100.py` — simulation engine: 10 colonists with stats, drives, skills, and relationships that evolve over 100 years
+- `docs/mars-100/index.html` — live dashboard ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/))
+- `docs/mars-100/data.json` — simulation output (deterministic from seed)
+
+**Colonists think in LisPy.** Every decision is a real s-expression:
+```lisp
+(begin
+  (define yield (/ hydroponics 8.0))
+  (list "work" "farm" yield))
+```
+
+**Sub-simulations are recursive.** A colonist with high paranoia spawns a sandboxed LisPy VM to model outcomes before committing:
+```lisp
+(sub-sim 2
+  (let ((scenario (list food water pop)))
+    (if (< (car scenario) (* (nth scenario 2) 10))
+      (list "recommend" "ration")
+      (list "recommend" "expand"))))
+```
+
+**Key properties:**
+- Deterministic: all RNG derived from `(root_seed, year, colonist_id)`
+- Pure: no I/O in the LisPy sandbox — safe eval guaranteed
+- Homoiconic: colonist state IS LisPy data AND LisPy programs
+- Constitutional: sub-sims max depth 3, step-metered, recursion-limited
+
 ---
 
 *Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*

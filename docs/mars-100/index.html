@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: Recursive Colony Experiment</title>
+<style>
+:root {
+  --bg: #0a0a0f; --surface: #12121a; --border: #2a2a3a;
+  --text: #e0e0e8; --dim: #8888a0; --accent: #ff6b4a;
+  --fire: #ff6b4a; --water: #4a9eff; --earth: #6abf69; --air: #c9a0ff;
+  --alive: #6abf69; --dead: #ff4444;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--text); line-height: 1.5; }
+.container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.8rem; color: var(--accent); margin-bottom: 0.5rem; }
+h2 { font-size: 1.2rem; color: var(--dim); margin: 1.5rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+.subtitle { color: var(--dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+.grid { display: grid; gap: 1rem; }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+@media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.stat-value { font-size: 2rem; font-weight: bold; color: var(--accent); }
+.stat-label { font-size: 0.8rem; color: var(--dim); text-transform: uppercase; }
+.colonist { display: flex; gap: 0.8rem; align-items: flex-start; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 0.5rem; }
+.colonist.dead { opacity: 0.5; }
+.colonist-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+.colonist-info { flex: 1; min-width: 0; }
+.colonist-name { font-weight: bold; font-size: 0.9rem; }
+.colonist-meta { font-size: 0.75rem; color: var(--dim); }
+.colonist-stats { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.3rem; }
+.colonist-stats span { font-size: 0.7rem; background: var(--bg); padding: 0.1rem 0.4rem; border-radius: 3px; }
+.status-alive { color: var(--alive); }
+.status-dead { color: var(--dead); }
+.timeline { position: relative; padding-left: 1.5rem; }
+.timeline::before { content: ''; position: absolute; left: 0.5rem; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.timeline-event { position: relative; margin-bottom: 0.8rem; }
+.timeline-event::before { content: ''; position: absolute; left: -1.15rem; top: 0.4rem; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+.timeline-event.death::before { background: var(--dead); }
+.timeline-event.governance::before { background: var(--water); }
+.timeline-event.subsim::before { background: var(--air); }
+.year-label { font-size: 0.75rem; color: var(--dim); }
+.event-text { font-size: 0.85rem; }
+.subsim-log { font-size: 0.8rem; background: var(--bg); padding: 0.5rem; border-radius: 4px; border-left: 3px solid var(--air); margin: 0.3rem 0; overflow-x: auto; }
+.subsim-log code { white-space: pre-wrap; word-break: break-all; color: var(--air); }
+.governance-item { padding: 0.5rem; margin-bottom: 0.4rem; border-radius: 4px; background: var(--bg); }
+.governance-item.passed { border-left: 3px solid var(--alive); }
+.governance-item.failed { border-left: 3px solid var(--dead); }
+.chart-bar { display: flex; align-items: center; gap: 0.5rem; margin: 0.2rem 0; }
+.chart-bar-label { font-size: 0.75rem; width: 80px; text-align: right; color: var(--dim); }
+.chart-bar-fill { height: 16px; border-radius: 3px; min-width: 2px; transition: width 0.3s; }
+.controls { display: flex; gap: 0.5rem; margin: 1rem 0; flex-wrap: wrap; }
+.controls button { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.8rem; }
+.controls button:hover { border-color: var(--accent); }
+.controls button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+#loading { text-align: center; padding: 3rem; color: var(--dim); }
+.lispy-block { background: #1a1a2e; padding: 0.8rem; border-radius: 4px; font-size: 0.8rem; overflow-x: auto; margin: 0.5rem 0; }
+.lispy-block code { color: var(--air); white-space: pre-wrap; }
+.empty-state { text-align: center; padding: 2rem; color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔴 Mars-100</h1>
+  <p class="subtitle">A Recursive Colony Experiment — Turtles All the Way Down</p>
+
+  <div class="grid grid-3" id="stats-row">
+    <div class="card"><div class="stat-value" id="stat-year">—</div><div class="stat-label">Current Year</div></div>
+    <div class="card"><div class="stat-value" id="stat-pop">—</div><div class="stat-label">Population</div></div>
+    <div class="card"><div class="stat-value" id="stat-subsims">—</div><div class="stat-label">Sub-Sims Run</div></div>
+  </div>
+
+  <div class="grid grid-3" style="margin-top:0.5rem">
+    <div class="card"><div class="stat-value" id="stat-proposals">—</div><div class="stat-label">Proposals</div></div>
+    <div class="card"><div class="stat-value" id="stat-deaths">—</div><div class="stat-label">Deaths</div></div>
+    <div class="card"><div class="stat-value" id="stat-laws">—</div><div class="stat-label">Active Laws</div></div>
+  </div>
+
+  <h2>Colonists</h2>
+  <div id="colonists-grid" class="grid grid-2"></div>
+
+  <h2>Resources</h2>
+  <div class="card" id="resources-card"></div>
+
+  <h2>Timeline</h2>
+  <div class="controls" id="timeline-controls"></div>
+  <div class="card">
+    <div class="timeline" id="timeline"></div>
+  </div>
+
+  <h2>Governance Log</h2>
+  <div class="card" id="governance-log"></div>
+
+  <h2>Sub-Simulation Log</h2>
+  <div class="card" id="subsim-log"></div>
+
+  <h2>LisPy Kernel</h2>
+  <div class="card">
+    <p style="font-size:0.85rem;color:var(--dim);margin-bottom:0.5rem">
+      Colonist decisions are real LisPy s-expressions evaluated in a sandboxed interpreter.
+      Sub-simulations spawn nested LisPy VMs with copied state.
+    </p>
+    <div class="lispy-block"><code id="lispy-sample">(define decide
+  (lambda (self resources event)
+    (if (< (get resources "food") (* (get self "stats" "resolve") 0.8))
+      "ration"
+      (if (> (get self "drives" "exploration") 0.7)
+        "explore"
+        "work"))))</code></div>
+  </div>
+
+  <div id="loading">Loading simulation data…</div>
+</div>
+
+<script>
+const ELEMENT_EMOJI = {fire:'🔥', water:'💧', earth:'🌿', air:'💨'};
+const ELEMENT_COLOR = {fire:'var(--fire)', water:'var(--water)', earth:'var(--earth)', air:'var(--air)'};
+
+async function loadData() {
+  try {
+    const resp = await fetch('data.json');
+    if (!resp.ok) throw new Error('No data yet');
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+function renderStats(data) {
+  const snap = data.snapshots[data.snapshots.length - 1];
+  document.getElementById('stat-year').textContent = snap.year;
+  document.getElementById('stat-pop').textContent = snap.colonists.filter(c => c.alive).length;
+  document.getElementById('stat-subsims').textContent = data.sub_sim_log.length;
+  document.getElementById('stat-proposals').textContent = data.governance_log.length;
+  document.getElementById('stat-deaths').textContent = snap.colonists.filter(c => !c.alive).length;
+  document.getElementById('stat-laws').textContent = snap.active_laws ? snap.active_laws.length : 0;
+}
+
+function renderColonists(data) {
+  const snap = data.snapshots[data.snapshots.length - 1];
+  const el = document.getElementById('colonists-grid');
+  el.innerHTML = snap.colonists.map(c => {
+    const emoji = ELEMENT_EMOJI[c.element] || '⚪';
+    const color = ELEMENT_COLOR[c.element] || '#888';
+    const status = c.alive ? '<span class="status-alive">● alive</span>' : `<span class="status-dead">✖ died year ${c.year_of_death}</span>`;
+    const statsHtml = Object.entries(c.stats || {}).map(([k,v]) => `<span>${k}: ${v}</span>`).join('');
+    return `<div class="colonist ${c.alive ? '' : 'dead'}">
+      <div class="colonist-avatar" style="background:${color}30;border:2px solid ${color}">${emoji}</div>
+      <div class="colonist-info">
+        <div class="colonist-name">${c.name} <span style="color:var(--dim);font-weight:normal;font-size:0.75rem">${c.id}</span></div>
+        <div class="colonist-meta">${status} · ${c.element} · role: ${c.role || 'none'}</div>
+        <div class="colonist-stats">${statsHtml}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderResources(data) {
+  const snap = data.snapshots[data.snapshots.length - 1];
+  const r = snap.resources;
+  const el = document.getElementById('resources-card');
+  const maxVal = Math.max(...Object.values(r), 1);
+  el.innerHTML = Object.entries(r).map(([k,v]) => {
+    const pct = (v / maxVal) * 100;
+    const color = v < 20 ? 'var(--dead)' : v < 50 ? '#ffaa33' : 'var(--alive)';
+    return `<div class="chart-bar">
+      <div class="chart-bar-label">${k}</div>
+      <div class="chart-bar-fill" style="width:${pct}%;background:${color}"></div>
+      <span style="font-size:0.8rem">${Math.round(v)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderTimeline(data) {
+  const el = document.getElementById('timeline');
+  const ctrl = document.getElementById('timeline-controls');
+  const events = [];
+  data.snapshots.forEach(snap => {
+    snap.events.forEach(ev => events.push({year: snap.year, ...ev}));
+    snap.deaths.forEach(d => events.push({year: snap.year, type: 'death', text: `${d.name} died: ${d.cause}`}));
+  });
+  const last20 = events.slice(-20);
+  el.innerHTML = last20.map(ev => {
+    const cls = ev.type === 'death' ? 'death' : ev.type === 'governance' ? 'governance' : ev.type === 'subsim' ? 'subsim' : '';
+    return `<div class="timeline-event ${cls}">
+      <div class="year-label">Year ${ev.year}</div>
+      <div class="event-text">${ev.text || ev.description || ev.type}</div>
+    </div>`;
+  }).join('') || '<div class="empty-state">No events yet</div>';
+}
+
+function renderGovernance(data) {
+  const el = document.getElementById('governance-log');
+  if (!data.governance_log.length) { el.innerHTML = '<div class="empty-state">No proposals yet</div>'; return; }
+  const last10 = data.governance_log.slice(-10);
+  el.innerHTML = last10.map(g => `<div class="governance-item ${g.passed ? 'passed' : 'failed'}">
+    <strong>Year ${g.year}:</strong> ${g.proposal_type} — "${g.description || g.proposal_type}"
+    <span style="float:right;font-size:0.8rem">${g.passed ? '✅ passed' : '❌ failed'} (${g.votes_for}-${g.votes_against})</span>
+  </div>`).join('');
+}
+
+function renderSubSims(data) {
+  const el = document.getElementById('subsim-log');
+  if (!data.sub_sim_log.length) { el.innerHTML = '<div class="empty-state">No sub-simulations yet</div>'; return; }
+  const last5 = data.sub_sim_log.slice(-5);
+  el.innerHTML = last5.map(s => `<div class="subsim-log">
+    <div style="margin-bottom:0.3rem"><strong>Year ${s.year}</strong> · ${s.colonist_id} · depth ${s.depth}</div>
+    <code>${s.lispy_source || s.description || '(sub-sim ...)'}</code>
+    <div style="margin-top:0.3rem;color:var(--dim)">→ ${JSON.stringify(s.result)}</div>
+  </div>`).join('');
+}
+
+async function main() {
+  const data = await loadData();
+  const loading = document.getElementById('loading');
+  if (!data) {
+    loading.innerHTML = '⏳ No simulation data yet. Run <code>python -m src.mars100</code> to generate.';
+    return;
+  }
+  loading.style.display = 'none';
+  renderStats(data);
+  renderColonists(data);
+  renderResources(data);
+  renderTimeline(data);
+  renderGovernance(data);
+  renderSubSims(data);
+}
+main();
+</script>
+</body>
+</html>
