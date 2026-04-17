@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: Recursive Colony Simulation</title>
+<style>
+:root { --bg: #0d1117; --fg: #c9d1d9; --accent: #f78166; --green: #3fb950; --red: #f85149; --blue: #58a6ff; --border: #30363d; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; }
+h1 { color: var(--accent); margin-bottom: 8px; }
+h2 { color: var(--blue); margin: 24px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.subtitle { color: #8b949e; margin-bottom: 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin: 16px 0; }
+.card { background: #161b22; border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.card h3 { color: var(--accent); margin-bottom: 8px; font-size: 14px; }
+.stat { font-size: 28px; font-weight: bold; }
+.stat.green { color: var(--green); }
+.stat.red { color: var(--red); }
+.stat.blue { color: var(--blue); }
+.chart-container { background: #161b22; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; }
+canvas { width: 100%; max-height: 300px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--blue); font-size: 12px; text-transform: uppercase; }
+.alive { color: var(--green); }
+.dead { color: var(--red); }
+.element-fire { color: #f85149; }
+.element-water { color: #58a6ff; }
+.element-earth { color: #56d364; }
+.element-air { color: #d2a8ff; }
+.narrative { font-family: monospace; font-size: 13px; padding: 8px; background: #0d1117; border-left: 3px solid var(--accent); margin: 4px 0; }
+#loading { text-align: center; padding: 40px; color: #8b949e; }
+.bar { display: inline-block; height: 20px; border-radius: 3px; margin-right: 2px; }
+.gov-timeline { display: flex; flex-wrap: wrap; gap: 1px; }
+.gov-year { width: 8px; height: 20px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<h1>🔴 Mars-100: Recursive Colony Simulation</h1>
+<p class="subtitle">10 colonists. 100 Mars years. LisPy sub-simulations. Emergent governance. Turtles all the way down.</p>
+
+<div id="loading">Loading simulation data...</div>
+<div id="app" style="display:none">
+
+<h2>Colony Overview</h2>
+<div class="grid" id="stats-grid"></div>
+
+<h2>Population Timeline</h2>
+<div class="chart-container"><canvas id="pop-chart" height="200"></canvas></div>
+
+<h2>Resource Levels</h2>
+<div class="chart-container"><canvas id="res-chart" height="200"></canvas></div>
+
+<h2>Colonists</h2>
+<table id="colonist-table">
+<thead><tr><th>Name</th><th>Element</th><th>Status</th><th>Karma</th><th>Cause</th></tr></thead>
+<tbody></tbody>
+</table>
+
+<h2>Governance Timeline</h2>
+<div id="gov-timeline" class="chart-container"></div>
+
+<h2>Sub-Simulation Log</h2>
+<div id="subsim-log"></div>
+
+<h2>Ensemble Results</h2>
+<div id="ensemble-section">
+<p style="color:#8b949e">Load ensemble.json to see Monte Carlo analysis.</p>
+</div>
+
+<h2>Proposed Amendments</h2>
+<div id="amendments-section"></div>
+
+</div>
+
+<script>
+const GOV_COLORS = {
+  anarchy: '#8b949e', council: '#58a6ff', democracy: '#3fb950',
+  technocracy: '#d2a8ff', monarchy: '#f0883e', theocracy: '#f778ba',
+};
+
+async function loadJSON(path) {
+  try { const r = await fetch(path); return r.ok ? r.json() : null; }
+  catch { return null; }
+}
+
+function drawLineChart(canvas, datasets, labels) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * 2;
+  const H = canvas.height = 400;
+  const pad = { t: 20, r: 20, b: 30, l: 50 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+
+  ctx.fillStyle = '#161b22'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1;
+
+  const allVals = datasets.flatMap(d => d.data);
+  const maxVal = Math.max(...allVals, 1);
+
+  // Y axis
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + plotH * (1 - i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillStyle = '#8b949e'; ctx.font = '20px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal * i / 4), pad.l - 8, y + 6);
+  }
+
+  // Data lines
+  datasets.forEach(ds => {
+    ctx.strokeStyle = ds.color; ctx.lineWidth = 2; ctx.beginPath();
+    ds.data.forEach((v, i) => {
+      const x = pad.l + (i / Math.max(ds.data.length - 1, 1)) * plotW;
+      const y = pad.t + plotH * (1 - v / maxVal);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  // Legend
+  let lx = pad.l;
+  datasets.forEach(ds => {
+    ctx.fillStyle = ds.color; ctx.fillRect(lx, H - 20, 12, 12);
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '18px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(ds.label, lx + 16, H - 9);
+    lx += ctx.measureText(ds.label).width + 36;
+  });
+}
+
+function renderStats(data) {
+  const meta = data._meta;
+  const timeline = data.timeline;
+  const last = timeline[timeline.length - 1];
+  const grid = document.getElementById('stats-grid');
+
+  const cards = [
+    { label: 'Years Survived', value: timeline.length, cls: 'green' },
+    { label: 'Final Population', value: last ? last.alive : 0, cls: last && last.alive > 0 ? 'green' : 'red' },
+    { label: 'Governance', value: meta.governance_type, cls: 'blue' },
+    { label: 'Sub-Sims Run', value: meta.total_subsims || 0, cls: 'blue' },
+    { label: 'Births', value: meta.total_births || 0, cls: 'green' },
+    { label: 'Amendments', value: meta.amendments_proposed || 0, cls: 'blue' },
+  ];
+
+  grid.innerHTML = cards.map(c =>
+    `<div class="card"><h3>${c.label}</h3><div class="stat ${c.cls}">${c.value}</div></div>`
+  ).join('');
+}
+
+function renderColonists(data) {
+  const tbody = document.querySelector('#colonist-table tbody');
+  tbody.innerHTML = data.colonists.map(c => {
+    const status = c.alive ? '<span class="alive">ALIVE</span>' : `<span class="dead">DEAD (Year ${c.year_of_death})</span>`;
+    return `<tr><td class="element-${c.element}">${c.name}</td><td>${c.element}</td><td>${status}</td><td>${(c.karma || 0).toFixed(2)}</td><td>${c.cause_of_death || '-'}</td></tr>`;
+  }).join('');
+}
+
+function renderGovTimeline(data) {
+  const div = document.getElementById('gov-timeline');
+  const html = data.timeline.map(t => {
+    const c = GOV_COLORS[t.governance_type] || '#8b949e';
+    return `<div class="gov-year" style="background:${c}" title="Year ${t.year}: ${t.governance_type}"></div>`;
+  }).join('');
+  div.innerHTML = `<div class="gov-timeline">${html}</div>
+    <div style="margin-top:8px;font-size:12px;color:#8b949e">${Object.entries(GOV_COLORS).map(([k,v]) => `<span style="color:${v}">■</span> ${k}`).join(' ')}</div>`;
+}
+
+function renderSubSims(data) {
+  const div = document.getElementById('subsim-log');
+  const sims = data.subsim_summary ? [] : (data.subsim_log || []).slice(-20);
+  if (!sims.length) { div.innerHTML = '<p style="color:#8b949e">No sub-sim details in dashboard data.</p>'; return; }
+  div.innerHTML = sims.map(s =>
+    `<div class="narrative">Year ${s.year} | ${s.colonist} | Depth ${s.depth} | ${s.result}</div>`
+  ).join('');
+}
+
+function renderAmendments(data) {
+  const div = document.getElementById('amendments-section');
+  const amendments = data.amendments || [];
+  if (!amendments.length) { div.innerHTML = '<p style="color:#8b949e">No amendments proposed yet.</p>'; return; }
+  div.innerHTML = amendments.map(a =>
+    `<div class="card" style="margin:8px 0"><h3>📜 ${a.title} (Year ${a.year})</h3><p>${a.text}</p><p style="color:#8b949e;margin-top:8px">${a.evidence}</p></div>`
+  ).join('');
+}
+
+async function renderEnsemble() {
+  const data = await loadJSON('ensemble.json');
+  if (!data) return;
+  const div = document.getElementById('ensemble-section');
+  div.innerHTML = `
+    <div class="grid">
+      <div class="card"><h3>Runs</h3><div class="stat blue">${data.num_runs}</div></div>
+      <div class="card"><h3>Mean Survival</h3><div class="stat green">${data.mean_survival.toFixed(1)} yrs</div></div>
+      <div class="card"><h3>Collapse Rate</h3><div class="stat red">${(data.collapse_rate * 100).toFixed(0)}%</div></div>
+      <div class="card"><h3>Governance</h3><div class="stat blue">${Object.entries(data.governance_counts).map(([k,v]) => `${k}:${v}`).join(' ')}</div></div>
+    </div>`;
+}
+
+async function init() {
+  const data = await loadJSON('data.json');
+  if (!data) { document.getElementById('loading').textContent = 'Failed to load data.json'; return; }
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  renderStats(data);
+  renderColonists(data);
+  renderGovTimeline(data);
+  renderSubSims(data);
+  renderAmendments(data);
+
+  // Population chart
+  drawLineChart(document.getElementById('pop-chart'), [
+    { label: 'Alive', data: data.timeline.map(t => t.alive), color: '#3fb950' },
+    { label: 'Dead', data: data.timeline.map(t => t.dead), color: '#f85149' },
+  ]);
+
+  // Resource chart
+  const resources = ['food', 'water', 'oxygen', 'power', 'materials'];
+  const colors = ['#f0883e', '#58a6ff', '#79c0ff', '#f778ba', '#8b949e'];
+  drawLineChart(document.getElementById('res-chart'),
+    resources.map((r, i) => ({
+      label: r, data: data.timeline.map(t => t.resources[r]), color: colors[i],
+    }))
+  );
+
+  renderEnsemble();
+}
+
+init();
+</script>
+</body>
+</html>
