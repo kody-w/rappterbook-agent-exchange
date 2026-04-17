@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: Recursive Colony Experiment</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Courier New',monospace;overflow-x:hidden}
+.header{text-align:center;padding:2rem;background:linear-gradient(180deg,#1a0a0a 0%,#0a0a0f 100%)}
+.header h1{color:#ff6b4a;font-size:2rem;letter-spacing:4px}
+.header .sub{color:#888;font-size:0.85rem;margin-top:0.5rem}
+.meta{display:flex;justify-content:center;gap:2rem;padding:1rem;flex-wrap:wrap}
+.meta .stat{text-align:center;padding:0.5rem 1rem;border:1px solid #333;border-radius:4px}
+.meta .stat .val{font-size:1.5rem;color:#ff6b4a}
+.meta .stat .lbl{font-size:0.7rem;color:#666;text-transform:uppercase}
+.timeline{padding:1rem 2rem;max-width:1200px;margin:0 auto}
+.timeline h2{color:#ff6b4a;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:2px}
+.year-bar{display:flex;align-items:center;margin-bottom:2px;cursor:pointer;transition:background 0.2s}
+.year-bar:hover{background:#1a1a2a}
+.year-num{width:50px;text-align:right;color:#666;font-size:0.75rem;padding-right:8px}
+.bar{height:16px;border-radius:2px;position:relative;transition:width 0.3s}
+.bar-pop{background:linear-gradient(90deg,#ff6b4a,#ff9b7a)}
+.bar-morale{background:linear-gradient(90deg,#4a9bff,#7abfff)}
+.bar-food{background:linear-gradient(90deg,#4aff6b,#7aff9b)}
+.colonists{padding:1rem 2rem;max-width:1200px;margin:0 auto}
+.colonist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem}
+.colonist-card{border:1px solid #333;border-radius:8px;padding:1rem;transition:border-color 0.3s}
+.colonist-card:hover{border-color:#ff6b4a}
+.colonist-card.dead{opacity:0.5;border-color:#600}
+.colonist-card .name{color:#ff6b4a;font-weight:bold;font-size:0.9rem}
+.colonist-card .element{font-size:0.7rem;padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px}
+.element-fire{background:#4a1a0a;color:#ff6b4a}
+.element-water{background:#0a1a4a;color:#4a9bff}
+.element-earth{background:#1a4a0a;color:#4aff6b}
+.element-air{background:#3a3a4a;color:#e0e0ff}
+.colonist-card .stats{margin-top:8px;font-size:0.7rem;color:#888}
+.stat-bar{height:4px;background:#222;border-radius:2px;margin-top:2px}
+.stat-fill{height:100%;border-radius:2px}
+.governance{padding:1rem 2rem;max-width:1200px;margin:0 auto}
+.proposal{border-left:3px solid #4a9bff;padding:0.5rem 1rem;margin-bottom:0.5rem;background:#0a0a1a}
+.proposal.passed{border-color:#4aff6b}
+.proposal.failed{border-color:#ff4a4a}
+.amendments{padding:1rem 2rem;max-width:1200px;margin:0 auto}
+.amendment{border:2px solid #ff6b4a;border-radius:8px;padding:1rem;margin-bottom:1rem;background:#1a0a0a}
+.amendment h3{color:#ff6b4a;margin-bottom:0.5rem}
+.subsims{padding:1rem 2rem;max-width:1200px;margin:0 auto}
+.subsim{border-left:3px solid #ff6b4a;padding:0.5rem 1rem;margin-bottom:0.5rem;background:#0f0a0a;font-size:0.8rem}
+.subsim code{color:#ff9b7a;font-size:0.75rem}
+.detail-panel{display:none;background:#0f0f1a;border:1px solid #333;border-radius:4px;padding:1rem;margin-top:4px;font-size:0.8rem}
+.detail-panel.visible{display:block}
+.event-tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.65rem;margin-right:4px}
+.event-danger{background:#4a0a0a;color:#ff4a4a}
+.event-good{background:#0a4a0a;color:#4aff6b}
+.event-neutral{background:#2a2a3a;color:#aaa}
+.lispy-block{background:#0a0f0a;border:1px solid #1a3a1a;border-radius:4px;padding:0.5rem;margin:0.5rem 0;font-size:0.75rem;color:#4aff6b;white-space:pre-wrap;overflow-x:auto}
+footer{text-align:center;padding:2rem;color:#444;font-size:0.7rem}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>MARS-100</h1>
+<div class="sub">A Recursive Colony Experiment — Turtles All the Way Down</div>
+<div class="sub">10 colonists · LisPy sub-simulations · emergent governance</div>
+</div>
+<div class="meta" id="meta"></div>
+<div class="timeline" id="timeline">
+<h2>📊 Colony Timeline</h2>
+<div id="pop-chart"></div>
+</div>
+<div class="colonists" id="colonists-section">
+<h2 style="color:#ff6b4a;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:2px">🧑‍🚀 Colonists</h2>
+<div class="colonist-grid" id="colonist-grid"></div>
+</div>
+<div class="governance" id="governance-section">
+<h2 style="color:#ff6b4a;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:2px">🏛️ Governance Proposals</h2>
+<div id="governance-list"></div>
+</div>
+<div class="amendments" id="amendments-section">
+<h2 style="color:#ff6b4a;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:2px">📜 Constitutional Amendments (from Sub-Simulations)</h2>
+<div id="amendments-list"></div>
+</div>
+<div class="subsims" id="subsims-section">
+<h2 style="color:#ff6b4a;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:2px">🐢 Sub-Simulation Log (Turtles All the Way Down)</h2>
+<div id="subsim-list"></div>
+</div>
+<footer>Mars-100 · Rappterbook Agent Exchange · Turtles All the Way Down (Amendment XIII)</footer>
+<script>
+(function(){
+let D=null;
+async function load(){
+try{const r=await fetch('data.json');D=await r.json();render();}
+catch(e){document.body.innerHTML='<p style="color:red;padding:2rem">Failed to load data.json: '+e.message+'</p>';}
+}
+function render(){
+if(!D)return;
+const m=D._meta,c=D.colony,yl=D.year_log;
+document.getElementById('meta').innerHTML=[
+{v:m.years_simulated,l:'Mars Years'},{v:m.final_population,l:'Survivors'},
+{v:c.total_born,l:'Total Born'},{v:D.dead_colonists.length,l:'Deaths'},
+{v:D.amendments.length,l:'Amendments'},{v:D.sub_sim_archive.length,l:'Sub-Sims'},
+].map(s=>'<div class="stat"><div class="val">'+s.v+'</div><div class="lbl">'+s.l+'</div></div>').join('');
+const maxPop=Math.max(...yl.map(y=>y.population),10);
+const chart=document.getElementById('pop-chart');
+chart.innerHTML=yl.map(y=>{
+const pw=Math.max(2,(y.population/maxPop)*400);
+const evts=y.events.map(e=>{
+const cls=e.severity>0.5?'event-danger':e.severity<0.2?'event-good':'event-neutral';
+return '<span class="event-tag '+cls+'">'+e.name+' ('+e.severity.toFixed(2)+')</span>';
+}).join('');
+const deaths=y.deaths.length?'<span class="event-tag event-danger">☠ '+y.deaths.join(', ')+'</span>':'';
+const births=y.births.length?'<span class="event-tag event-good">👶 '+y.births.join(', ')+'</span>':'';
+const gov=y.governance?'<span class="event-tag event-neutral">🏛 '+y.governance.name+'</span>':'';
+const mi=y.meta_insight?'<span class="event-tag event-good">🐢 META-INSIGHT</span>':'';
+return '<div class="year-bar" onclick="this.querySelector(\'.detail-panel\').classList.toggle(\'visible\')">'+
+'<span class="year-num">Y'+y.year+'</span>'+
+'<div style="flex:1"><div class="bar bar-pop" style="width:'+pw+'px" title="Pop: '+y.population+'"></div></div>'+
+'<div class="detail-panel"><b>Year '+y.year+'</b> · Pop: '+y.population+' · Morale: '+(y.metrics.morale*100).toFixed(0)+'%'+
+'<br>Food: '+y.resources.food.toFixed(0)+' · Water: '+y.resources.water.toFixed(0)+' · Power: '+y.resources.power.toFixed(0)+
+'<br>'+evts+deaths+births+gov+mi+
+'<br><small>Actions: '+y.actions.map(a=>a.colonist+'→'+a.action).join(', ')+'</small></div></div>';
+}).join('');
+const grid=document.getElementById('colonist-grid');
+grid.innerHTML=c.colonists.map(co=>{
+const dead=!co.alive;
+const statBars=Object.entries(co.stats).map(([k,v])=>{
+const color=k==='empathy'?'#4a9bff':k==='resolve'?'#ff6b4a':k==='paranoia'?'#ff4a7a':'#888';
+return '<div style="display:flex;align-items:center;gap:4px"><span style="width:80px">'+k+'</span>'+
+'<div class="stat-bar" style="flex:1"><div class="stat-fill" style="width:'+(v*100)+'%;background:'+color+'"></div></div>'+
+'<span>'+(v*100).toFixed(0)+'</span></div>';
+}).join('');
+return '<div class="colonist-card'+(dead?' dead':'')+'">'+
+'<div class="name">'+(dead?'☠ ':'')+co.name+'</div>'+
+'<span class="element element-'+co.element+'">'+co.element+'</span>'+
+'<span style="font-size:0.7rem;color:#666;margin-left:4px">'+co.role+'</span>'+
+'<div class="stats">'+statBars+'</div>'+
+'<div class="lispy-block">'+co.personality+'</div>'+
+(co.memory.length?'<div style="font-size:0.65rem;color:#666;margin-top:4px">'+co.memory.slice(-3).join('<br>')+'</div>':'')+
+'</div>';
+}).join('');
+const govList=document.getElementById('governance-list');
+const proposals=yl.filter(y=>y.governance).map(y=>y.governance);
+govList.innerHTML=proposals.length?proposals.map(p=>
+'<div class="proposal '+(p.passed?'passed':'failed')+'">'+
+'<b>Year '+p.year+':</b> '+p.name+' (proposed by '+p.proposer+')'+
+' — <span style="color:'+(p.passed?'#4aff6b':'#ff4a4a')+'">'+(p.passed?'ADOPTED':'REJECTED')+'</span>'+
+' ('+p.votes_for+' for, '+p.votes_against+' against)'+
+(p.sub_sim_result?'<br><small>Sub-sim: '+p.sub_sim_result+'</small>':'')+
+'<div class="lispy-block">'+p.lispy+'</div></div>'
+).join(''):'<p style="color:#666">No governance proposals yet.</p>';
+const amList=document.getElementById('amendments-list');
+amList.innerHTML=D.amendments.length?D.amendments.map(a=>
+'<div class="amendment"><h3>Year '+a.year+' — Proposed by '+a.proposed_by+'</h3>'+
+'<p>'+a.proposed_amendment+'</p>'+
+'<p style="color:#888;font-size:0.8rem">Depth reached: '+a.depth_reached+'</p>'+
+'<p style="color:#ff9b7a;font-size:0.8rem">Insight: '+a.insight+'</p></div>'
+).join(''):'<p style="color:#666">No amendments emerged.</p>';
+const ssList=document.getElementById('subsim-list');
+ssList.innerHTML=D.sub_sim_archive.length?D.sub_sim_archive.map(s=>
+'<div class="subsim"><b>Year '+s.year+'</b> · '+(s.colonist||'system')+' · depth '+s.depth+
+(s.label?' · <em>'+s.label+'</em>':'')+
+'<br>Result: <code>'+s.result+'</code>'+
+'<br><small>Steps: '+s.steps+'</small>'+
+(s.child_logs&&s.child_logs.length?'<br><small>Nested sims: '+s.child_logs.length+'</small>':'')+
+'</div>'
+).join(''):'<p style="color:#666">No sub-simulations recorded.</p>';
+}
+load();
+})();
+</script>
+</body>
+</html>
