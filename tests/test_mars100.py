@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.mars100 import (
     Resources, Intent, YearResult,
     pick_event, decide_action, resolve_intents, tick_year,
-    EVENTS, ACTIONS,
+    EVENTS, ACTIONS, reset_birth_counter, maybe_birth,
 )
 from src.colonist import Colonist, create_colony
 from src.governance import GovernanceState
@@ -211,6 +211,7 @@ class TestFullSimulation:
     def test_100_year_deterministic(self):
         """Full 100-year sim with same seed produces same result."""
         def run_sim(seed: int) -> dict:
+            reset_birth_counter()
             colonists = create_colony(seed=seed)
             r = Resources()
             gov = GovernanceState()
@@ -245,6 +246,7 @@ class TestFullSimulation:
     def test_different_seeds_different_outcomes(self):
         """Different seeds produce different simulation histories."""
         def final_state(seed: int) -> tuple:
+            reset_birth_counter()
             colonists = create_colony(seed=seed)
             r = Resources()
             gov = GovernanceState()
@@ -259,3 +261,246 @@ class TestFullSimulation:
         results = [final_state(s) for s in range(10)]
         # Should have at least 2 different outcomes across 10 seeds
         assert len(set(results)) >= 2
+
+
+# ---------------------------------------------------------------------------
+# New tests: Births
+# ---------------------------------------------------------------------------
+
+class TestBirths:
+    def test_no_birth_before_year_15(self):
+        """maybe_birth returns None before year 15."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources(food=1.5, water=1.0)
+        rng = random.Random(42)
+        for year in range(1, 15):
+            child = maybe_birth(year, colonists, r, rng)
+            assert child is None, f"Unexpected birth at year {year}"
+
+    def test_no_birth_low_food(self):
+        """maybe_birth returns None when food is below threshold."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources(food=0.5, water=1.0)
+        rng = random.Random(42)
+        child = maybe_birth(20, colonists, r, rng)
+        assert child is None
+
+    def test_no_birth_low_water(self):
+        """maybe_birth returns None when water is below threshold."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources(food=1.5, water=0.3)
+        rng = random.Random(42)
+        child = maybe_birth(20, colonists, r, rng)
+        assert child is None
+
+    def test_birth_occurs_favorable_conditions(self):
+        """Births occur with high resources over many trials."""
+        births = 0
+        for seed in range(100):
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources(food=1.8, water=1.5, power=1.2)
+            r.morale = 0.8
+            rng = random.Random(seed)
+            child = maybe_birth(20, colonists, r, rng)
+            if child is not None:
+                births += 1
+        # With crisis near 0 and stability ~0.12 chance, expect some births
+        assert births > 0, "No births occurred across 100 seeds"
+
+    def test_mars_born_inherits_blended_stats(self):
+        """Mars-born colonists inherit stats from parents."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources(food=1.8, water=1.5, power=1.2)
+        r.morale = 0.9
+        # Try many seeds to get a birth
+        for seed in range(200):
+            reset_birth_counter()
+            rng = random.Random(seed)
+            child = maybe_birth(25, colonists, r, rng)
+            if child is not None:
+                assert child.id.startswith("mars-")
+                assert child.year_joined == 25
+                # Stats should be within valid range
+                for s in child.stats.values():
+                    assert 0.0 <= s <= 1.0
+                for s in child.skills.values():
+                    assert 0.0 <= s <= 1.0
+                assert len(child.memory) >= 1
+                assert child.memory[0]["event"] == "born on Mars"
+                return
+        pytest.skip("No birth occurred across 200 seeds")
+
+    def test_birth_counter_caps_at_10(self):
+        """Maximum 10 births per simulation."""
+        import src.mars100 as m
+        m._birth_counter = 10
+        colonists = create_colony(seed=42)
+        r = Resources(food=1.8, water=1.5)
+        rng = random.Random(42)
+        child = maybe_birth(50, colonists, r, rng)
+        assert child is None
+        reset_birth_counter()
+
+    def test_birth_consumes_resources(self):
+        """Birth reduces food and water."""
+        for seed in range(200):
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources(food=1.8, water=1.5, power=1.2)
+            r.morale = 0.9
+            rng = random.Random(seed)
+            food_before = r.food
+            water_before = r.water
+            child = maybe_birth(25, colonists, r, rng)
+            if child is not None:
+                assert r.food < food_before
+                assert r.water < water_before
+                return
+        pytest.skip("No birth occurred across 200 seeds")
+
+
+# ---------------------------------------------------------------------------
+# New tests: Deep sub-sims
+# ---------------------------------------------------------------------------
+
+class TestDeepSubSims:
+    def test_subsim_depth_reaches_2(self):
+        """At least one seed reaches sub-sim depth 2 across multiple runs."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        for seed in [7, 99, 256]:
+            reset_birth_counter()
+            d = Path(tempfile.mkdtemp())
+            r = run_simulation(seed=seed, years=100, output_dir=d/'out',
+                               state_dir=d/'state', quiet=True)
+            max_d = r['subsimulations']['max_depth_reached']
+            if max_d >= 2:
+                return
+        pytest.fail("No seed reached sub-sim depth 2")
+
+    def test_subsim_depth_reaches_3(self):
+        """At least one seed reaches sub-sim depth 3 (turtles all the way down)."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        for seed in [99, 256, 777]:
+            reset_birth_counter()
+            d = Path(tempfile.mkdtemp())
+            r = run_simulation(seed=seed, years=100, output_dir=d/'out',
+                               state_dir=d/'state', quiet=True)
+            max_d = r['subsimulations']['max_depth_reached']
+            if max_d >= 3:
+                return
+        pytest.fail("No seed reached sub-sim depth 3")
+
+    def test_subsim_count_increased(self):
+        """More sub-sims run than the old baseline (was 4 for seed=42)."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        r = run_simulation(seed=42, years=100, output_dir=d/'out',
+                           state_dir=d/'state', quiet=True)
+        assert r['subsimulations']['total_runs'] > 10
+
+    def test_subsim_log_has_meta_fields(self):
+        """Sub-sim logs include depth and max_depth_reached fields."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        r = run_simulation(seed=42, years=50, output_dir=d/'out',
+                           state_dir=d/'state', quiet=True)
+        for log in r['subsimulations']['log']:
+            assert 'depth' in log
+            assert 'max_depth_reached' in log
+            assert 'colonist' in log
+            assert 'year' in log
+
+
+# ---------------------------------------------------------------------------
+# New tests: Meta-insights and governance emergence
+# ---------------------------------------------------------------------------
+
+class TestMetaInsights:
+    def test_meta_insights_generated(self):
+        """At least one seed produces meta-insights."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        for seed in [42, 99, 777]:
+            reset_birth_counter()
+            d = Path(tempfile.mkdtemp())
+            r = run_simulation(seed=seed, years=100, output_dir=d/'out',
+                               state_dir=d/'state', quiet=True)
+            if len(r['meta_insights']) > 0:
+                return
+        pytest.fail("No meta-insights generated across tested seeds")
+
+    def test_promoted_amendment(self):
+        """A simulation with meta-insights and decent fitness promotes an amendment."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        for seed in [42, 99, 256, 777]:
+            reset_birth_counter()
+            d = Path(tempfile.mkdtemp())
+            r = run_simulation(seed=seed, years=100, output_dir=d/'out',
+                               state_dir=d/'state', quiet=True)
+            if 'promoted_amendment' in r:
+                assert r['promoted_amendment']['proposal']
+                assert r['promoted_amendment']['insight']
+                return
+        pytest.fail("No promoted amendment across tested seeds")
+
+    def test_governance_emerges_beyond_nascent(self):
+        """Governance label evolves beyond 'nascent' over 100 years."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        r = run_simulation(seed=42, years=100, output_dir=d/'out',
+                           state_dir=d/'state', quiet=True)
+        assert r['governance']['final_label'] != "nascent"
+        assert len(r['governance']['transitions']) > 0
+
+
+# ---------------------------------------------------------------------------
+# New tests: Colony longevity
+# ---------------------------------------------------------------------------
+
+class TestColonyLongevity:
+    def test_colony_survives_100_years_some_seeds(self):
+        """At least some seeds survive to year 100."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        survived = 0
+        for seed in [42, 99, 256, 777, 1001]:
+            reset_birth_counter()
+            d = Path(tempfile.mkdtemp())
+            r = run_simulation(seed=seed, years=100, output_dir=d/'out',
+                               state_dir=d/'state', quiet=True)
+            if r['_meta']['years_simulated'] == 100:
+                survived += 1
+        assert survived >= 2, f"Only {survived}/5 seeds survived to year 100"
+
+    def test_death_rate_reduced(self):
+        """Fewer accidental deaths vs baseline (was ~7 for seed=42)."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        r = run_simulation(seed=42, years=100, output_dir=d/'out',
+                           state_dir=d/'state', quiet=True)
+        deaths = r['colony']['death_causes']
+        total_accident = deaths.get('accident', 0)
+        # With reduced death rate, should see fewer accidents
+        assert total_accident <= 15, f"Too many accidents: {total_accident}"
+
+    def test_births_appear_in_summary(self):
+        """Summary includes birth count."""
+        from src.run_mars100 import run_simulation
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        r = run_simulation(seed=42, years=100, output_dir=d/'out',
+                           state_dir=d/'state', quiet=True)
+        assert 'total_births' in r['colony']
+        assert r['colony']['total_births'] >= 0

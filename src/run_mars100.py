@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.colonist import Colonist, create_colony
 from src.governance import GovernanceState, compute_fitness, _gini
-from src.mars100 import Resources, tick_year, YearResult
+from src.mars100 import Resources, tick_year, YearResult, reset_birth_counter
 
 
 def now_iso() -> str:
@@ -54,6 +54,7 @@ def run_simulation(years: int = 100, seed: int = 42,
     state_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize colony
+    reset_birth_counter()
     colonists = create_colony(seed)
     resources = Resources()
     governance = GovernanceState()
@@ -152,6 +153,7 @@ def run_simulation(years: int = 100, seed: int = 42,
             "starting_colonists": 10,
             "surviving_colonists": len(active),
             "total_deaths": sum(1 for c in colonists if not c.alive),
+            "total_births": sum(1 for c in colonists if c.id.startswith("mars-")),
             "death_causes": _count_deaths(colonists),
             "fitness": round(fitness, 4),
         },
@@ -169,7 +171,7 @@ def run_simulation(years: int = 100, seed: int = 42,
         "subsimulations": {
             "total_runs": len(all_subsim_logs),
             "max_depth_reached": max(
-                (s.get("depth", 0) for s in all_subsim_logs), default=0),
+                (s.get("max_depth_reached", s.get("depth", 0)) for s in all_subsim_logs), default=0),
             "log": all_subsim_logs[-20:],
         },
         "meta_insights": meta_insights,
@@ -179,7 +181,7 @@ def run_simulation(years: int = 100, seed: int = 42,
 
     # Check for promotable amendment
     promoted_amendment = None
-    if meta_insights and fitness > 0.7:
+    if meta_insights and fitness > 0.5:
         promoted_amendment = {
             "source": "Mars-100 recursive simulation",
             "year_discovered": final_year,

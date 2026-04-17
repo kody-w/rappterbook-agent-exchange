@@ -115,6 +115,7 @@ def run_simulation(
             "event_id": result.event.get("id", ""),
             "event_description": result.event.get("description", ""),
             "deaths": result.dead_this_year,
+            "births": result.births,
             "sub_sim_count": len(result.subsim_log),
             "proposals": len(result.proposals),
             "meta_insight": result.meta_insight,
@@ -125,13 +126,16 @@ def run_simulation(
             gov = result.governance_label or "?"
             subs = len(result.subsim_log)
             deaths = len(result.dead_this_year)
+            births = len(result.births)
             elapsed = time.monotonic() - t0
-            bar = "█" * alive_count + "░" * (10 - alive_count)
+            max_pop = max(alive_count, 10)
+            bar = "█" * alive_count + "░" * (max_pop - alive_count)
             event_id = result.event.get("id", "?")
+            birth_tag = f" +{births}" if births else ""
             print(
                 f"  Year {y:3d} │ {bar} │ "
                 f"gov={gov:<14s} │ event={event_id:<20s} │ "
-                f"subs={subs} │ deaths={deaths} │ {elapsed:.1f}s"
+                f"subs={subs} │ deaths={deaths}{birth_tag} │ {elapsed:.1f}s"
             )
 
     years_completed = len(all_deltas)
@@ -147,10 +151,12 @@ def run_simulation(
     gov_labels = [t["governance_type"] for t in timeline]
     final_gov = gov_labels[-1] if gov_labels else "unknown"
 
+    total_births = sum(len(t.get("births", [])) for t in timeline)
+
     report = {
         "_meta": {
             "engine": "mars-100",
-            "version": "2.0",
+            "version": "3.0",
             "seed": seed,
             "years_simulated": years_completed,
             "colony_survived": len(alive_final) > 0,
@@ -159,6 +165,8 @@ def run_simulation(
             "years_completed": years_completed,
             "alive_count": len(alive_final),
             "dead_count": len(dead_final),
+            "total_births": total_births,
+            "total_colonists": len(colonists),
             "final_resources": resources.to_dict(),
             "governance_type": final_gov,
             "total_sub_sims": len(all_subsims),
