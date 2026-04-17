@@ -147,6 +147,7 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    genome: Any = None  # Genome object (genetics organ v11.0), None for legacy
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -163,12 +164,18 @@ class Colonist:
             d["death_cause"] = self.death_cause
         if self.exile_year is not None:
             d["exile_year"] = self.exile_year
+        if self.genome is not None:
+            d["genome"] = self.genome.to_dict()
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Colonist:
         memories = [MemoryEntry(m["year"], m["event"], m["valence"]) for m in d.get("memories", [])]
         wallet = Wallet.from_dict(d.get("wallet", {}))
+        genome = None
+        if "genome" in d:
+            from src.mars100.genetics import Genome
+            genome = Genome.from_dict(d["genome"])
         return cls(
             id=d["id"], name=d["name"], element=d["element"], archetype=d["archetype"],
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
@@ -178,7 +185,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
-            wallet=wallet,
+            wallet=wallet, genome=genome,
         )
 
     def is_active(self) -> bool:

@@ -126,6 +126,33 @@ class Insight:
 
 
 @dataclass
+class GeneticsReport:
+    """Genetics analysis summary."""
+    final_diversity: float = 0.0
+    diversity_trend: str = "stable"
+    generation_count: int = 0
+    total_mutations: int = 0
+    epigenetic_events: int = 0
+    founder_survival: dict[str, float] = field(default_factory=dict)
+    dominant_lineage: str = ""
+    extinct_lineages: list[str] = field(default_factory=list)
+    inbreeding_risk: str = "none"
+
+    def to_dict(self) -> dict:
+        return {
+            "final_diversity": round(self.final_diversity, 4),
+            "diversity_trend": self.diversity_trend,
+            "generation_count": self.generation_count,
+            "total_mutations": self.total_mutations,
+            "epigenetic_events": self.epigenetic_events,
+            "founder_survival": {k: round(v, 4) for k, v in self.founder_survival.items()},
+            "dominant_lineage": self.dominant_lineage,
+            "extinct_lineages": self.extinct_lineages,
+            "inbreeding_risk": self.inbreeding_risk,
+        }
+
+
+@dataclass
 class EmergenceReport:
     """Complete emergence analysis."""
     governance_phases: list[GovernancePhase]
@@ -137,6 +164,7 @@ class EmergenceReport:
     total_subsims: int
     insights: list[Insight]
     proposed_amendment: Insight | None = None
+    genetics: GeneticsReport = field(default_factory=GeneticsReport)
 
     def to_dict(self) -> dict:
         return {
@@ -149,6 +177,7 @@ class EmergenceReport:
             "total_subsims": self.total_subsims,
             "insights": [i.to_dict() for i in self.insights],
             "proposed_amendment": self.proposed_amendment.to_dict() if self.proposed_amendment else None,
+            "genetics": self.genetics.to_dict(),
         }
 
 
@@ -657,6 +686,13 @@ def propose_amendment(insights: list[Insight]) -> Insight | None:
             "after each event.  Post-crisis reviews are mandatory.  Lessons "
             "learned must be encoded in the constitution."
         ),
+        "genetics": (
+            "Genetic diversity is critical infrastructure.  When colony "
+            "population drops below 20 or diversity index falls below 0.15, "
+            "immigration from Earth or external populations must be prioritized.  "
+            "No exile decision may reduce the gene pool below safe thresholds.  "
+            "The colony demonstrated that {detail}."
+        ),
     }
 
     template = amendment_templates.get(best.source, amendment_templates["governance_phases"])
@@ -813,6 +849,51 @@ def _normalize_data(sim_data: dict) -> tuple[list[dict], list[dict]]:
     return years, all_colonists
 
 
+def analyze_genetics(sim_data: dict) -> GeneticsReport:
+    """Analyze genetics from simulation data."""
+    report = GeneticsReport()
+    fg = sim_data.get("final_genetics", {})
+    if not fg:
+        return report
+    report.final_diversity = fg.get("diversity_index", 0.0)
+    report.generation_count = fg.get("generation_count", 0)
+    report.total_mutations = fg.get("total_mutations", 0)
+    report.epigenetic_events = fg.get("epigenetic_events", 0)
+    report.founder_survival = dict(fg.get("founder_survival", {}))
+
+    # Determine diversity trend from history
+    history = fg.get("diversity_history", [])
+    if len(history) >= 10:
+        early = sum(history[:10]) / 10
+        late = sum(history[-10:]) / 10
+        if late > early + 0.02:
+            report.diversity_trend = "increasing"
+        elif late < early - 0.02:
+            report.diversity_trend = "decreasing"
+        else:
+            report.diversity_trend = "stable"
+
+    # Dominant and extinct lineages
+    if report.founder_survival:
+        sorted_founders = sorted(report.founder_survival.items(),
+                                  key=lambda x: x[1], reverse=True)
+        report.dominant_lineage = sorted_founders[0][0]
+        report.extinct_lineages = [fid for fid, frac in sorted_founders
+                                    if frac < 0.05]
+
+    # Inbreeding risk assessment
+    if report.final_diversity < 0.1:
+        report.inbreeding_risk = "critical"
+    elif report.final_diversity < 0.15:
+        report.inbreeding_risk = "high"
+    elif report.final_diversity < 0.25:
+        report.inbreeding_risk = "moderate"
+    else:
+        report.inbreeding_risk = "none"
+
+    return report
+
+
 def analyze(sim_data: dict) -> EmergenceReport:
     """Run complete emergence analysis on simulation data.
 
@@ -827,10 +908,36 @@ def analyze(sim_data: dict) -> EmergenceReport:
     factions = analyze_factions(colonists)
     resilience = analyze_crisis_resilience(years)
     subsim_acc, total_subsims = analyze_subsim_accuracy(years)
+    genetics = analyze_genetics(sim_data)
 
     insights = synthesize_insights(
         phases, mortality, convergence, factions, resilience, subsim_acc,
     )
+
+    # Genetics insight
+    if genetics.final_diversity > 0:
+        if genetics.inbreeding_risk in ("critical", "high"):
+            insights.append(Insight(
+                title="Genetic bottleneck threatens colony survival",
+                evidence=(f"Diversity index {genetics.final_diversity:.2f} is below safe "
+                          f"threshold. {len(genetics.extinct_lineages)} founder lineages "
+                          f"extinct. Inbreeding risk: {genetics.inbreeding_risk}."),
+                strength=0.9 if genetics.inbreeding_risk == "critical" else 0.7,
+                source="genetics",
+            ))
+        elif genetics.dominant_lineage:
+            insights.append(Insight(
+                title=f"Genetic legacy dominated by {genetics.dominant_lineage}",
+                evidence=(f"After {genetics.generation_count} generations, "
+                          f"{genetics.dominant_lineage}'s alleles remain most prevalent. "
+                          f"Colony diversity: {genetics.final_diversity:.2f}. "
+                          f"{genetics.total_mutations} mutations, "
+                          f"{genetics.epigenetic_events} epigenetic events."),
+                strength=0.6,
+                source="genetics",
+            ))
+    insights.sort(key=lambda i: i.strength, reverse=True)
+
     amendment = propose_amendment(insights)
 
     return EmergenceReport(
@@ -843,6 +950,7 @@ def analyze(sim_data: dict) -> EmergenceReport:
         total_subsims=total_subsims,
         insights=insights,
         proposed_amendment=amendment,
+        genetics=genetics,
     )
 
 

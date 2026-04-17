@@ -1,83 +1,1557 @@
 {
   "year": 1,
-  "population": 10,
-  "event": {
-    "id": "crop_blight",
-    "desc": "Hydroponic crops show signs of blight",
-    "severity": 0.6
+  "events": [
+    {
+      "name": "alien_signal",
+      "category": "cosmic",
+      "severity": 0.47270241577443095,
+      "description": "Anomalous radio signal detected from Phobos.",
+      "effects": {
+        "morale": 0.0972702415774431,
+        "faith_boost": 0.04863512078872155,
+        "paranoia_boost": 0.0972702415774431
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "terraform",
+    "fen-marsh": "mediate",
+    "rust-vega": "code",
+    "aura-kai": "cooperate",
+    "dax-iron": "rest",
+    "luna-tide": "mediate",
+    "grove-ash": "code",
+    "zeph-wind": "code",
+    "ora-flame": "terraform",
+    "pax-stone": "explore"
   },
-  "event_effects": [
-    "Crop blight: food -60"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 27.9)"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 1,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.7612054658794557,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 22.7)"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 1,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.01696882832380353,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 20.6)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 1,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 0.8600000000000001,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "luna-tide",
+          "year": 1,
+          "expression": "(let ((parent-result 0.8600000000000001)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 0.9460000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 19.7)"
-    },
-    {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 24.7)"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 19.9)"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 25.7)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 28.7)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 24.3)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 22.0)"
+      "depth": 2,
+      "colonist_id": "luna-tide",
+      "year": 1,
+      "expression": "(let ((parent-result 0.8600000000000001)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 0.9460000000000002,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
-  "births": [
-    "Selene-1 is born!"
-  ],
-  "diary_entries": [
+  "governance": null,
+  "resources_before": {
+    "food": 0.7,
+    "water": 0.7,
+    "power": 0.8,
+    "air": 0.9,
+    "medicine": 0.5
+  },
+  "resources_after": {
+    "food": 0.859,
+    "water": 0.7861785438277215,
+    "power": 0.7260404661468536,
+    "air": 0.888984507601135,
+    "medicine": 0.68
+  },
+  "resource_delta": {
+    "food": 0.15900000000000003,
+    "water": 0.20540223492720366,
+    "power": 0.19999999999999996,
+    "air": 0.08588667211165857,
+    "medicine": 0.18000000000000005
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.5269182837171582,
+  "governance_state": {
+    "gov_type": "anarchy",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": null,
+    "ai_program": null,
+    "constitution": [
+      "Year 10: governance changed to consensus",
+      "Year 16: governance changed to ai_governor",
+      "Year 18: governance changed to council",
+      "Year 24: governance changed to anarchy",
+      "Year 29: governance changed to lottery",
+      "Year 34: governance changed to consensus",
+      "Year 47: governance changed to anarchy",
+      "Year 84: governance changed to consensus",
+      "Year 100: governance changed to council"
+    ],
+    "history": [
+      {
+        "year": 10,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y10-consensus"
+      },
+      {
+        "year": 16,
+        "from": "consensus",
+        "to": "ai_governor",
+        "proposal_id": "prop-y16-ai_governor"
+      },
+      {
+        "year": 18,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y18-council"
+      },
+      {
+        "year": 24,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y24-anarchy"
+      },
+      {
+        "year": 29,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y29-lottery"
+      },
+      {
+        "year": 34,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y34-consensus"
+      },
+      {
+        "year": 47,
+        "from": "consensus",
+        "to": "anarchy",
+        "proposal_id": "prop-y47-anarchy"
+      },
+      {
+        "year": 84,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y84-consensus"
+      },
+      {
+        "year": 100,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y100-council"
+      }
+    ]
+  },
+  "colonist_snapshots": [
     {
-      "colonist": "Cosmo",
-      "entry": "Year 1 on Mars. Hydroponic crops show signs of blight. Morale is hopeful. We have 1144 food units left."
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9170578279506698,
+        "improvisation": 0.390510412770837,
+        "empathy": 0.508456067505264,
+        "hoarding": 0.3235087205916845,
+        "faith": 0.174851116232104,
+        "paranoia": 0.36220124146043187
+      },
+      "skills": {
+        "terraforming": 0.7082330006974364,
+        "hydroponics": 0.2,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.0,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.08601321231808434,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.09054,
+        "total_traded": 0.0,
+        "total_taxed": 0.004527
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.871124,
+            0.902105
+          ],
+          [
+            0.415562,
+            0.372134
+          ],
+          [
+            0.498887,
+            0.504432
+          ],
+          [
+            0.336901,
+            0.304846
+          ],
+          [
+            0.230488,
+            0.206717
+          ],
+          [
+            0.395844,
+            0.394211
+          ],
+          [
+            0.725581,
+            0.718612
+          ],
+          [
+            0.182379,
+            0.233839
+          ],
+          [
+            0.4868,
+            0.49643
+          ],
+          [
+            0.271254,
+            0.323371
+          ],
+          [
+            0.0,
+            0.007517
+          ],
+          [
+            0.087133,
+            0.090036
+          ]
+        ]
+      }
     },
     {
-      "colonist": "Demeter",
-      "entry": "Population: 11. Hydroponic crops show signs of blight. I spent the year on coding. Closest to Selene-1."
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.36891840983695334,
+        "improvisation": 0.5654530050364183,
+        "empathy": 0.9128911704751261,
+        "hoarding": 0.2430707183706697,
+        "faith": 0.7015975318707867,
+        "paranoia": 0.15787685331857743
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.8,
+        "mediation": 0.7078995196335816,
+        "coding": 0.1,
+        "prayer": 0.5,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.0,
+        "total_traded": 0.0,
+        "total_taxed": 0.0
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.39601,
+            0.437433
+          ],
+          [
+            0.603294,
+            0.595438
+          ],
+          [
+            0.904618,
+            0.877574
+          ],
+          [
+            0.206849,
+            0.225726
+          ],
+          [
+            0.709898,
+            0.747873
+          ],
+          [
+            0.141229,
+            0.172747
+          ],
+          [
+            0.157581,
+            0.110249
+          ],
+          [
+            0.78807,
+            0.819235
+          ],
+          [
+            0.671193,
+            0.698535
+          ],
+          [
+            0.092382,
+            0.06703
+          ],
+          [
+            0.488673,
+            0.504799
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      }
     },
     {
-      "colonist": "Nova",
-      "entry": "The crop_blight changed everything. I feel optimistic about our future here."
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.6612054658794557,
+        "improvisation": 0.6696883118406595,
+        "empathy": 0.31157528358362857,
+        "hoarding": 0.6019623171954815,
+        "faith": 0.10450494786387228,
+        "paranoia": 0.5287147241683361
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.3,
+        "mediation": 0.1,
+        "coding": 0.8051813819966115,
+        "prayer": 0.0,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0855,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.09,
+        "total_traded": 0.0,
+        "total_taxed": 0.0045
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.631474,
+            0.625108
+          ],
+          [
+            0.715469,
+            0.675129
+          ],
+          [
+            0.302592,
+            0.288654
+          ],
+          [
+            0.588668,
+            0.541998
+          ],
+          [
+            0.122181,
+            0.103351
+          ],
+          [
+            0.507581,
+            0.544361
+          ],
+          [
+            0.892495,
+            0.897575
+          ],
+          [
+            0.2576,
+            0.287618
+          ],
+          [
+            0.098356,
+            0.076582
+          ],
+          [
+            0.809754,
+            0.82371
+          ],
+          [
+            0.0,
+            0.007462
+          ],
+          [
+            0.295271,
+            0.305406
+          ]
+        ]
+      }
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.30648466641812616,
+        "improvisation": 0.7605337548599226,
+        "empathy": 0.7069336129095333,
+        "hoarding": 0.1201182221738846,
+        "faith": 0.863716535176998,
+        "paranoia": 0.1996954842085355
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.9,
+        "coding": 0.5,
+        "prayer": 0.8,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.0,
+        "total_traded": 0.0,
+        "total_taxed": 0.0
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.320997,
+            0.318977
+          ],
+          [
+            0.776564,
+            0.7934
+          ],
+          [
+            0.725039,
+            0.720203
+          ],
+          [
+            0.06125,
+            0.09599
+          ],
+          [
+            0.869452,
+            0.901158
+          ],
+          [
+            0.154745,
+            0.184211
+          ],
+          [
+            0.197462,
+            0.151807
+          ],
+          [
+            0.366561,
+            0.39124
+          ],
+          [
+            0.904154,
+            0.875657
+          ],
+          [
+            0.512813,
+            0.503482
+          ],
+          [
+            0.836471,
+            0.843917
+          ],
+          [
+            0.003137,
+            0.0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.8343123374712273,
+        "improvisation": 0.29590790864047145,
+        "empathy": 0.2557274718622338,
+        "hoarding": 0.6614442713783011,
+        "faith": 0.06105466837508031,
+        "paranoia": 0.7616553483963914
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.1,
+        "mediation": 0.0,
+        "coding": 0.2,
+        "prayer": 0.0,
+        "sabotage": 0.7
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.0,
+        "total_traded": 0.0,
+        "total_taxed": 0.0
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.79752,
+            0.829949
+          ],
+          [
+            0.284038,
+            0.312553
+          ],
+          [
+            0.216778,
+            0.22972
+          ],
+          [
+            0.739098,
+            0.705613
+          ],
+          [
+            0.08175,
+            0.081479
+          ],
+          [
+            0.750777,
+            0.799312
+          ],
+          [
+            0.540162,
+            0.520668
+          ],
+          [
+            0.109925,
+            0.116652
+          ],
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.208149,
+            0.174949
+          ],
+          [
+            0.0,
+            0.013621
+          ],
+          [
+            0.720718,
+            0.688422
+          ]
+        ]
+      }
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.496611514729281,
+        "improvisation": 0.8612931695347577,
+        "empathy": 0.3705314246343305,
+        "hoarding": 0.3063521846708892,
+        "faith": 0.32476538346703177,
+        "paranoia": 0.28579643544677913
+      },
+      "skills": {
+        "terraforming": 0.6,
+        "hydroponics": 0.6,
+        "mediation": 0.31598074434050677,
+        "coding": 0.9,
+        "prayer": 0.1,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.0,
+        "total_traded": 0.0,
+        "total_taxed": 0.0
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.521059,
+            0.51135
+          ],
+          [
+            0.870408,
+            0.888895
+          ],
+          [
+            0.369478,
+            0.319795
+          ],
+          [
+            0.260593,
+            0.312196
+          ],
+          [
+            0.27315,
+            0.291174
+          ],
+          [
+            0.316133,
+            0.299101
+          ],
+          [
+            0.584402,
+            0.588418
+          ],
+          [
+            0.588137,
+            0.605036
+          ],
+          [
+            0.281666,
+            0.289158
+          ],
+          [
+            0.893135,
+            0.917625
+          ],
+          [
+            0.111328,
+            0.127212
+          ],
+          [
+            0.098925,
+            0.119918
+          ]
+        ]
+      }
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7544446691599462,
+        "improvisation": 0.42631021203036906,
+        "empathy": 0.6225896156192834,
+        "hoarding": 0.8069755467235672,
+        "faith": 0.43997255672243213,
+        "paranoia": 0.3255497830294506
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.9,
+        "mediation": 0.4,
+        "coding": 0.10949680963215346,
+        "prayer": 0.2,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.01701126921727459,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.017907,
+        "total_traded": 0.0,
+        "total_taxed": 0.000895
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.680105,
+            0.70071
+          ],
+          [
+            0.497271,
+            0.490412
+          ],
+          [
+            0.592214,
+            0.601952
+          ],
+          [
+            0.759573,
+            0.784499
+          ],
+          [
+            0.39185,
+            0.394344
+          ],
+          [
+            0.280903,
+            0.304539
+          ],
+          [
+            0.410521,
+            0.405022
+          ],
+          [
+            0.895046,
+            0.918535
+          ],
+          [
+            0.375995,
+            0.402024
+          ],
+          [
+            0.061632,
+            0.112225
+          ],
+          [
+            0.179348,
+            0.166201
+          ],
+          [
+            0.013629,
+            0.0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.42516021383302904,
+        "improvisation": 0.9009864392248954,
+        "empathy": 0.3001454792406686,
+        "hoarding": 0.4950449884422765,
+        "faith": 0.26726355520944695,
+        "paranoia": 0.6839852926979723
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.6086447178699096,
+        "prayer": 0.1,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.07144826463587178,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.075209,
+        "total_traded": 0.0,
+        "total_taxed": 0.00376
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.370942,
+            0.403788
+          ],
+          [
+            0.919123,
+            0.926951
+          ],
+          [
+            0.315861,
+            0.319615
+          ],
+          [
+            0.516048,
+            0.499817
+          ],
+          [
+            0.186714,
+            0.202771
+          ],
+          [
+            0.721012,
+            0.744869
+          ],
+          [
+            0.312685,
+            0.305034
+          ],
+          [
+            0.193048,
+            0.1771
+          ],
+          [
+            0.166561,
+            0.199403
+          ],
+          [
+            0.613777,
+            0.58678
+          ],
+          [
+            0.066036,
+            0.108693
+          ],
+          [
+            0.789055,
+            0.783425
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.6465912633479816,
+        "improvisation": 0.477499057971206,
+        "empathy": 0.7955410974687653,
+        "hoarding": 0.10542916971796959,
+        "faith": 0.9427246417378286,
+        "paranoia": 0.6198529571851114
+      },
+      "skills": {
+        "terraforming": 0.2175451400798039,
+        "hydroponics": 0.3,
+        "mediation": 0.6,
+        "coding": 0.0,
+        "prayer": 0.9,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.03361047878139785,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.035379,
+        "total_traded": 0.0,
+        "total_taxed": 0.001769
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.607861,
+            0.571157
+          ],
+          [
+            0.469136,
+            0.488405
+          ],
+          [
+            0.782588,
+            0.789596
+          ],
+          [
+            0.102951,
+            0.10167
+          ],
+          [
+            0.958322,
+            0.997707
+          ],
+          [
+            0.668646,
+            0.664058
+          ],
+          [
+            0.210122,
+            0.155941
+          ],
+          [
+            0.271813,
+            0.288486
+          ],
+          [
+            0.558437,
+            0.6035
+          ],
+          [
+            0.0,
+            0.024633
+          ],
+          [
+            0.88578,
+            0.870086
+          ],
+          [
+            0.0,
+            0.02451
+          ]
+        ]
+      }
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.7326022589198821,
+        "improvisation": 0.2552764567907213,
+        "empathy": 0.6513273501797525,
+        "hoarding": 0.3921640075979448,
+        "faith": 0.5045499148131588,
+        "paranoia": 0.46921247856903614
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.3,
+        "mediation": 0.8,
+        "coding": 0.4,
+        "prayer": 0.3,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.04690316451052361,
+          "medicine": 0.0
+        },
+        "total_earned": 0.049372,
+        "total_traded": 0.0,
+        "total_taxed": 0.002469
+      },
+      "genome": {
+        "alleles": [
+          [
+            0.674207,
+            0.686172
+          ],
+          [
+            0.289899,
+            0.27777
+          ],
+          [
+            0.608716,
+            0.633253
+          ],
+          [
+            0.432836,
+            0.417855
+          ],
+          [
+            0.513673,
+            0.519575
+          ],
+          [
+            0.442542,
+            0.4207
+          ],
+          [
+            0.313246,
+            0.280582
+          ],
+          [
+            0.317838,
+            0.323318
+          ],
+          [
+            0.82766,
+            0.815586
+          ],
+          [
+            0.40433,
+            0.436796
+          ],
+          [
+            0.287856,
+            0.278499
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      }
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1144.3410880764593,
-    "water": 1480.0,
-    "power": 504.0171896453494,
-    "oxygen": 1003.9497999096486,
-    "materials": 608.3698799457892,
-    "morale": 72.06117419195596
+  "convergence": {
+    "resolve": 0.19532878941798826,
+    "improvisation": 0.21802071755833985,
+    "empathy": 0.21714895363691247,
+    "hoarding": 0.22088570775148142,
+    "faith": 0.29570636655666604,
+    "paranoia": 0.19604303905369477,
+    "convergence_score": 0.22385559566251378
+  },
+  "births": [],
+  "infrastructure": {
+    "completed": [],
+    "active_project": {
+      "tech_id": "shelter_reinforcement",
+      "progress": 0,
+      "stall_years": 1
+    },
+    "abandoned": [],
+    "history": [
+      {
+        "year": 1,
+        "event": "started",
+        "tech_id": "shelter_reinforcement"
+      }
+    ]
+  },
+  "culture": {
+    "traditions": 1,
+    "oral_history": 0,
+    "martyrs": 0,
+    "taboos": 0,
+    "tradition_names": [
+      "Consulting the Oracle"
+    ]
+  },
+  "earth": {
+    "opinion": 0.644,
+    "funding": 0.5242,
+    "policy": "neutral",
+    "independent": false,
+    "independence_year": null,
+    "next_launch_window": 2,
+    "ships_launched": 0,
+    "ships_lost": 0,
+    "ships_arrived": 0,
+    "ships_in_transit": [],
+    "messages": []
+  },
+  "diplomacy": [
+    {
+      "year": 1,
+      "arrivals": [],
+      "losses": [],
+      "ship_launched": null,
+      "messages": [],
+      "maintenance_modifier": 0.9,
+      "opinion_delta": 0.044,
+      "funding_delta": 0.0242,
+      "policy_changed": false,
+      "independence_declared": false
+    }
+  ],
+  "immigrants": [],
+  "economics": {
+    "year": 1,
+    "gini": 0.5543,
+    "trades": [],
+    "tax_collected": 0.0179,
+    "labor_income_total": 0.3584,
+    "revolt_triggered": false,
+    "estates_liquidated": []
+  },
+  "psychology": {
+    "snapshots": {
+      "kira-sol": {
+        "stress": 0.1667,
+        "loneliness": 0.0129,
+        "purpose": 0.5135,
+        "morale": 0.7042,
+        "last_crisis_year": -999
+      },
+      "fen-marsh": {
+        "stress": 0.1225,
+        "loneliness": 0.0,
+        "purpose": 0.514,
+        "morale": 0.7203,
+        "last_crisis_year": -999
+      },
+      "rust-vega": {
+        "stress": 0.1707,
+        "loneliness": 0.0173,
+        "purpose": 0.5521,
+        "morale": 0.7214,
+        "last_crisis_year": -999
+      },
+      "aura-kai": {
+        "stress": 0.1356,
+        "loneliness": 0.0043,
+        "purpose": 0.5573,
+        "morale": 0.7371,
+        "last_crisis_year": -999
+      },
+      "dax-iron": {
+        "stress": 0.0492,
+        "loneliness": 0.0192,
+        "purpose": 0.4612,
+        "morale": 0.712,
+        "last_crisis_year": -999
+      },
+      "luna-tide": {
+        "stress": 0.1161,
+        "loneliness": 0.0154,
+        "purpose": 0.5465,
+        "morale": 0.7353,
+        "last_crisis_year": -999
+      },
+      "grove-ash": {
+        "stress": 0.1645,
+        "loneliness": 0.0086,
+        "purpose": 0.5188,
+        "morale": 0.7083,
+        "last_crisis_year": -999
+      },
+      "zeph-wind": {
+        "stress": 0.1857,
+        "loneliness": 0.0168,
+        "purpose": 0.5153,
+        "morale": 0.6986,
+        "last_crisis_year": -999
+      },
+      "ora-flame": {
+        "stress": 0.1839,
+        "loneliness": 0.0061,
+        "purpose": 0.5289,
+        "morale": 0.708,
+        "last_crisis_year": -999
+      },
+      "pax-stone": {
+        "stress": 0.2005,
+        "loneliness": 0.0101,
+        "purpose": 0.5301,
+        "morale": 0.7029,
+        "last_crisis_year": -999
+      }
+    },
+    "crises": [],
+    "colony_morale": 0.7148,
+    "colony_stress": 0.1495,
+    "bottom_quartile_morale": 0.7007
+  },
+  "behavior": {
+    "contagion": [
+      {
+        "colonist_id": "kira-sol",
+        "stress_delta": -0.006472,
+        "loneliness_delta": -0.000296,
+        "purpose_delta": 0.003947
+      },
+      {
+        "colonist_id": "fen-marsh",
+        "stress_delta": 0.009653,
+        "loneliness_delta": 0.003829,
+        "purpose_delta": 0.002431
+      },
+      {
+        "colonist_id": "rust-vega",
+        "stress_delta": -0.007187,
+        "loneliness_delta": -0.002434,
+        "purpose_delta": -0.008193
+      },
+      {
+        "colonist_id": "aura-kai",
+        "stress_delta": 0.005076,
+        "loneliness_delta": 0.002435,
+        "purpose_delta": -0.01218
+      },
+      {
+        "colonist_id": "dax-iron",
+        "stress_delta": 0.034573,
+        "loneliness_delta": -0.002319,
+        "purpose_delta": 0.022407
+      },
+      {
+        "colonist_id": "luna-tide",
+        "stress_delta": 0.012628,
+        "loneliness_delta": -0.001385,
+        "purpose_delta": -0.007857
+      },
+      {
+        "colonist_id": "grove-ash",
+        "stress_delta": -0.00563,
+        "loneliness_delta": 0.00096,
+        "purpose_delta": 0.001487
+      },
+      {
+        "colonist_id": "zeph-wind",
+        "stress_delta": -0.010641,
+        "loneliness_delta": -0.00205,
+        "purpose_delta": 0.003832
+      },
+      {
+        "colonist_id": "ora-flame",
+        "stress_delta": -0.017381,
+        "loneliness_delta": 0.001373,
+        "purpose_delta": -0.003844
+      },
+      {
+        "colonist_id": "pax-stone",
+        "stress_delta": -0.018436,
+        "loneliness_delta": 0.000396,
+        "purpose_delta": -0.001943
+      }
+    ],
+    "perturbations": {
+      "kira-sol": {
+        "terraform": -0.006851370753591723,
+        "farm": 0.0,
+        "mediate": 0.041627782347576386,
+        "code": 0.0026165473039354735,
+        "pray": 0.04806472681894062,
+        "sabotage": 0.0,
+        "cooperate": 0.041627782347576386,
+        "hoard": 0.04806472681894062,
+        "explore": 0.017595418938106077,
+        "rest": 0.04806472681894062,
+        "research": -0.021415816105534835
+      },
+      "fen-marsh": {
+        "terraform": -0.017347502627550675,
+        "farm": 0.0,
+        "mediate": 0.04356633645813453,
+        "code": 0.002469431488008977,
+        "pray": 0.03963386823111931,
+        "sabotage": 0.0,
+        "cooperate": 0.04356633645813453,
+        "hoard": 0.03963386823111931,
+        "explore": 0.023749402342574874,
+        "rest": 0.03963386823111931,
+        "research": -0.017347502627550675
+      },
+      "rust-vega": {
+        "terraform": -0.017938707900389986,
+        "farm": 0.0,
+        "mediate": 0.04398737670804309,
+        "code": 0.01658456510073249,
+        "pray": 0.04904654600224496,
+        "sabotage": 0.0,
+        "cooperate": 0.04398737670804309,
+        "hoard": 0.04904654600224496,
+        "explore": 0.019464103706920612,
+        "rest": 0.04904654600224496,
+        "research": -0.017938707900389986
+      },
+      "aura-kai": {
+        "terraform": -0.014334424653447194,
+        "farm": 0.0,
+        "mediate": 0.04580046199133503,
+        "code": 0.00676413369005231,
+        "pray": 0.042197116686999006,
+        "sabotage": 0.0,
+        "cooperate": 0.06402057373769521,
+        "hoard": 0.042197116686999006,
+        "explore": 0.024701903647835526,
+        "rest": 0.042197116686999006,
+        "research": -0.014334424653447194
+      },
+      "dax-iron": {
+        "terraform": -0.015020143927995578,
+        "farm": 0.0,
+        "mediate": 0.04266101114697656,
+        "code": -0.0024557717661877533,
+        "pray": 0.02512874432361565,
+        "sabotage": 0.0,
+        "cooperate": 0.04266101114697656,
+        "hoard": 0.02512874432361565,
+        "explore": 0.030096638985168737,
+        "rest": 0.02512874432361565,
+        "research": -0.015020143927995578
+      },
+      "luna-tide": {
+        "terraform": -0.013509627165303701,
+        "farm": 0.0,
+        "mediate": 0.04558157693921627,
+        "code": 0.005795752148427036,
+        "pray": 0.038610758627461474,
+        "sabotage": 0.0,
+        "cooperate": 0.04558157693921627,
+        "hoard": 0.038610758627461474,
+        "explore": 0.026276197625485536,
+        "rest": 0.038610758627461474,
+        "research": -0.013509627165303701
+      },
+      "grove-ash": {
+        "terraform": -0.020783110072599018,
+        "farm": 0.0,
+        "mediate": 0.04211459042092001,
+        "code": 0.013042993834433025,
+        "pray": 0.04765220781406409,
+        "sabotage": 0.0,
+        "cooperate": 0.04211459042092001,
+        "hoard": 0.04765220781406409,
+        "explore": 0.018288486513887963,
+        "rest": 0.04765220781406409,
+        "research": -0.020783110072599018
+      },
+      "zeph-wind": {
+        "terraform": -0.023387028495527373,
+        "farm": 0.0,
+        "mediate": 0.040820906256506855,
+        "code": 0.012876520900470412,
+        "pray": 0.052527098791995575,
+        "sabotage": 0.0,
+        "cooperate": 0.040820906256506855,
+        "hoard": 0.052527098791995575,
+        "explore": 0.014557356860509067,
+        "rest": 0.052527098791995575,
+        "research": -0.023387028495527373
+      },
+      "ora-flame": {
+        "terraform": -0.006660288987934051,
+        "farm": 0.0,
+        "mediate": 0.04220982574528729,
+        "code": 0.0037516124561803974,
+        "pray": 0.04995269359211512,
+        "sabotage": 0.0,
+        "cooperate": 0.04220982574528729,
+        "hoard": 0.04995269359211512,
+        "explore": 0.01723347894922973,
+        "rest": 0.04995269359211512,
+        "research": -0.021224734339877163
+      },
+      "pax-stone": {
+        "terraform": -0.023088511268307587,
+        "farm": 0.0,
+        "mediate": 0.041468924073981776,
+        "code": 0.004222236788102207,
+        "pray": 0.054621496112819586,
+        "sabotage": 0.0,
+        "cooperate": 0.041468924073981776,
+        "hoard": 0.054621496112819586,
+        "explore": 0.024428287763932167,
+        "rest": 0.054621496112819586,
+        "research": -0.023088511268307587
+      }
+    },
+    "learned_updates": {
+      "kira-sol": {
+        "terraform": 0.014564445351943112
+      },
+      "fen-marsh": {
+        "mediate": 0.0
+      },
+      "rust-vega": {
+        "code": 0.009999999999999998
+      },
+      "aura-kai": {
+        "cooperate": 0.018220111746360186
+      },
+      "dax-iron": {
+        "rest": 0.0
+      },
+      "luna-tide": {
+        "mediate": 0.0
+      },
+      "grove-ash": {
+        "code": 0.009999999999999998
+      },
+      "zeph-wind": {
+        "code": 0.009999999999999998
+      },
+      "ora-flame": {
+        "terraform": 0.014564445351943112
+      },
+      "pax-stone": {
+        "explore": 0.010270111746360184
+      }
+    }
+  },
+  "ecology": {
+    "resource_bonuses": {
+      "food": 0.0,
+      "air": 1e-06,
+      "water": 0.0004
+    },
+    "nature_stress_reduction": 0.0
+  },
+  "genetics": {
+    "diversity_index": 0.371119,
+    "inbreeding_penalty": 1.0,
+    "epigenetic_events": [],
+    "diversity_trend": "stable",
+    "mutations_this_year": 0
   }
 }
