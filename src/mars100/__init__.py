@@ -19,6 +19,13 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.economy import (
+    ColonistLedger, EconomyState, tick_economy, compute_gini,
+)
+from src.mars100.culture import (
+    CulturalMemory, Tradition, OralHistory, Martyr, Taboo,
+    YearContext, evolve_culture, compute_cultural_pressure, transmit_to_child,
+)
 from src.mars100.infrastructure import (
     TechSpec, TECH_TREE, TECH_BY_ID,
     ActiveProject, InfrastructureState,
@@ -45,4 +52,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "ColonistLedger", "EconomyState", "tick_economy", "compute_gini",
+    "CulturalMemory", "Tradition", "OralHistory", "Martyr", "Taboo",
+    "YearContext", "evolve_culture", "compute_cultural_pressure", "transmit_to_child",
 ]
