@@ -147,6 +147,7 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    genome: Any = None  # Optional Genome from genetics organ
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -158,6 +159,8 @@ class Colonist:
             "memories": [m.to_dict() for m in self.memories],
             "wallet": self.wallet.to_dict(),
         }
+        if self.genome is not None:
+            d["genome"] = self.genome.to_dict()
         if self.death_year is not None:
             d["death_year"] = self.death_year
             d["death_cause"] = self.death_cause
@@ -169,6 +172,10 @@ class Colonist:
     def from_dict(cls, d: dict) -> Colonist:
         memories = [MemoryEntry(m["year"], m["event"], m["valence"]) for m in d.get("memories", [])]
         wallet = Wallet.from_dict(d.get("wallet", {}))
+        genome = None
+        if "genome" in d and d["genome"]:
+            from src.mars100.genetics import Genome
+            genome = Genome.from_dict(d["genome"])
         return cls(
             id=d["id"], name=d["name"], element=d["element"], archetype=d["archetype"],
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
@@ -178,7 +185,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
-            wallet=wallet,
+            wallet=wallet, genome=genome,
         )
 
     def is_active(self) -> bool:
@@ -288,6 +295,9 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
         for name in STAT_NAMES:
             current = getattr(c.stats, name)
             setattr(c.stats, name, max(0.0, min(1.0, current + rng.gauss(0, 0.02))))
+        from src.mars100.genetics import create_genome_from_stats
+        genome_rng = random.Random(seed + 13337 + len(colonists))
+        c.genome = create_genome_from_stats(c.stats.to_dict(), genome_rng)
         colonists.append(c)
     return colonists
 
@@ -298,6 +308,7 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
 
     Stats are averaged from parents with gaussian noise.  Skills start near zero
     (children must learn).  Element is randomly inherited from one parent.
+    If both parents have genomes, the child inherits via gamete formation.
     """
     name_pool = [n for n in COLONIST_NAMES]
     name = rng.choice(name_pool) if name_pool else f"Child-{child_id}"
@@ -316,11 +327,21 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
     expr_fragments = [parent_a.decision_expr, parent_b.decision_expr]
     decision_expr = rng.choice(expr_fragments)
 
+    # Genetics: inherit genome via gamete formation if both parents have genomes
+    genome = None
+    if parent_a.genome is not None and parent_b.genome is not None:
+        from src.mars100.genetics import reproduce
+        genome = reproduce(parent_a.genome, parent_b.genome, rng)
+    elif parent_a.genome is not None or parent_b.genome is not None:
+        from src.mars100.genetics import create_genome_from_stats
+        genome = create_genome_from_stats(stats_dict, rng)
+
     return Colonist(
         id=child_id, name=name, element=element, archetype="child",
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
+        genome=genome,
     )
 
 
@@ -363,11 +384,15 @@ def create_immigrant(immigrant_id: str, arrival_year: int,
 
     decision_expr = "(+ (* resolve improvisation) (* empathy 0.3))"
 
+    from src.mars100.genetics import create_random_genome
+    genome = create_random_genome(rng)
+
     return Colonist(
         id=immigrant_id, name=name, element=element,
         archetype=template["archetype"],
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=arrival_year,
+        genome=genome,
     )
 
