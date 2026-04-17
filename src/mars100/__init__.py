@@ -48,6 +48,16 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.health import (
+    HealthState, ColonistHealthContext, tick_health,
+    health_death_modifier, health_death_cause, HealthTickResult,
+)
+from src.mars100.ecology import (
+    Atmosphere, SoilState, WaterCycle, Flora, Fauna,
+    Biosphere, EcologyTickResult,
+    tick_atmosphere, tick_soil, tick_water_cycle, tick_flora, tick_fauna,
+    tick_ecology, compute_ecology_resource_bonus, compute_ecology_psych_bonus,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +89,11 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "HealthState", "ColonistHealthContext", "tick_health",
+    "health_death_modifier", "health_death_cause", "HealthTickResult",
+    "Atmosphere", "SoilState", "WaterCycle", "Flora", "Fauna",
+    "Biosphere", "EcologyTickResult",
+    "tick_atmosphere", "tick_soil", "tick_water_cycle",
+    "tick_flora", "tick_fauna", "tick_ecology",
+    "compute_ecology_resource_bonus", "compute_ecology_psych_bonus",
 ]

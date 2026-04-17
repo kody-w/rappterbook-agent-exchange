@@ -73,7 +73,7 @@ class TestEngineEarthIntegration:
         r = e.run()
         d = r.to_dict()
         assert "final_earth" in d
-        assert d["_meta"]["version"] == "8.0"
+        assert d["_meta"]["version"] == "10.0"
         assert "total_immigrants" in d["summary"]
 
     def test_earth_state_evolves(self) -> None:
@@ -121,7 +121,8 @@ class TestResourceAwareDeathCauses:
                  "hypothermia", "untreated illness",
                  "equipment malfunction", "radiation exposure",
                  "medical emergency", "habitat breach",
-                 "suspicious accident"}
+                 "suspicious accident",
+                 "old_age", "radiation_sickness", "chronic_illness"}
         for cause in causes:
             assert cause in known, f"Unknown cause: {cause}"
 
@@ -134,7 +135,8 @@ class TestResourceAwareDeathCauses:
                  "hypothermia", "untreated illness",
                  "equipment malfunction", "radiation exposure",
                  "medical emergency", "habitat breach",
-                 "suspicious accident"}
+                 "suspicious accident",
+                 "old_age", "radiation_sickness", "chronic_illness"}
         # All causes should be from the known set
         assert causes <= known, f"Unknown causes: {causes - known}"
         # At least some deaths should occur over 100 years

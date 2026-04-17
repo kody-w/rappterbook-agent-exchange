@@ -45,6 +45,19 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.health import (
+    HealthState, ColonistHealthContext, tick_health,
+    health_death_modifier, health_death_cause,
+)
+from src.mars100.ecology import (
+    Biosphere, tick_ecology, compute_ecology_resource_bonus,
+    compute_ecology_psych_bonus,
+)
+from src.mars100.behavior import (
+    BehaviorProfile, BehaviorTickResult, ContagionDelta,
+    compute_action_perturbation, compute_social_contagion,
+    update_learned_preferences,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -79,7 +92,10 @@ class YearResult:
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
+    health: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
+    behavior: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -101,7 +117,10 @@ class YearResult:
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
             "economics": self.economics,
+            "health": self.health,
             "psychology": self.psychology,
+            "ecology": self.ecology,
+            "behavior": self.behavior,
         }
 
 
@@ -129,10 +148,14 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_health: dict = field(default_factory=dict)
+    total_health_deaths: int = 0
+    final_ecology: dict = field(default_factory=dict)
+    final_behavior: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "10.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +170,7 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_health_deaths": self.total_health_deaths,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +181,9 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_health": self.final_health,
+            "final_ecology": self.final_ecology,
+            "final_behavior": self.final_behavior,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +212,11 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.health_map: dict[str, HealthState] = {}
+        self.health_rng = random.Random(seed + 10007)
+        self.biosphere = Biosphere()
+        self.ecology_rng = random.Random(seed + 11213)
+        self.behavior_map: dict[str, BehaviorProfile] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -249,17 +281,24 @@ class Mars100Engine:
                     w += 1.0
             weights[action] = max(0.01, w)
 
-        # Cultural pressure from colony memory
+        # External pressure: cultural + economic + behavioral perturbation
+        # Sum all deltas first, apply single clamp to prevent order effects
         cultural_pressure = compute_cultural_pressure(self.culture)
-        for act, delta in cultural_pressure.items():
-            if act in weights:
-                weights[act] = max(0.01, weights[act] + delta)
-
-        # Economic pressure from personal wealth
         econ_pressure = compute_economic_pressure(colonist)
-        for act, delta in econ_pressure.items():
+        psych = self.psych_map.get(colonist.id)
+        profile = self.behavior_map.get(colonist.id, BehaviorProfile())
+        behavior_pressure = compute_action_perturbation(
+            psych.stress if psych else 0.0,
+            psych.morale if psych else 0.5,
+            psych.purpose if psych else 0.5,
+            profile, ACTIONS,
+        ) if psych else {}
+        for act in ACTIONS:
+            combined = (cultural_pressure.get(act, 0.0)
+                        + econ_pressure.get(act, 0.0)
+                        + behavior_pressure.get(act, 0.0))
             if act in weights:
-                weights[act] = max(0.01, weights[act] + delta)
+                weights[act] = max(0.01, weights[act] + combined)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -386,45 +425,78 @@ class Mars100Engine:
         return births
 
     def _check_death(self, colonist: Colonist) -> str | None:
+        """Hazard-bucket death system: multiple causes compete proportionally."""
         rate = BASE_DEATH_RATE
-        # Psychology: low morale increases death rate
+
+        # Psychology modifier
         psych = self.psych_map.get(colonist.id)
         if psych:
             rate *= death_rate_modifier(psych.morale)
-        death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
+
+        # Health modifier (aging, radiation, chronic conditions)
+        health = self.health_map.get(colonist.id)
+        if health:
+            rate *= health_death_modifier(health)
+
+        # Infrastructure modifier
+        death_rate_mult = compute_resource_modifiers(self.infra.completed).get(
+            "death_rate_mult", 1.0)
         rate *= death_rate_mult
-        critical_resources: list[str] = []
+
+        # Resource deprivation hazards
+        resource_hazards: list[tuple[str, float]] = []
+        resource_causes = {
+            "air": "asphyxiation", "food": "starvation",
+            "water": "dehydration", "power": "hypothermia",
+            "medicine": "untreated illness",
+        }
         for name in RESOURCE_NAMES:
             val = getattr(self.resources, name)
             if val < 0.1:
-                rate += RESOURCE_DEATH_MULTIPLIER * (0.1 - val)
-                critical_resources.append(name)
+                hazard = RESOURCE_DEATH_MULTIPLIER * (0.1 - val)
+                rate += hazard
+                resource_hazards.append(
+                    (resource_causes.get(name, "resource deprivation"), hazard))
+
+        # Paranoia hazard
         if colonist.stats.paranoia > 0.8:
             rate += 0.005
-        if self.rng.random() < rate:
-            resource_causes = {
-                "air": "asphyxiation", "food": "starvation",
-                "water": "dehydration", "power": "hypothermia",
-                "medicine": "untreated illness",
-            }
-            if critical_resources:
-                weights = [(r, 0.1 - getattr(self.resources, r))
-                           for r in critical_resources]
-                total_w = sum(w for _, w in weights)
-                roll = self.rng.random() * total_w
-                cumul = 0.0
-                for res, w in weights:
-                    cumul += w
-                    if roll <= cumul:
-                        return resource_causes.get(res, "resource deprivation")
-                return resource_causes.get(critical_resources[0],
-                                           "resource deprivation")
-            causes = ["equipment malfunction", "radiation exposure",
-                      "medical emergency", "habitat breach"]
-            if colonist.stats.paranoia > 0.7:
-                causes.append("suspicious accident")
-            return self.rng.choice(causes)
-        return None
+
+        if self.rng.random() >= rate:
+            return None
+
+        # --- cause selection via hazard buckets ---
+        buckets: list[tuple[str, float]] = list(resource_hazards)
+
+        # Health-derived cause
+        if health:
+            h_cause = health_death_cause(health, colonist.birth_year, self.year)
+            if h_cause:
+                h_weight = max(0.0, health_death_modifier(health) - 1.0)
+                if h_weight > 0:
+                    buckets.append((h_cause, h_weight))
+
+        # Paranoia
+        if colonist.stats.paranoia > 0.7:
+            buckets.append(("suspicious accident", colonist.stats.paranoia * 0.3))
+
+        # Fallback ambient causes
+        ambient = ["equipment malfunction", "radiation exposure",
+                   "medical emergency", "habitat breach"]
+        for cause in ambient:
+            buckets.append((cause, 0.05))
+
+        # Weighted random selection
+        total_w = sum(w for _, w in buckets)
+        if total_w <= 0:
+            return self.rng.choice(ambient)
+        roll = self.rng.random() * total_w
+        cumul = 0.0
+        for cause, w in buckets:
+            cumul += w
+            if roll <= cumul:
+                return cause
+        return buckets[-1][0]
 
     def _check_exile(self, colonist: Colonist) -> bool:
         if self.governance.gov_type == "anarchy":
@@ -696,6 +768,70 @@ class Mars100Engine:
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
 
+        # Ecology: nature exposure reduces stress (from LAST year's biosphere)
+        eco_psych = compute_ecology_psych_bonus(self.biosphere)
+        if eco_psych > 0:
+            for cid in active_ids:
+                ps = self.psych_map.get(cid)
+                if ps:
+                    ps.stress = max(0.0, ps.stress - eco_psych)
+
+        # --- behavior: social contagion (frozen snapshot, simultaneous) ---
+        frozen_psych = {cid: self.psych_map[cid].to_dict()
+                        for cid in active_ids if cid in self.psych_map}
+        contagion_deltas: list[ContagionDelta] = []
+        for c in active:
+            trust_pairs = [
+                (oid, self.social.get(c.id, oid).trust)
+                for oid in active_ids if oid != c.id
+            ]
+            cd = compute_social_contagion(c.id, frozen_psych, trust_pairs)
+            contagion_deltas.append(cd)
+        for cd in contagion_deltas:
+            ps = self.psych_map.get(cd.colonist_id)
+            if ps is not None:
+                ps.stress = max(0.0, min(1.0, ps.stress + cd.stress_delta))
+                ps.loneliness = max(0.0, min(1.0,
+                    ps.loneliness + cd.loneliness_delta))
+                ps.purpose = max(0.0, min(1.0,
+                    ps.purpose + cd.purpose_delta))
+
+        # --- behavior: update learned preferences from action outcomes ---
+        behavior_result = BehaviorTickResult(
+            contagion=[cd.to_dict() for cd in contagion_deltas])
+        for cid, action in actions.items():
+            profile = self.behavior_map.get(cid)
+            if profile is None:
+                profile = BehaviorProfile()
+                self.behavior_map[cid] = profile
+            updated = update_learned_preferences(
+                profile, action, resource_delta)
+            behavior_result.learned_updates[cid] = updated
+            ps = self.psych_map.get(cid)
+            if ps:
+                perturb = compute_action_perturbation(
+                    ps.stress, ps.morale, ps.purpose, profile, ACTIONS)
+                behavior_result.perturbations[cid] = perturb
+
+        # --- health tick (dedicated RNG stream) ---
+        has_solar_flare = any(e.name == "solar_flare" for e in events)
+        medicine_level = getattr(self.resources, "medicine", 0.5)
+        has_med_bay = "med_bay" in self.infra.completed
+        has_shelter = "shelter" in self.infra.completed
+        health_contexts: list[ColonistHealthContext] = []
+        for c in active:
+            health_contexts.append(ColonistHealthContext(
+                colonist_id=c.id,
+                birth_year=c.birth_year,
+                has_solar_flare=has_solar_flare,
+                medicine_level=medicine_level,
+                has_med_bay=has_med_bay,
+                has_shelter=has_shelter,
+                mars_years_in_colony=max(0, self.year - c.birth_year),
+            ))
+        health_result = tick_health(
+            self.health_map, health_contexts, self.year, self.health_rng)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -799,6 +935,18 @@ class Mars100Engine:
                     "element": immigrant.element,
                 })
 
+        # --- ecology tick: evolve biosphere from this year's actions/events ---
+        terraforming_effort = sum(
+            1 for a in actions.values() if a in ("terraform", "farm"))
+        has_dust_storm_eco = any(e.name == "dust_storm" for e in events)
+        has_solar_flare_eco = any(e.name == "solar_flare" for e in events)
+        eco_result = tick_ecology(
+            self.biosphere, self.year, terraforming_effort, len(active),
+            has_dust_storm=has_dust_storm_eco,
+            has_solar_event=has_solar_flare_eco,
+            rng=self.ecology_rng,
+        )
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -831,7 +979,10 @@ class Mars100Engine:
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
+            health=health_result.to_dict(),
             psychology=psych_result.to_dict(),
+            ecology=eco_result.to_dict(),
+            behavior=behavior_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -872,6 +1023,12 @@ class Mars100Engine:
             final_earth=self.earth.to_dict(),
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
+            final_health={cid: h.to_dict() for cid, h in self.health_map.items()},
+            final_ecology=self.biosphere.to_dict(),
+            final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
+            total_health_deaths=sum(
+                1 for y in years for d in y.deaths
+                if d.get("cause") in ("old_age", "radiation_sickness", "chronic_illness")),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
