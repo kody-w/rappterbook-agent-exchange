@@ -2,6 +2,7 @@
 Mars-100 simulation engine.
 
 100 frames (Martian years). Pure computation — returns data, no I/O.
+Engine v5.0 — recursive sub-simulations (Turtles All the Way Down).
 """
 from __future__ import annotations
 
@@ -28,6 +29,10 @@ from src.mars100.lispy_vm import LispyError
 from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
+)
+from src.mars100.recursive_sim import (
+    run_scenario, choose_scenario, collect_insights, max_depth_reached,
+    RecursiveResult, SCENARIO_TYPES,
 )
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -57,6 +62,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    recursive_scenarios: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +79,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "recursive_scenarios": self.recursive_scenarios,
         }
 
 
@@ -93,10 +100,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    recursive_depth_stats: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -108,6 +116,7 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "recursive_depth_stats": self.recursive_depth_stats,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -229,7 +238,8 @@ class Mars100Engine:
 
     def _maybe_spawn_subsim(self, colonist: Colonist, events: list[Event],
                             budget: SubSimBudget,
-                            log: list[SubSimResult]) -> SubSimResult | None:
+                            log: list[SubSimResult],
+                            recursive_log: list[dict]) -> SubSimResult | None:
         if not budget.can_spawn(colonist.id):
             return None
         subsim_chance = (colonist.stats.improvisation * 0.3 +
@@ -240,9 +250,39 @@ class Mars100Engine:
                 subsim_chance += 0.15
         if self.rng.random() > subsim_chance:
             return None
+
+        # Try recursive scenario first
+        has_conflict = any(ev.name == "colonist_conflict" for ev in events)
+        scenario = choose_scenario(
+            colonist.stats.to_dict(), colonist.skills.to_dict(),
+            resource_avg=self.resources.average(),
+            has_conflict=has_conflict,
+            rng_value=self.rng.random(),
+        )
+        if scenario:
+            bindings = self._subsim_bindings(colonist)
+            tree = run_scenario(scenario, colonist.id, self.year, bindings)
+            budget.record(colonist.id)
+            colonist.subsim_count += 1
+            recursive_log.append(tree.to_dict())
+            # Flatten into subsim_log for downstream (emergence, narrator)
+            for node in tree.flatten():
+                flat_entry = SubSimResult(
+                    depth=node.depth, colonist_id=node.colonist_id,
+                    year=node.year, expression=node.expression,
+                    result=node.raw_result,
+                    error=node.error,
+                    steps_used=0,
+                )
+                log.append(flat_entry)
+            # Feed insights to the insight pipeline
+            for ins in collect_insights(tree):
+                self.insight_queue.append(ins)
+            return None  # recursive scenarios don't return SubSimResult
+
+        # Fallback: simple single-depth subsim (legacy path)
         expr = self._generate_subsim_expression(colonist, events)
-        bindings = colonist.lispy_bindings()
-        bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
+        bindings = self._subsim_bindings(colonist)
         result = spawn_subsim(expression=expr, colonist_id=colonist.id,
                               year=self.year, bindings=bindings,
                               depth=1, budget=budget, log=log)
@@ -266,6 +306,13 @@ class Mars100Engine:
                                   depth=3, budget=budget, log=log)
                 deeper.children.append(d3)
         return result
+
+    def _subsim_bindings(self, colonist: Colonist) -> dict:
+        """Build bindings dict for sub-sim evaluation."""
+        bindings = colonist.lispy_bindings()
+        bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
+        bindings["population"] = len(self._active_colonists())
+        return bindings
 
     def _generate_subsim_expression(self, colonist: Colonist,
                                     events: list[Event]) -> str:
@@ -409,13 +456,14 @@ class Mars100Engine:
             if depth < 2:
                 continue
             result = entry.get("result")
-            if result is None:
+            insight_text = entry.get("insight")
+            if result is None and insight_text is None:
                 continue
             insight = {
                 "year": self.year,
                 "depth": depth,
                 "colonist_id": entry.get("colonist_id", "unknown"),
-                "result": str(result)[:200],
+                "result": str(insight_text or result)[:200],
                 "expression": entry.get("expression", "")[:200],
             }
             self.insight_queue.append(insight)
@@ -426,14 +474,18 @@ class Mars100Engine:
             return
         themes: dict[str, list[dict]] = {}
         for ins in self.insight_queue:
-            key = ins["result"][:50]
+            # Use insight text if available, fall back to result
+            key = str(ins.get("insight") or ins.get("result", ""))[:50]
+            if not key:
+                continue
             themes.setdefault(key, []).append(ins)
         for theme_key, instances in themes.items():
             if len(instances) >= 3:
                 amendment = self._draft_amendment(theme_key, instances)
                 self.promoted_insights.append(amendment)
                 for ins in instances:
-                    self.insight_queue.remove(ins)
+                    if ins in self.insight_queue:
+                        self.insight_queue.remove(ins)
                 return
 
     def _draft_amendment(self, theme: str, instances: list[dict]) -> dict:
@@ -468,22 +520,36 @@ class Mars100Engine:
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
         subsim_log: list[SubSimResult] = []
+        recursive_log: list[dict] = []
         for colonist in active:
             action = self._choose_action(colonist, events)
             actions[colonist.id] = action
             colonist.evolve_skills(action, self.rng)
-            self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
+            self._maybe_spawn_subsim(colonist, events, subsim_budget,
+                                     subsim_log, recursive_log)
 
         gov_proposal: GovernanceProposal | None = None
         if should_propose(self.year, self.governance, self.rng) and active:
             proposer = self.rng.choice(active)
             gov_proposal = generate_proposal(self.year, proposer.id, self.governance, self.rng)
             if subsim_budget.can_spawn(proposer.id):
-                gov_expr = "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))"
-                gov_sim = spawn_subsim(expression=gov_expr, colonist_id=proposer.id,
-                                       year=self.year, bindings=proposer.lispy_bindings(),
-                                       depth=1, budget=subsim_budget, log=subsim_log)
-                gov_proposal.subsim_result = gov_sim.to_dict()
+                # Use recursive governance test for proposals
+                gov_bindings = self._subsim_bindings(proposer)
+                gov_tree = run_scenario("governance_test", proposer.id,
+                                        self.year, gov_bindings)
+                subsim_budget.record(proposer.id)
+                recursive_log.append(gov_tree.to_dict())
+                gov_proposal.subsim_result = gov_tree.to_dict()
+                for ins in collect_insights(gov_tree):
+                    self.insight_queue.append(ins)
+                # Flatten into log for downstream
+                for node in gov_tree.flatten():
+                    flat_entry = SubSimResult(
+                        depth=node.depth, colonist_id=node.colonist_id,
+                        year=node.year, expression=node.expression,
+                        result=node.raw_result, error=node.error,
+                    )
+                    subsim_log.append(flat_entry)
             for colonist in active:
                 if colonist.id == gov_proposal.proposer_id:
                     gov_proposal.votes_for.append(colonist.id)
@@ -586,12 +652,14 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            recursive_scenarios=recursive_log,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        depth_counts: dict[int, int] = {1: 0, 2: 0, 3: 0}
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -604,6 +672,9 @@ class Mars100Engine:
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
+            # Track recursive depth stats
+            for rs in result.recursive_scenarios:
+                self._count_depths(rs, depth_counts)
             if callback:
                 callback(result)
         return SimulationResult(
@@ -618,7 +689,16 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            recursive_depth_stats=depth_counts,
         )
+
+    @staticmethod
+    def _count_depths(node: dict, counts: dict[int, int]) -> None:
+        """Count nodes at each depth in a recursive scenario tree."""
+        d = node.get("depth", 1)
+        counts[d] = counts.get(d, 0) + 1
+        for child in node.get("children", []):
+            Mars100Engine._count_depths(child, counts)
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
         """Classify overall convergence trend from yearly data."""

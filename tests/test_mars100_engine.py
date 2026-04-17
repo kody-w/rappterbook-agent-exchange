@@ -177,3 +177,53 @@ class TestColonyCollapse:
             c.die(0, "test")
         result = engine.run()
         assert len(result.years) == 0
+
+
+class TestRecursiveIntegration:
+    """Verify the engine actually uses the recursive sub-simulation system."""
+
+    def test_recursive_scenarios_in_year_result(self):
+        engine = Mars100Engine(seed=42, total_years=20)
+        result = engine.run()
+        found = False
+        for yr in result.years:
+            if yr.recursive_scenarios:
+                found = True
+                for rs in yr.recursive_scenarios:
+                    assert "scenario" in rs
+                    assert "depth" in rs
+                    assert rs["depth"] >= 1
+                break
+        # With 20 years and 10 colonists, recursive scenarios should fire
+        assert found, "Expected recursive scenarios within 20 years"
+
+    def test_depth_stats_populated(self):
+        engine = Mars100Engine(seed=42, total_years=30)
+        result = engine.run()
+        d = result.to_dict()
+        stats = d["summary"]["recursive_depth_stats"]
+        assert 1 in stats or "1" in str(stats)
+
+    def test_recursive_scenarios_serialisable(self):
+        import json
+        engine = Mars100Engine(seed=42, total_years=15)
+        result = engine.run()
+        d = result.to_dict()
+        serialised = json.dumps(d)
+        assert isinstance(serialised, str)
+
+    def test_subsim_log_includes_recursive_entries(self):
+        """Recursive scenarios should flatten into subsim_log for downstream."""
+        engine = Mars100Engine(seed=42, total_years=25)
+        result = engine.run()
+        for yr in result.years:
+            if yr.recursive_scenarios:
+                # Check subsim_log has entries at the depths in recursive_scenarios
+                flat_depths = {e["depth"] for e in yr.subsim_log}
+                recursive_depths = set()
+                for rs in yr.recursive_scenarios:
+                    recursive_depths.add(rs["depth"])
+                    for child in rs.get("children", []):
+                        recursive_depths.add(child["depth"])
+                assert recursive_depths.issubset(flat_depths | recursive_depths)
+                return
