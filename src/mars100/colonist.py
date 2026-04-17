@@ -147,6 +147,7 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    genome: dict | None = None
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -158,6 +159,8 @@ class Colonist:
             "memories": [m.to_dict() for m in self.memories],
             "wallet": self.wallet.to_dict(),
         }
+        if self.genome is not None:
+            d["genome"] = self.genome
         if self.death_year is not None:
             d["death_year"] = self.death_year
             d["death_cause"] = self.death_cause
@@ -179,6 +182,7 @@ class Colonist:
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
             wallet=wallet,
+            genome=d.get("genome"),
         )
 
     def is_active(self) -> bool:
@@ -230,6 +234,10 @@ class Colonist:
         bindings["alive"] = self.alive
         bindings["memory-count"] = len(self.memories)
         bindings["wealth"] = self.wallet.total_wealth()
+        if self.genome is not None:
+            from src.mars100.genetics import Genome
+            g = Genome.from_dict(self.genome) if isinstance(self.genome, dict) else self.genome
+            bindings["genetic-fitness"] = g.mean_heterozygosity()
         return bindings
 
 
