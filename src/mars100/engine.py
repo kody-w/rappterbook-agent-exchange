@@ -25,6 +25,13 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.factions import (
+    Faction, detect_factions, compute_faction_tensions, check_soft_schism,
+)
+from src.mars100.culture import (
+    Tradition, maybe_create_tradition, apply_traditions,
+    decay_traditions, reinforce_traditions,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +59,10 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    factions: list[dict] = field(default_factory=list)
+    traditions: list[dict] = field(default_factory=list)
+    faction_tensions: dict[str, float] = field(default_factory=dict)
+    schism_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +78,10 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "factions": self.factions,
+            "traditions": self.traditions,
+            "faction_tensions": self.faction_tensions,
+            "schism_events": self.schism_events,
         }
 
 
@@ -86,10 +101,13 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    total_schisms: int = 0
+    final_factions: list[dict] = field(default_factory=list)
+    final_traditions: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +119,14 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_schisms": self.total_schisms,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "final_factions": self.final_factions,
+            "final_traditions": self.final_traditions,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -126,6 +147,8 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self.factions: list[Faction] = []
+        self.traditions: list[Tradition] = []
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -437,6 +460,64 @@ class Mars100Engine:
             "status": "proposed",
         }
 
+    def _tick_factions_and_culture(
+        self,
+    ) -> tuple[list[dict], dict[str, float], list[dict], list[dict]]:
+        """Detect factions, compute tensions, apply traditions.
+
+        Returns (faction_dicts, tension_dict, schism_events, tradition_dicts).
+        """
+        active = self._active_colonists()
+        if len(active) < 4:
+            return [], {}, [], [t.to_dict() for t in self.traditions if t.alive]
+
+        self.factions = detect_factions(
+            active, self.social, self.factions, self.year, self.rng,
+        )
+        tensions = compute_faction_tensions(self.factions, self.social)
+        schism_events = check_soft_schism(self.factions, tensions)
+
+        # Apply soft-schism trust penalties
+        for event in schism_events:
+            fa_id, fb_id = event["factions"]
+            fa = next((f for f in self.factions if f.id == fa_id), None)
+            fb = next((f for f in self.factions if f.id == fb_id), None)
+            if fa and fb:
+                for a_id in fa.members:
+                    for b_id in fb.members:
+                        self.social.update_from_conflict(a_id, b_id, self.rng)
+
+        # Build faction membership map
+        faction_members: dict[str, list[str]] = {}
+        for f in self.factions:
+            faction_members[f.id] = f.members
+
+        # Generate new traditions from high-cohesion factions
+        for f in self.factions:
+            trad = maybe_create_tradition(
+                f.id, f.name, f.dominant_stat, f.cohesion,
+                self.traditions, self.year, self.rng,
+            )
+            if trad:
+                self.traditions.append(trad)
+
+        # Apply, reinforce, and decay traditions
+        reinforce_traditions(self.traditions, faction_members)
+        apply_traditions(self.traditions, active, faction_members, self.year)
+        decay_traditions(self.traditions, self.year)
+
+        # Serialize tensions to JSON-safe dict
+        tension_dict: dict[str, float] = {}
+        for (a, b), val in tensions.items():
+            tension_dict[f"{a}|{b}"] = val
+
+        return (
+            [f.to_dict() for f in self.factions],
+            tension_dict,
+            schism_events,
+            [t.to_dict() for t in self.traditions if t.alive],
+        )
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
@@ -524,6 +605,10 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        # --- Factions & Culture ---
+        faction_data, tension_data, schism_data, tradition_data = \
+            self._tick_factions_and_culture()
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
@@ -541,12 +626,17 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            factions=faction_data,
+            traditions=tradition_data,
+            faction_tensions=tension_data,
+            schism_events=schism_data,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_schisms = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +646,7 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_schisms += len(result.schism_events)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +663,9 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_schisms=total_schisms,
+            final_factions=[f.to_dict() for f in self.factions],
+            final_traditions=[t.to_dict() for t in self.traditions if t.alive],
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
