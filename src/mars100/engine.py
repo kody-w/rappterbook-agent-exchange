@@ -29,6 +29,10 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.memory_ecology import (
+    MemoryPool, event_to_theme, memory_action_bias, memory_vote_bias,
+    inherit_cultural_memory,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +61,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    cultural_memory: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +78,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "cultural_memory": self.cultural_memory,
         }
 
 
@@ -93,10 +99,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    cultural_memory: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +121,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "cultural_memory": self.cultural_memory,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +142,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.memory_pool = MemoryPool()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -197,6 +206,12 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Cultural memory biases nudge action weights
+        culture_biases = memory_action_bias(self.memory_pool)
+        for action, bias in culture_biases.items():
+            if action in weights:
+                weights[action] = max(0.01, weights[action] + bias)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -400,6 +415,8 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Cultural memory nudges governance votes
+        score += memory_vote_bias(self.memory_pool, proposal.gov_type)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -464,6 +481,13 @@ class Mars100Engine:
             for ev in events:
                 valence = -ev.severity if ev.effects.get("morale", 0) < 0 else ev.severity * 0.5
                 colonist.add_memory(self.year, ev.description, valence)
+
+        # Record events in colony-wide cultural memory
+        for ev in events:
+            theme = event_to_theme(ev.name)
+            if theme:
+                ev_valence = -ev.severity if ev.effects.get("morale", 0) < 0 else ev.severity * 0.3
+                self.memory_pool.record(theme, self.year, ev_valence)
 
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
@@ -548,6 +572,11 @@ class Mars100Engine:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
         year_births = self._check_births()
+        # Newborns inherit cultural memory themes
+        for birth in year_births:
+            inherited = inherit_cultural_memory(self.memory_pool, self.year, self.rng)
+            if inherited:
+                birth["inherited_themes"] = inherited
 
         deaths: list[dict] = []
         exiles: list[dict] = []
@@ -561,6 +590,17 @@ class Mars100Engine:
             if self._check_exile(colonist):
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+
+        # Record deaths as cultural trauma
+        for death in deaths:
+            self.memory_pool.record("loss", self.year, -0.7)
+        # Record governance changes in cultural memory
+        if gov_proposal and gov_proposal.passed:
+            self.memory_pool.record("governance_change", self.year, 0.2)
+            if gov_proposal.gov_type == "dictator":
+                self.memory_pool.record("tyranny", self.year, -0.5)
+        # Yearly memory decay
+        self.memory_pool.decay(self.year)
 
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
@@ -586,6 +626,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            cultural_memory=self.memory_pool.summary(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +659,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            cultural_memory=self.memory_pool.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
