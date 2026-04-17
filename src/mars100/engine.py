@@ -40,6 +40,7 @@ from src.mars100.earth import (
 from src.mars100.economics import (
     EconomicState, tick_economics, compute_economic_pressure,
     liquidate_estate, endow_immigrant as econ_endow_immigrant,
+    update_specialization, clear_specialization,
 )
 from src.mars100.colonist import create_immigrant
 
@@ -124,7 +125,7 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "7.0",
+            "_meta": {"engine": "mars-100", "version": "7.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -653,7 +654,7 @@ class Mars100Engine:
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
-                estate = liquidate_estate(colonist, self.resources)
+                estate = liquidate_estate(colonist, self.resources, self.economics)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
                 if estate:
@@ -661,7 +662,7 @@ class Mars100Engine:
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
-                estate = liquidate_estate(colonist, self.resources)
+                estate = liquidate_estate(colonist, self.resources, self.economics)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
                 if estate:
                     estates.append({"id": colonist.id, "type": "exile", "estate": estate})

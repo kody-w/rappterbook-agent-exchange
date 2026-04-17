@@ -41,6 +41,7 @@ from src.mars100.economics import (
     allocate_labor_income, find_trades, apply_taxation,
     compute_gini, compute_economic_pressure, liquidate_estate,
     endow_immigrant, tick_economics,
+    update_specialization, clear_specialization,
 )
 
 __all__ = [
@@ -69,4 +70,5 @@ __all__ = [
     "allocate_labor_income", "find_trades", "apply_taxation",
     "compute_gini", "compute_economic_pressure", "liquidate_estate",
     "endow_immigrant", "tick_economics",
+    "update_specialization", "clear_specialization",
 ]

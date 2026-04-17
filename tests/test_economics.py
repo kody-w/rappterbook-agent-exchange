@@ -16,9 +16,11 @@ from src.mars100.economics import (
     compute_gini, compute_economic_pressure,
     liquidate_estate, endow_immigrant,
     tick_economics,
+    update_specialization, clear_specialization,
     LABOR_INCOME_FRACTION, TAX_RATES, TRADE_TRUST_THRESHOLD,
     GINI_UNREST_THRESHOLD, GINI_REVOLT_THRESHOLD,
-    IMMIGRANT_ENDOWMENT,
+    IMMIGRANT_ENDOWMENT, SPECIALIZATION_THRESHOLD,
+    SPECIALIZATION_INCOME_BONUS,
 )
 from src.mars100.governance import GovernanceState
 
@@ -480,7 +482,7 @@ class TestEngineWithEconomics:
         engine = Mars100Engine(seed=42, total_years=100)
         result = engine.run()
         d = result.to_dict()
-        assert d["_meta"]["version"] == "7.0"
+        assert d["_meta"]["version"] == "7.1"
         assert "final_economics" in d
         assert d["final_economics"]["total_trades"] >= 0
         assert len(d["final_economics"]["gini_history"]) > 0
@@ -518,3 +520,133 @@ class TestEngineWithEconomics:
         ginis = [yr.economics.get("gini", 0) for yr in result.years]
         # Not all the same
         assert len(set(round(g, 4) for g in ginis)) > 1
+
+
+# ── Specialization tests ─────────────────────────────────────────────────────
+
+class TestSpecialization:
+    """Tests for the labor specialization tracking system."""
+
+    def test_becomes_specialist_after_threshold(self) -> None:
+        econ = EconomicState()
+        for _ in range(SPECIALIZATION_THRESHOLD):
+            update_specialization(econ, "col-1", "farm")
+        assert econ.specializations.get("col-1") == "farm"
+
+    def test_no_premature_specialization(self) -> None:
+        econ = EconomicState()
+        for _ in range(SPECIALIZATION_THRESHOLD - 1):
+            update_specialization(econ, "col-1", "farm")
+        assert "col-1" not in econ.specializations
+
+    def test_most_common_action_wins(self) -> None:
+        econ = EconomicState()
+        for _ in range(SPECIALIZATION_THRESHOLD):
+            update_specialization(econ, "col-1", "farm")
+        for _ in range(SPECIALIZATION_THRESHOLD + 1):
+            update_specialization(econ, "col-1", "code")
+        assert econ.specializations["col-1"] == "code"
+
+    def test_action_counts_tracked(self) -> None:
+        econ = EconomicState()
+        update_specialization(econ, "col-1", "farm")
+        update_specialization(econ, "col-1", "farm")
+        update_specialization(econ, "col-1", "code")
+        assert econ.action_counts["col-1"]["farm"] == 2
+        assert econ.action_counts["col-1"]["code"] == 1
+
+    def test_clear_specialization(self) -> None:
+        econ = EconomicState()
+        for _ in range(SPECIALIZATION_THRESHOLD):
+            update_specialization(econ, "col-1", "farm")
+        assert "col-1" in econ.specializations
+        clear_specialization(econ, "col-1")
+        assert "col-1" not in econ.specializations
+        assert "col-1" not in econ.action_counts
+
+    def test_specialization_income_bonus(self) -> None:
+        colonists = create_founding_ten(seed=42)
+        colonist = colonists[0]
+        colonist.skills.hydroponics = 0.3  # low skill so cap doesn't bind
+        rng = random.Random(42)
+        r1 = Resources()
+        r1.food = 1.0  # high resources to avoid 10% cap
+        income_normal = allocate_labor_income(colonist, "farm", r1, rng,
+                                               specialization="")
+        r2 = Resources()
+        r2.food = 1.0
+        rng2 = random.Random(42)
+        income_spec = allocate_labor_income(colonist, "farm", r2, rng2,
+                                             specialization="farm")
+        assert income_spec > income_normal
+        expected_ratio = 1.0 + SPECIALIZATION_INCOME_BONUS
+        actual_ratio = income_spec / income_normal if income_normal > 0 else 0
+        assert abs(actual_ratio - expected_ratio) < 0.01
+
+    def test_serialization_round_trip(self) -> None:
+        econ = EconomicState()
+        for _ in range(SPECIALIZATION_THRESHOLD):
+            update_specialization(econ, "col-1", "farm")
+        d = econ.to_dict()
+        assert d["specializations"]["col-1"] == "farm"
+        econ2 = EconomicState.from_dict(d)
+        assert econ2.specializations["col-1"] == "farm"
+
+    def test_liquidate_clears_specialization(self) -> None:
+        econ = EconomicState()
+        colonists = create_founding_ten(seed=42)
+        colonist = colonists[0]
+        cid = colonist.id
+        for _ in range(SPECIALIZATION_THRESHOLD):
+            update_specialization(econ, cid, "farm")
+        assert cid in econ.specializations
+        colonist.die(year=10, cause="starvation")
+        resources = Resources()
+        liquidate_estate(colonist, resources, econ)
+        assert cid not in econ.specializations
+
+
+class TestGiniNormalization:
+    """Tests for the finite-population-normalized Gini coefficient."""
+
+    def test_perfect_equality(self) -> None:
+        colonists = create_founding_ten(seed=42)
+        for c in colonists:
+            c.wallet.deposit("food", 1.0)
+        assert compute_gini(colonists) == 0.0
+
+    def test_max_inequality_reaches_one(self) -> None:
+        colonists = create_founding_ten(seed=42)
+        colonists[0].wallet.deposit("food", 10.0)
+        gini = compute_gini(colonists)
+        assert gini > 0.95
+        assert gini <= 1.0
+
+    def test_gini_in_range(self) -> None:
+        rng = random.Random(42)
+        for _ in range(20):
+            colonists = create_founding_ten(seed=rng.randint(0, 9999))
+            for c in colonists:
+                c.wallet.deposit("food", rng.uniform(0, 5))
+                c.wallet.deposit("water", rng.uniform(0, 3))
+            g = compute_gini(colonists)
+            assert 0.0 <= g <= 1.0, f"Gini out of range: {g}"
+
+    def test_single_colonist(self) -> None:
+        colonists = create_founding_ten(seed=42)
+        for c in colonists[1:]:
+            c.die(year=1, cause="test")
+        colonists[0].wallet.deposit("food", 5.0)
+        assert compute_gini(colonists) == 0.0
+
+    def test_empty_wealth(self) -> None:
+        colonists = create_founding_ten(seed=42)
+        assert compute_gini(colonists) == 0.0
+
+
+class TestVersion:
+    def test_version_7_1(self) -> None:
+        from src.mars100.engine import Mars100Engine
+        result = Mars100Engine(seed=42, total_years=1).run()
+        d = result.to_dict()
+        assert d["_meta"]["version"] == "7.1"

@@ -45,9 +45,11 @@ TAX_RATES: dict[str, float] = {
 }
 DEFAULT_TAX_RATE = 0.20
 
-GINI_UNREST_THRESHOLD = 0.60   # cohesion penalty kicks in
-GINI_REVOLT_THRESHOLD = 0.70   # chance of forced governance re-election
+GINI_UNREST_THRESHOLD = 0.65   # cohesion penalty kicks in (normalized scale)
+GINI_REVOLT_THRESHOLD = 0.75   # chance of forced governance re-election (normalized)
 REVOLT_PROBABILITY = 0.40      # per-year chance when Gini > revolt threshold
+SPECIALIZATION_THRESHOLD = 3   # actions needed to become a specialist
+SPECIALIZATION_INCOME_BONUS = 0.15  # 15% labor income bonus for specialists
 
 IMMIGRANT_ENDOWMENT = 0.02     # small resource grant per wallet slot
 
@@ -86,6 +88,8 @@ class EconomicState:
     pending_revolt: bool = False
     revolution_count: int = 0
     total_tax_collected: float = 0.0
+    action_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    specializations: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +100,7 @@ class EconomicState:
             "pending_revolt": self.pending_revolt,
             "revolution_count": self.revolution_count,
             "total_tax_collected": round(self.total_tax_collected, 4),
+            "specializations": dict(self.specializations),
         }
 
     @classmethod
@@ -109,6 +114,8 @@ class EconomicState:
             pending_revolt=d.get("pending_revolt", False),
             revolution_count=d.get("revolution_count", 0),
             total_tax_collected=d.get("total_tax_collected", 0.0),
+            action_counts={k: dict(v) for k, v in d.get("action_counts", {}).items()},
+            specializations=dict(d.get("specializations", {})),
         )
 
 
@@ -153,16 +160,44 @@ ACTION_SKILL_MAP: dict[str, str] = {
 }
 
 
+def update_specialization(
+    economic_state: EconomicState,
+    colonist_id: str,
+    action: str,
+) -> str:
+    """Track action frequency and derive specialization label.
+
+    Returns the current specialization (or empty string).
+    """
+    if colonist_id not in economic_state.action_counts:
+        economic_state.action_counts[colonist_id] = {}
+    counts = economic_state.action_counts[colonist_id]
+    counts[action] = counts.get(action, 0) + 1
+    if counts[action] >= SPECIALIZATION_THRESHOLD:
+        best = max(counts, key=lambda a: counts[a])
+        if counts[best] >= SPECIALIZATION_THRESHOLD:
+            economic_state.specializations[colonist_id] = best
+    return economic_state.specializations.get(colonist_id, "")
+
+
+def clear_specialization(economic_state: EconomicState, colonist_id: str) -> None:
+    """Remove specialization data for a dead or exiled colonist."""
+    economic_state.action_counts.pop(colonist_id, None)
+    economic_state.specializations.pop(colonist_id, None)
+
+
 def allocate_labor_income(
     colonist: Colonist,
     action: str,
     resources: Resources,
     rng: random.Random,
+    specialization: str = "",
 ) -> float:
     """Divert a fraction of action output from colony pool to personal wallet.
 
     Returns the total amount diverted (for tracking).  The colony pool is
     reduced by the same amount — conservation is maintained.
+    Specialists get a bonus when performing their specialty action.
     """
     resource_name = ACTION_RESOURCE_MAP.get(action)
     if resource_name is None:
@@ -175,6 +210,10 @@ def allocate_labor_income(
     base_income = LABOR_INCOME_FRACTION * skill_val
     noise = rng.uniform(0.8, 1.2)
     income = base_income * noise
+
+    # Specialization bonus
+    if specialization and action == specialization:
+        income *= (1.0 + SPECIALIZATION_INCOME_BONUS)
 
     # Don't take more than the colony has
     available = getattr(resources, resource_name)
@@ -308,9 +347,10 @@ def apply_taxation(
 
 
 def compute_gini(colonists: list[Colonist]) -> float:
-    """Compute Gini coefficient of wealth distribution.
+    """Compute normalized Gini coefficient of wealth distribution.
 
     Returns 0.0 (perfect equality) to 1.0 (perfect inequality).
+    Normalized for finite populations: raw / ((n-1)/n).
     With 0 or 1 colonists, returns 0.0.
     """
     active = [c for c in colonists if c.is_active()]
@@ -325,7 +365,12 @@ def compute_gini(colonists: list[Colonist]) -> float:
         return 0.0
 
     numerator = sum((2 * (i + 1) - n - 1) * w for i, w in enumerate(wealths))
-    return numerator / (n * total)
+    raw_gini = numerator / (n * total)
+    # Normalize for finite population: max raw Gini is (n-1)/n
+    max_gini = (n - 1) / n
+    if max_gini <= 0:
+        return 0.0
+    return max(0.0, min(1.0, raw_gini / max_gini))
 
 
 def compute_economic_pressure(colonist: Colonist) -> dict[str, float]:
@@ -351,11 +396,13 @@ def compute_economic_pressure(colonist: Colonist) -> dict[str, float]:
 def liquidate_estate(
     colonist: Colonist,
     resources: Resources,
+    economic_state: EconomicState | None = None,
 ) -> dict:
     """Liquidate a dead or exiled colonist's wallet back to colony pool.
 
     Dead colonists' estates go to the commons. Exiled colonists lose
     everything (it's lost to the wasteland).
+    Cleans up specialization data if economic_state is provided.
     """
     estate: dict[str, float] = {}
     for res in RESOURCE_NAMES:
@@ -367,6 +414,9 @@ def liquidate_estate(
                 current = getattr(resources, res)
                 setattr(resources, res, min(1.0, current + held))
             # Exiled: wealth is lost (already withdrawn)
+
+    if economic_state is not None:
+        clear_specialization(economic_state, colonist.id)
 
     return estate
 
@@ -399,7 +449,9 @@ def tick_economics(
     total_income = 0.0
     for colonist in active:
         action = actions.get(colonist.id, "rest")
-        income = allocate_labor_income(colonist, action, resources, rng)
+        spec = update_specialization(economic_state, colonist.id, action)
+        income = allocate_labor_income(colonist, action, resources, rng,
+                                       specialization=spec)
         total_income += income
 
     # 2. Trade: bilateral exchanges
