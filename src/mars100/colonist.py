@@ -223,3 +223,85 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
             setattr(c.stats, name, max(0.0, min(1.0, current + rng.gauss(0, 0.02))))
         colonists.append(c)
     return colonists
+
+
+# --- Birth system ---
+
+MARS_BORN_NAMES = [
+    "Nova", "Sol", "Helios", "Ceres", "Astra", "Orion", "Vega",
+    "Atlas", "Rhea", "Juno", "Echo", "Lyric", "Zara", "Kai",
+    "Ember", "Frost", "Drift", "Ash", "Bloom", "Spark",
+    "Sable", "Quill", "Rune", "Flint", "Wren", "Vale",
+    "Zenith", "Apex", "Flux", "Haze", "Rift", "Core",
+]
+
+_birth_counter: int = 0
+
+
+def reset_birth_counter() -> None:
+    """Reset the global birth counter. Used for deterministic test runs."""
+    global _birth_counter
+    _birth_counter = 0
+
+
+def _next_birth_id() -> int:
+    """Return monotonically increasing birth ID."""
+    global _birth_counter
+    _birth_counter += 1
+    return _birth_counter
+
+
+def blend_stats(parent_a: ColonistStats, parent_b: ColonistStats,
+                rng: random.Random) -> ColonistStats:
+    """Create blended child stats from two parents with gaussian mutation."""
+    child_vals: dict[str, float] = {}
+    for name in STAT_NAMES:
+        a_val = getattr(parent_a, name)
+        b_val = getattr(parent_b, name)
+        weight = rng.uniform(0.3, 0.7)
+        blended = a_val * weight + b_val * (1.0 - weight)
+        mutated = blended + rng.gauss(0, 0.08)
+        child_vals[name] = max(0.0, min(1.0, mutated))
+    return ColonistStats.from_dict(child_vals)
+
+
+def blend_skills(parent_a: ColonistSkills, parent_b: ColonistSkills,
+                 rng: random.Random) -> ColonistSkills:
+    """Create blended child skills from two parents (diminished inheritance)."""
+    child_vals: dict[str, float] = {}
+    for name in SKILL_NAMES:
+        a_val = getattr(parent_a, name)
+        b_val = getattr(parent_b, name)
+        inherited = max(a_val, b_val) * rng.uniform(0.1, 0.4)
+        child_vals[name] = max(0.0, min(1.0, inherited + rng.gauss(0, 0.05)))
+    return ColonistSkills.from_dict(child_vals)
+
+
+def create_mars_born(parent_a: Colonist, parent_b: Colonist,
+                     year: int, rng: random.Random) -> Colonist:
+    """Create a Mars-born colonist from two parents."""
+    birth_num = _next_birth_id()
+    name_idx = (birth_num - 1) % len(MARS_BORN_NAMES)
+    name = f"{MARS_BORN_NAMES[name_idx]}-{year}"
+    cid = f"mars-born-{birth_num}"
+
+    child_element = rng.choice([parent_a.element, parent_b.element])
+    archetypes = ["pioneer", "native", "hybrid", "dreamer", "builder", "wanderer"]
+    child_archetype = rng.choice(archetypes)
+
+    child_stats = blend_stats(parent_a.stats, parent_b.stats, rng)
+    child_skills = blend_skills(parent_a.skills, parent_b.skills, rng)
+
+    # Mars-born have a unique decision expression reflecting their hybrid nature
+    exprs = [
+        "(+ (* resolve empathy) (* improvisation 0.5))",
+        "(if (> faith 0.5) (* faith resolve) (+ improvisation empathy))",
+        "(let ((self (+ resolve faith))) (if (> self 1.0) self (* empathy 2)))",
+        "(+ (* improvisation coding) (* empathy mediation))",
+    ]
+
+    return Colonist(
+        id=cid, name=name, element=child_element, archetype=child_archetype,
+        stats=child_stats, skills=child_skills,
+        decision_expr=rng.choice(exprs),
+    )

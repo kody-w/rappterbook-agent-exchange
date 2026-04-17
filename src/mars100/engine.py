@@ -10,7 +10,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from src.mars100.colonist import Colonist, STAT_NAMES, SKILL_NAMES, create_founding_ten
+from src.mars100.colonist import (
+    Colonist, STAT_NAMES, SKILL_NAMES, create_founding_ten,
+    create_mars_born, reset_birth_counter,
+)
 from src.mars100.colony import Resources, SocialGraph, tick_resources, RESOURCE_NAMES
 from src.mars100.events import Event, generate_events
 from src.mars100.governance import (
@@ -25,6 +28,9 @@ ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
+MIN_BIRTH_POP = 4
+MIN_BIRTH_YEAR = 12
+BASE_BIRTH_RATE = 0.08
 
 
 @dataclass
@@ -40,24 +46,30 @@ class YearResult:
     resource_delta: dict[str, float]
     deaths: list[dict]
     exiles: list[dict]
+    births: list[dict]
     meta_awareness: list[dict]
     social_cohesion: float
     governance_state: dict
     colonist_snapshots: list[dict]
+    value_convergence: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "year": self.year, "events": self.events, "actions": self.actions,
             "subsim_log": self.subsim_log, "governance": self.governance,
             "resources_before": self.resources_before,
             "resources_after": self.resources_after,
             "resource_delta": self.resource_delta,
             "deaths": self.deaths, "exiles": self.exiles,
+            "births": self.births,
             "meta_awareness": self.meta_awareness,
             "social_cohesion": self.social_cohesion,
             "governance_state": self.governance_state,
             "colonist_snapshots": self.colonist_snapshots,
         }
+        if self.value_convergence:
+            d["value_convergence"] = self.value_convergence
+        return d
 
 
 @dataclass
@@ -69,6 +81,7 @@ class SimulationResult:
     final_governance: dict
     total_deaths: int
     total_exiles: int
+    total_births: int
     total_subsims: int
     governance_changes: int
     meta_events: int
@@ -76,11 +89,12 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "1.0",
+            "_meta": {"engine": "mars-100", "version": "1.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
                 "total_deaths": self.total_deaths, "total_exiles": self.total_exiles,
+                "total_births": self.total_births,
                 "total_subsims": self.total_subsims,
                 "governance_changes": self.governance_changes,
                 "meta_awareness_events": self.meta_events,
@@ -100,6 +114,7 @@ class Mars100Engine:
         self.seed = seed
         self.total_years = total_years
         self.rng = random.Random(seed)
+        reset_birth_counter()
         self.colonists = create_founding_ten(seed)
         self.resources = Resources()
         self.social = SocialGraph()
@@ -299,6 +314,44 @@ class Mars100Engine:
                     "insight": self.rng.choice(insights)}
         return None
 
+    def _maybe_birth(self) -> list[dict]:
+        """Check for births this year. Requires minimum population and year."""
+        active = self._active_colonists()
+        if len(active) < MIN_BIRTH_POP or self.year < MIN_BIRTH_YEAR:
+            return []
+        avg_resources = sum(getattr(self.resources, r) for r in RESOURCE_NAMES) / len(RESOURCE_NAMES)
+        cohesion = self.social.colony_cohesion(self._active_ids())
+        rate = BASE_BIRTH_RATE * avg_resources * (0.5 + cohesion * 0.5)
+        if len(active) > 20:
+            rate *= 0.5
+        births: list[dict] = []
+        if self.rng.random() < rate:
+            parents = self.rng.sample(active, min(2, len(active)))
+            if len(parents) == 2:
+                child = create_mars_born(parents[0], parents[1], self.year, self.rng)
+                self.colonists.append(child)
+                all_active = self._active_ids()
+                self.social.add_colonist(child.id, all_active, self.rng)
+                births.append({
+                    "id": child.id, "name": child.name, "year": self.year,
+                    "parents": [parents[0].id, parents[1].id],
+                    "element": child.element,
+                })
+        return births
+
+    def _compute_value_convergence(self) -> dict[str, float]:
+        """Compute stat std-dev across active colonists (lower = more converged)."""
+        active = self._active_colonists()
+        if len(active) < 2:
+            return {}
+        convergence: dict[str, float] = {}
+        for stat in STAT_NAMES:
+            vals = [getattr(c.stats, stat) for c in active]
+            mean = sum(vals) / len(vals)
+            variance = sum((v - mean) ** 2 for v in vals) / len(vals)
+            convergence[stat] = round(variance ** 0.5, 4)
+        return convergence
+
     def _vote_on_proposal(self, colonist: Colonist,
                           proposal: GovernanceProposal) -> bool:
         colonist.governance_votes += 1
@@ -405,11 +458,15 @@ class Mars100Engine:
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
+        births = self._maybe_birth()
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
             if meta:
                 meta_events.append(meta)
+
+        value_convergence = self._compute_value_convergence()
 
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
@@ -418,16 +475,18 @@ class Mars100Engine:
             resources_before=resources_before,
             resources_after=self.resources.to_dict(),
             resource_delta=resource_delta, deaths=deaths, exiles=exiles,
+            births=births,
             meta_awareness=meta_events,
             social_cohesion=self.social.colony_cohesion(self._active_ids()),
             governance_state=self.governance.to_dict(),
             colonist_snapshots=[c.to_dict() for c in self.colonists],
+            value_convergence=value_convergence,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
-        total_deaths = total_exiles = total_subsims = gov_changes = meta_count = 0
+        total_deaths = total_exiles = total_births = total_subsims = gov_changes = meta_count = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -435,6 +494,7 @@ class Mars100Engine:
             years.append(result)
             total_deaths += len(result.deaths)
             total_exiles += len(result.exiles)
+            total_births += len(result.births)
             total_subsims += len(result.subsim_log)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
@@ -446,6 +506,7 @@ class Mars100Engine:
             final_resources=self.resources.to_dict(),
             final_governance=self.governance.to_dict(),
             total_deaths=total_deaths, total_exiles=total_exiles,
+            total_births=total_births,
             total_subsims=total_subsims, governance_changes=gov_changes,
             meta_events=meta_count,
             final_cohesion=self.social.colony_cohesion(self._active_ids()),

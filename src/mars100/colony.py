@@ -88,6 +88,24 @@ class SocialGraph:
     def get(self, from_id: str, to_id: str) -> Relationship:
         return self.edges.get(from_id, {}).get(to_id, Relationship())
 
+    def add_colonist(self, new_id: str, active_ids: list[str],
+                     rng: random.Random) -> None:
+        """Insert a newly born colonist into the social graph."""
+        self.edges[new_id] = {}
+        for other in active_ids:
+            if other != new_id:
+                rel = Relationship(
+                    trust=max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1))),
+                    affection=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
+                    respect=max(0.0, min(1.0, 0.3 + rng.gauss(0, 0.1))))
+                self.edges[new_id][other] = rel
+                if other not in self.edges:
+                    self.edges[other] = {}
+                self.edges[other][new_id] = Relationship(
+                    trust=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
+                    affection=max(0.0, min(1.0, 0.6 + rng.gauss(0, 0.1))),
+                    respect=max(0.0, min(1.0, 0.3 + rng.gauss(0, 0.1))))
+
     def update_from_event(self, participants: list[str], valence: float,
                           rng: random.Random) -> None:
         drift = 0.05 * valence

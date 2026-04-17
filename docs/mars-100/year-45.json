@@ -1,247 +1,3777 @@
 {
   "year": 45,
-  "population": 24,
-  "event": {
-    "id": "aurora",
-    "desc": "Rare Martian aurora lights the sky",
-    "severity": 0.1
+  "events": [
+    {
+      "name": "dust_storm",
+      "category": "environment",
+      "severity": 0.5162433247598592,
+      "description": "A massive dust storm engulfs the colony for weeks.",
+      "effects": {
+        "power": -0.15243649871397888,
+        "air": -0.050812166237992965,
+        "morale": -0.10162433247598593
+      }
+    },
+    {
+      "name": "colonist_conflict",
+      "category": "social",
+      "severity": 0.38680554982916626,
+      "description": "A bitter dispute over food rationing escalates to shouting.",
+      "effects": {
+        "morale": -0.17736110996583326,
+        "food": -0.026604166494874987
+      }
+    },
+    {
+      "name": "solar_flare",
+      "category": "cosmic",
+      "severity": 0.8451016161831773,
+      "description": "Electronics damaged by electromagnetic pulse from solar event.",
+      "effects": {
+        "power": -0.13451016161831772,
+        "medicine": -0.13451016161831772,
+        "morale": -0.2017652424274766
+      }
+    }
+  ],
+  "actions": {
+    "fen-marsh": "pray",
+    "rust-vega": "code",
+    "aura-kai": "terraform",
+    "dax-iron": "hoard",
+    "luna-tide": "farm",
+    "grove-ash": "farm",
+    "zeph-wind": "hoard",
+    "ora-flame": "farm",
+    "pax-stone": "pray",
+    "mars-born-1": "pray",
+    "mars-born-2": "code",
+    "mars-born-3": "rest",
+    "mars-born-4": "explore"
   },
-  "event_effects": [
-    "Aurora: morale +10"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 27.3)"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 45,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 23.7)"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 45,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "aura-kai",
+          "year": 45,
+          "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "depth": 2,
+      "colonist_id": "aura-kai",
+      "year": 45,
+      "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1,
+      "steps_used": 0
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 28.5)"
+      "depth": 1,
+      "colonist_id": "dax-iron",
+      "year": 45,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.5783360773494216,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 45,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.11685552593058846,
+      "steps_used": 0
     },
     {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 45,
+      "expression": "(let ((surplus (- food (* 13 0.06)))) (if (> surplus 0) (+ morale 0.1) (- morale 0.2)))",
+      "result": null,
+      "steps_used": 0,
+      "error": "unbound symbol: morale"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 27.7)"
+      "depth": 1,
+      "colonist_id": "ora-flame",
+      "year": 45,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "ora-flame",
+          "year": 45,
+          "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Vulcan-23",
-      "action": "Vulcan-23 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Juno-26",
-      "action": "Juno-26 works on prayer (output: 28.8)"
-    },
-    {
-      "colonist": "Juno-28",
-      "action": "Juno-28 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Cosmo-29",
-      "action": "Cosmo-29 works on prayer (output: 20.4)"
-    },
-    {
-      "colonist": "Lyra-30",
-      "action": "Lyra-30 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Juno-33",
-      "action": "Juno-33 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-35",
-      "action": "Ares-35 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ceres-36",
-      "action": "Ceres-36 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova-38",
-      "action": "Nova-38 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Nova-40",
-      "action": "Nova-40 considers proposing constitutional_amendment but it already exists"
+      "depth": 2,
+      "colonist_id": "ora-flame",
+      "year": 45,
+      "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [
+  "governance": {
+    "id": "prop-y45-dictator",
+    "year": 45,
+    "proposer_id": "zeph-wind",
+    "gov_type": "dictator",
+    "parameters": {
+      "term_years": 5
+    },
+    "rationale": "Appoint a strong leader to guide us through crisis.",
+    "subsim_result": null,
+    "votes_for": [
+      "dax-iron",
+      "zeph-wind"
+    ],
+    "votes_against": [
+      "fen-marsh",
+      "rust-vega",
+      "aura-kai",
+      "luna-tide",
+      "grove-ash",
+      "ora-flame",
+      "pax-stone",
+      "mars-born-1",
+      "mars-born-2",
+      "mars-born-3",
+      "mars-born-4"
+    ],
+    "passed": false
+  },
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 0.9742800470759154,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": -0.025719952924084577,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "births": [],
+  "meta_awareness": [
     {
-      "colonist": "Vulcan",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[1, 13]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist_id": "fen-marsh",
+      "year": 45,
+      "insight": "Fen Marsh whispers: 'What if we are variables in someone else's expression?'"
     },
     {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 16]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 15]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 17]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ares-18",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 22]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Vulcan-23",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 19]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Juno-26",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 14]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Juno-28",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 18]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Cosmo-29",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 16]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Lyra-30",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 22]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Juno-33",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 19]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ares-35",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 21]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ceres-36",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 23]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova-38",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 20]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova-40",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 21]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist_id": "ora-flame",
+      "year": 45,
+      "insight": "Ora Flame notices patterns in the dust storms that feel authored."
     }
   ],
-  "governance_results": [
-    "Leadership election: Selene elected (ratio 87%)"
-  ],
-  "resource_effects": [],
-  "births": [
-    "Iris-45 is born!"
-  ],
-  "diary_entries": [
+  "social_cohesion": 0.890359313463531,
+  "governance_state": {
+    "gov_type": "council",
+    "leader_id": null,
+    "council_ids": [
+      "mars-born-3",
+      "luna-tide",
+      "dax-iron",
+      "mars-born-1",
+      "ora-flame"
+    ],
+    "term_end_year": 44,
+    "ai_program": null,
+    "constitution": [
+      "Year 6: governance changed to ai_governor",
+      "Year 21: governance changed to anarchy",
+      "Year 22: governance changed to consensus",
+      "Year 29: governance changed to council",
+      "Year 38: governance changed to lottery",
+      "Year 39: governance changed to council",
+      "Year 46: governance changed to consensus",
+      "Year 52: governance changed to council",
+      "Year 57: governance changed to consensus",
+      "Year 93: governance changed to lottery",
+      "Year 95: governance changed to council"
+    ],
+    "history": [
+      {
+        "year": 6,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y6-ai_governor"
+      },
+      {
+        "year": 21,
+        "from": "ai_governor",
+        "to": "anarchy",
+        "proposal_id": "prop-y21-anarchy"
+      },
+      {
+        "year": 22,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y22-consensus"
+      },
+      {
+        "year": 29,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y29-council"
+      },
+      {
+        "year": 38,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y38-lottery"
+      },
+      {
+        "year": 39,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y39-council"
+      },
+      {
+        "year": 46,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y46-consensus"
+      },
+      {
+        "year": 52,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y52-council"
+      },
+      {
+        "year": 57,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y57-consensus"
+      },
+      {
+        "year": 93,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y93-lottery"
+      },
+      {
+        "year": 95,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y95-council"
+      }
+    ]
+  },
+  "colonist_snapshots": [
     {
-      "colonist": "Iris-45",
-      "entry": "The aurora changed everything. I feel optimistic about our future here."
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9454105813310126,
+        "improvisation": 0.3747322949994831,
+        "empathy": 0.5693661145129324,
+        "hoarding": 0.294949368226565,
+        "faith": 0.1105167079267311,
+        "paranoia": 0.48515349798159224
+      },
+      "skills": {
+        "terraforming": 0.7134153611966016,
+        "hydroponics": 0.21878877387475476,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.017539816360766458,
+        "sabotage": 0.11532963134247669
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": false,
+      "exiled": false,
+      "subsim_count": 0,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.2372993961184138
+        },
+        {
+          "year": 3,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.025661897880459583
+        },
+        {
+          "year": 3,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7260027099543761
+        },
+        {
+          "year": 4,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.02861108955515487
+        },
+        {
+          "year": 5,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.013641854074899623
+        },
+        {
+          "year": 6,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.057196043074953955
+        },
+        {
+          "year": 7,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.23297112476985837
+        },
+        {
+          "year": 8,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.4921313589801633
+        }
+      ],
+      "death_year": 8,
+      "death_cause": "equipment malfunction"
     },
     {
-      "colonist": "Ceres-36",
-      "entry": "Another year. Rare Martian aurora lights the sky. The colony feels hopeful. My empathy grows stronger."
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.4010462021210319,
+        "improvisation": 0.4391902541276906,
+        "empathy": 0.992022292654418,
+        "hoarding": 0.3994267020240562,
+        "faith": 0.388717873107815,
+        "paranoia": 0.10165912075477633
+      },
+      "skills": {
+        "terraforming": 0.1233688400921399,
+        "hydroponics": 0.8200834358621527,
+        "mediation": 0.7421464970807776,
+        "coding": 0.14359380063407967,
+        "prayer": 0.5388708015375221,
+        "sabotage": 0.08776710590524166
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 11,
+      "governance_votes": 22,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
     },
     {
-      "colonist": "Lyra-30",
-      "entry": "The aurora changed everything. I feel optimistic about our future here."
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.45814238299843435,
+        "improvisation": 0.8090228147671967,
+        "empathy": 0.507347666197943,
+        "hoarding": 0.5392664667826872,
+        "faith": 0.26700298775581316,
+        "paranoia": 0.5042120801856047
+      },
+      "skills": {
+        "terraforming": 0.9039939997046845,
+        "hydroponics": 0.32971283786933203,
+        "mediation": 0.22258964899330508,
+        "coding": 0.841807475691681,
+        "prayer": 0.06923436918501344,
+        "sabotage": 0.3145629545812142
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 17,
+      "governance_votes": 21,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.37291321849335674,
+        "improvisation": 0.7850333124890897,
+        "empathy": 0.8748829359176065,
+        "hoarding": 0.05649557297326805,
+        "faith": 0.6743782129600294,
+        "paranoia": 0.14419333916185068
+      },
+      "skills": {
+        "terraforming": 0.28398153471530085,
+        "hydroponics": 0.40896886513997327,
+        "mediation": 0.9220476676877497,
+        "coding": 0.5585305954573099,
+        "prayer": 0.820592900863122,
+        "sabotage": 0.06040708269911586
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 21,
+      "governance_votes": 20,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.9179862999312713,
+        "improvisation": 0.21959427795276357,
+        "empathy": 0.535525420822672,
+        "hoarding": 0.4084392838025535,
+        "faith": 0.08673107776927999,
+        "paranoia": 0.30579202280858103
+      },
+      "skills": {
+        "terraforming": 0.5202561531437099,
+        "hydroponics": 0.19088470981704805,
+        "mediation": 0.08955183346205348,
+        "coding": 0.24532007961432967,
+        "prayer": 0.08707441193860728,
+        "sabotage": 0.7419341855550472
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 12,
+      "governance_votes": 18,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.8188093296358796,
+        "improvisation": 0.9605715992104013,
+        "empathy": 0.44882155091824233,
+        "hoarding": 0.1727109550665934,
+        "faith": 0.1539074714902851,
+        "paranoia": 0.25064374730291333
+      },
+      "skills": {
+        "terraforming": 0.6269747633556171,
+        "hydroponics": 0.6589907768999863,
+        "mediation": 0.3435439828738641,
+        "coding": 0.9041591375307056,
+        "prayer": 0.17689377830934544,
+        "sabotage": 0.17239404362998795
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 25,
+      "governance_votes": 21,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7056609608465993,
+        "improvisation": 0.4639426529275194,
+        "empathy": 0.9418666457477924,
+        "hoarding": 0.9755340486903973,
+        "faith": 0.40633692547756517,
+        "paranoia": 0.6198829477349668
+      },
+      "skills": {
+        "terraforming": 0.41992314478747295,
+        "hydroponics": 0.9133026265086726,
+        "mediation": 0.4251864116351509,
+        "coding": 0.21278747724741096,
+        "prayer": 0.2290135475403569,
+        "sabotage": 0.029873256436038644
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 10,
+      "governance_votes": 19,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.7748643483520492,
+        "improvisation": 1.0,
+        "empathy": 0.5216053289372189,
+        "hoarding": 0.6758238292116856,
+        "faith": 0.22148350574348566,
+        "paranoia": 0.9145977907395154
+      },
+      "skills": {
+        "terraforming": 0.34518812238834257,
+        "hydroponics": 0.22300098107272193,
+        "mediation": 0.28851944555433173,
+        "coding": 0.6346616628189599,
+        "prayer": 0.1409351423407233,
+        "sabotage": 0.8210977511130473
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 21,
+      "governance_votes": 18,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.6747851839010444,
+        "improvisation": 0.2714436941670953,
+        "empathy": 0.553926777642397,
+        "hoarding": 0.21007880478110041,
+        "faith": 0.909134650367606,
+        "paranoia": 0.4153601332081628
+      },
+      "skills": {
+        "terraforming": 0.30383852811366335,
+        "hydroponics": 0.3139448258264622,
+        "mediation": 0.6731648098664257,
+        "coding": 0.10365533510414554,
+        "prayer": 0.9100052564690229,
+        "sabotage": 0.04821587453451148
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 10,
+      "governance_votes": 19,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.40654724499898426,
+        "improvisation": 0.4986046059901373,
+        "empathy": 0.9865733586633755,
+        "hoarding": 0.7948447184755765,
+        "faith": 0.13441959881771604,
+        "paranoia": 0.47842085645118215
+      },
+      "skills": {
+        "terraforming": 0.3075296988584435,
+        "hydroponics": 0.34013559220390355,
+        "mediation": 0.8275856515664721,
+        "coding": 0.4771841908437044,
+        "prayer": 0.37315488806173924,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 17,
+      "governance_votes": 22,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "mars-born-1",
+      "name": "Nova-15",
+      "element": "earth",
+      "archetype": "wanderer",
+      "stats": {
+        "resolve": 0.4806686349143359,
+        "improvisation": 0.5142545489910121,
+        "empathy": 0.7776251022085474,
+        "hoarding": 0.5866614926572086,
+        "faith": 0.5395689077072556,
+        "paranoia": 0.32069835848802614
+      },
+      "skills": {
+        "terraforming": 0.02356016673907041,
+        "hydroponics": 0.16501132660811885,
+        "mediation": 0.24567730111987704,
+        "coding": 0.07915482662385884,
+        "prayer": 0.14576235228449974,
+        "sabotage": 0.021806454720756208
+      },
+      "decision_expr": "(+ (* improvisation coding) (* empathy mediation))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 9,
+      "governance_votes": 17,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "mars-born-2",
+      "name": "Sol-16",
+      "element": "water",
+      "archetype": "dreamer",
+      "stats": {
+        "resolve": 0.3560157818592165,
+        "improvisation": 0.43777581084162537,
+        "empathy": 0.7080493152535302,
+        "hoarding": 0.2844466630962515,
+        "faith": 0.6141820623982228,
+        "paranoia": 0.6772264743996499
+      },
+      "skills": {
+        "terraforming": 0.18394592207005991,
+        "hydroponics": 0.18856159827709068,
+        "mediation": 0.14824674857111575,
+        "coding": 0.159048530981775,
+        "prayer": 0.1382224320704398,
+        "sabotage": 0.2932069498450754
+      },
+      "decision_expr": "(let ((self (+ resolve faith))) (if (> self 1.0) self (* empathy 2)))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 5,
+      "governance_votes": 16,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "mars-born-3",
+      "name": "Helios-22",
+      "element": "earth",
+      "archetype": "wanderer",
+      "stats": {
+        "resolve": 0.5582746510078689,
+        "improvisation": 0.0,
+        "empathy": 0.6790556288159845,
+        "hoarding": 0.4499894920443306,
+        "faith": 0.17187948908492653,
+        "paranoia": 0.49086900262038313
+      },
+      "skills": {
+        "terraforming": 0.1543145560324202,
+        "hydroponics": 0.038954661432514595,
+        "mediation": 0.09547808028983641,
+        "coding": 0.13287415313760312,
+        "prayer": 0.059412071498760495,
+        "sabotage": 0.12830481159590273
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith resolve) (+ improvisation empathy))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 1,
+      "governance_votes": 9,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.27522305218174953
+        },
+        {
+          "year": 25,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.04189493798997412
+        },
+        {
+          "year": 25,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.39290541797086154
+        },
+        {
+          "year": 26,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5151795135996082
+        },
+        {
+          "year": 26,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5975022545522077
+        },
+        {
+          "year": 26,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.28673038267718254
+        },
+        {
+          "year": 27,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.051920495304038444
+        },
+        {
+          "year": 27,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.644455641224947
+        },
+        {
+          "year": 28,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5662513949446504
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5989210152057467
+        },
+        {
+          "year": 29,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.388092980112583
+        },
+        {
+          "year": 29,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.27508006860441725
+        },
+        {
+          "year": 30,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.08802905673611393
+        },
+        {
+          "year": 30,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3872906446991266
+        },
+        {
+          "year": 31,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.08589135742331508
+        },
+        {
+          "year": 31,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.3703775712497323
+        },
+        {
+          "year": 31,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.7710080527635812
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01796295675443098
+        },
+        {
+          "year": 32,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8930731111587089
+        },
+        {
+          "year": 33,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.34187043293160707
+        },
+        {
+          "year": 33,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.3894145017314924
+        },
+        {
+          "year": 34,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.5953163554305565
+        },
+        {
+          "year": 34,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.04027762215795276
+        },
+        {
+          "year": 35,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9198230310938343
+        },
+        {
+          "year": 35,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5241858444872858
+        },
+        {
+          "year": 36,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.06082401450501641
+        },
+        {
+          "year": 36,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.962676145336401
+        },
+        {
+          "year": 36,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5779170213100773
+        },
+        {
+          "year": 37,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.6821110396121477
+        },
+        {
+          "year": 37,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.023918364427227494
+        },
+        {
+          "year": 38,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.43298029810236255
+        },
+        {
+          "year": 38,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.647344135433106
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.8133252842911907
+        },
+        {
+          "year": 39,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.13992220180010617
+        },
+        {
+          "year": 39,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.37501583652467363
+        },
+        {
+          "year": 40,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001728739523262124
+        },
+        {
+          "year": 40,
+          "event": "Message from Earth: supply ship confirmed for next launch window.",
+          "valence": 0.03874025664685953
+        },
+        {
+          "year": 41,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.3395162730060562
+        },
+        {
+          "year": 41,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.07883967720069417
+        },
+        {
+          "year": 42,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.6312287854916652
+        },
+        {
+          "year": 42,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.0040090952401852014
+        },
+        {
+          "year": 42,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.004865059932721849
+        },
+        {
+          "year": 43,
+          "event": "Earth sends updated colony charter with governance suggestions.",
+          "valence": 0.037237703973143646
+        },
+        {
+          "year": 43,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.06011734097612145
+        },
+        {
+          "year": 43,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04274854509189377
+        },
+        {
+          "year": 44,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.09659408207154203
+        },
+        {
+          "year": 44,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5566343744005139
+        },
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
+    },
+    {
+      "id": "mars-born-4",
+      "name": "Ceres-44",
+      "element": "earth",
+      "archetype": "wanderer",
+      "stats": {
+        "resolve": 0.5548830417928358,
+        "improvisation": 0.7835343808678147,
+        "empathy": 0.681373926295781,
+        "hoarding": 0.39992265301351704,
+        "faith": 0.16263478369847906,
+        "paranoia": 0.4083734711155289
+      },
+      "skills": {
+        "terraforming": 0.22550947239334848,
+        "hydroponics": 0.09440392065230753,
+        "mediation": 0.23564801745694133,
+        "coding": 0.08734218978960334,
+        "prayer": 0.04506333872820351,
+        "sabotage": 0.03966400910750204
+      },
+      "decision_expr": "(+ (* resolve empathy) (* improvisation 0.5))",
+      "alive": true,
+      "exiled": false,
+      "subsim_count": 0,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 45,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.5162433247598592
+        },
+        {
+          "year": 45,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.38680554982916626
+        },
+        {
+          "year": 45,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8451016161831773
+        }
+      ]
     }
   ],
-  "meta_awareness": "Ares (year 45): 'I wonder if the data sloshing through our colony is someone else's frame output becoming our frame input.'",
-  "resources_snapshot": {
-    "food": 899.6069427156666,
-    "water": 2574.8138886726974,
-    "power": 179.5923180847202,
-    "oxygen": 692.5979285077696,
-    "materials": 2725.345110191768,
-    "morale": 100
+  "value_convergence": {
+    "resolve": 0.1786,
+    "improvisation": 0.2873,
+    "empathy": 0.1846,
+    "hoarding": 0.2474,
+    "faith": 0.2434,
+    "paranoia": 0.2136
   }
 }

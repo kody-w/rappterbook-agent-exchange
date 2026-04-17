@@ -56,6 +56,21 @@ canvas{width:100%;height:200px}
 <div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
 <div class="card"><h2>💀 Memorial</h2><div id="memorial"></div></div>
 </div>
+<div id="analysis-section" style="display:none">
+<h2 style="color:var(--gold);margin:24px 0 12px">📈 Post-Simulation Analysis</h2>
+<div class="grid">
+  <div class="card"><h2>🎯 Colony Fitness</h2><div id="fitness-panel"></div></div>
+  <div class="card"><h2>📊 Value Convergence</h2><canvas id="convergenceChart" style="height:220px"></canvas><div id="convergence-verdict" style="margin-top:8px;font-size:0.85em"></div></div>
+</div>
+<div class="grid">
+  <div class="card"><h2>🏛️ Governance Periods</h2><div id="gov-periods"></div></div>
+  <div class="card"><h2>🐢 Sub-Sim Effectiveness</h2><div id="subsim-eff"></div></div>
+</div>
+<div class="grid">
+  <div class="card"><h2>🧠 Meta-Awareness</h2><canvas id="metaChart" style="height:180px"></canvas><div id="meta-info" style="margin-top:8px;font-size:0.85em"></div></div>
+  <div class="card"><h2>📜 Proposed Amendment</h2><div id="amendment-panel"></div></div>
+</div>
+</div>
 <script>
 function drawChart(canvas,datasets,labels){
 const ctx=canvas.getContext('2d'),dpr=window.devicePixelRatio||1,rect=canvas.getBoundingClientRect();
@@ -122,6 +137,60 @@ document.getElementById('memorial').innerHTML=dead.length===0?'<p style="color:v
 dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('')}
 fetch('data.json').then(r=>r.json()).then(render).catch(err=>{
 document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p><p style="color:var(--muted)">Run: python3 src/mars100_engine.py --years 100</p>'})
+fetch('analysis.json').then(r=>r.json()).then(renderAnalysis).catch(()=>{})
+function renderAnalysis(a){
+document.getElementById('analysis-section').style.display='block';
+const f=a.fitness||{};
+const components=['survival_rate','resource_health','social_cohesion','governance_stability','cultural_richness'];
+document.getElementById('fitness-panel').innerHTML=`
+<div style="text-align:center;margin:12px 0"><span style="font-size:2em;color:var(--gold)">${(f.composite||0).toFixed(2)}</span><br><span style="color:var(--muted)">composite score</span></div>
+${components.map(c=>{const v=f[c]||0;const pct=Math.round(v*100);const clr=pct>60?'var(--green)':pct>30?'var(--gold)':'var(--red)';
+return `<div class="stat-row"><span class="stat-label">${c.replace(/_/g,' ')}</span><span style="color:${clr}">${pct}%</span></div>`}).join('')}`;
+const cv=a.value_convergence||{};
+const traj=cv.stat_trajectories||{};
+const yrs=cv.year_labels||[];
+const statColors={resolve:'#ff6644',improvisation:'#44ff88',empathy:'#4488ff',hoarding:'#ffaa44',faith:'#aa44ff',paranoia:'#ff44aa'};
+if(yrs.length>0){
+const ds=Object.entries(traj).map(([s,vals])=>({data:vals,color:statColors[s]||'#fff',label:s}));
+drawChart(document.getElementById('convergenceChart'),ds,yrs.map(y=>'Y'+y))}
+const vrd=cv.verdict||'unknown';
+const clr=vrd==='converging'?'var(--green)':vrd==='diverging'?'var(--red)':'var(--muted)';
+document.getElementById('convergence-verdict').innerHTML=`<span style="color:${clr};font-weight:bold">${vrd.toUpperCase()}</span> (score: ${(cv.overall_convergence||0).toFixed(2)})`;
+const gs=a.governance_stability||{};
+const periods=gs.periods||[];
+const govColors={anarchy:'#ff4444',direct_democracy:'#44ff88',council:'#4488ff',consensus:'#ffaa44',ai_governor:'#aa44ff',lottery:'#ff44aa',technocracy:'#88ccff'};
+document.getElementById('gov-periods').innerHTML=periods.length===0?'<p style="color:var(--muted)">No data</p>':
+`<div style="display:flex;height:24px;border-radius:4px;overflow:hidden;margin-bottom:8px">${periods.map(p=>{
+const w=(p.duration/100*100);return `<div title="${p.type} (Y${p.start_year}-${p.end_year})" style="width:${w}%;background:${govColors[p.type]||'#666'};min-width:2px"></div>`}).join('')}</div>
+<div style="font-size:0.85em">${Object.entries(govColors).filter(([t])=>periods.some(p=>p.type===t)).map(([t,c])=>`<span style="color:${c}">■</span> ${t.replace(/_/g,' ')} `).join('')}</div>
+<div style="margin-top:8px;font-size:0.85em;color:var(--muted)">Attractor: <strong style="color:var(--text)">${gs.attractor||'none'}</strong> · ${gs.transitions||0} transitions</div>
+${gs.longest_period?`<div style="font-size:0.85em;color:var(--muted)">Longest: ${gs.longest_period.type} (${gs.longest_period.duration}y, Y${gs.longest_period.start_year}-${gs.longest_period.end_year})</div>`:''}`;
+const se=a.subsim_effectiveness||{};
+document.getElementById('subsim-eff').innerHTML=`
+<div class="stat-row"><span class="stat-label">Total sub-sims</span><span style="color:var(--purple)">${se.total_subsims||0}</span></div>
+<div class="stat-row"><span class="stat-label">Backed proposals</span><span>${se.backed_proposals||0} (${Math.round((se.backed_pass_rate||0)*100)}% pass)</span></div>
+<div class="stat-row"><span class="stat-label">Unbacked proposals</span><span>${se.unbacked_proposals||0} (${Math.round((se.unbacked_pass_rate||0)*100)}% pass)</span></div>
+<div class="stat-row"><span class="stat-label">Effectiveness delta</span><span style="color:${(se.effectiveness_delta||0)>0?'var(--green)':'var(--red)'}">${((se.effectiveness_delta||0)*100).toFixed(0)}%</span></div>
+<div class="stat-row"><span class="stat-label">Max depth reached</span><span style="color:var(--purple)">${se.max_depth_reached||0}</span></div>
+${Object.keys(se.depth_counts||{}).length>0?'<h3 style="margin-top:8px">Depth Distribution</h3>'+Object.entries(se.depth_counts||{}).sort().map(([d,c])=>`<div class="stat-row"><span class="stat-label">Depth ${d}</span><span>${c}</span></div>`).join(''):''}`;
+const me=a.meta_emergence||{};
+const curve=me.curve||[];
+if(curve.length>0){
+drawChart(document.getElementById('metaChart'),[{data:curve.map(c=>c.cumulative),color:'#aa44ff',label:'meta events'}],curve.map(c=>'Y'+c.year))}
+document.getElementById('meta-info').innerHTML=me.total_events?
+`<strong style="color:var(--purple)">${me.total_events}</strong> events · First at year <strong>${me.first_year}</strong> · <strong>${me.unique_colonists_aware}</strong> colonists aware`:
+'<span style="color:var(--muted)">No meta-awareness events</span>';
+const ap=a.amendment_proposal||{};
+if(ap.proposed&&ap.amendment){
+const am=ap.amendment;
+document.getElementById('amendment-panel').innerHTML=`
+<h3 style="color:var(--gold)">${am.title}</h3>
+<blockquote style="border-left:3px solid var(--gold);padding:8px 12px;margin:8px 0;background:rgba(255,170,68,0.05);font-size:0.9em">${am.text}</blockquote>
+<div style="font-size:0.85em;color:var(--muted);margin:4px 0">${am.rationale}</div>
+<div style="margin-top:8px"><span style="color:var(--gold)">Strength: ${am.strength.toFixed(2)}</span> · Evidence: ${am.evidence}</div>
+${(ap.all_candidates||[]).length>1?'<h3 style="margin-top:12px">Other Candidates</h3>'+ap.all_candidates.filter(c=>c.id!==am.id).map(c=>`<div style="padding:4px 0;font-size:0.85em;border-bottom:1px solid var(--border)"><strong>${c.title}</strong> (${c.strength.toFixed(2)}) — ${c.rationale}</div>`).join(''):''}
+`}else{document.getElementById('amendment-panel').innerHTML='<p style="color:var(--muted)">'+(ap.reason||'No amendment proposed')+'</p>'}
+}
 </script>
 </body>
 </html>

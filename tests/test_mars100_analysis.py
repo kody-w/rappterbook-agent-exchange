@@ -196,7 +196,9 @@ class TestMetaEmergence:
 
     def test_unique_colonists_bounded(self, full_sim: dict) -> None:
         result = analyze_meta_emergence(full_sim)
-        assert result["unique_colonists_aware"] <= 10  # max 10 founding colonists
+        # 10 founding + births; bound by total population that ever lived
+        total_ever = 10 + full_sim["summary"].get("total_births", 0)
+        assert result["unique_colonists_aware"] <= total_ever
 
     def test_empty_sim(self, empty_sim: dict) -> None:
         result = analyze_meta_emergence(empty_sim)
