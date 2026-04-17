@@ -1,419 +1,346 @@
 """
-Ecology organ for the Mars-100 colony simulation (engine v10.0).
+Ecology organ for Mars-100 (engine v10.0).
 
-Models a living Mars biosphere with five interconnected subsystems:
-Atmosphere, SoilState, WaterCycle, Flora, Fauna → Biosphere.
-
+Models Mars terraforming: atmosphere, soil, flora -> biosphere.
 One-year lag: LAST year's biosphere drives THIS year's resource bonuses.
-RNG offset: ecology_rng = seed + 11213
+Active decline: without continued effort, ecology deteriorates toward Mars baseline.
+
+RNG offset: seed + 11213
 """
 from __future__ import annotations
 
-import random
+import random as _random_module
 from dataclasses import dataclass, field
 from typing import Any
 
-AMBIENT_PRESSURE_KPA = 0.6
-PRESSURE_PER_TERRAFORM = 0.35
-PRESSURE_DECAY = 0.02
-O2_PRODUCTION_PER_FLORA = 0.008
-CO2_ABSORPTION_PER_FLORA = 0.006
-INITIAL_PERCHLORATE = 0.75
-PERCHLORATE_REMEDIATION_PER_FARM = 0.012
-ORGANIC_BUILDUP_PER_FARM = 0.005
-ORGANIC_BUILDUP_FROM_FAUNA = 0.003
-MOISTURE_FROM_WATER_CYCLE = 0.01
-AQUIFER_DRAIN_RATE = 0.003
-SURFACE_WATER_PRESSURE_THRESHOLD = 8.0
-SURFACE_WATER_FILL_RATE = 0.015
-ICE_SUBLIMATION_RATE = 0.002
-WILD_PLANT_PERCHLORATE_MAX = 0.35
-WILD_PLANT_PRESSURE_MIN = 4.0
-CROP_BONUS_PER_FARM = 0.02
-WILD_GROWTH_RATE = 0.01
-FLORA_DECAY_RATE = 0.015
-INSECT_FLORA_MIN = 0.15
-MICROBE_ORGANIC_MIN = 0.05
-FAUNA_GROWTH_RATE = 0.008
-FAUNA_DECAY_RATE = 0.012
-WEIGHT_ATMOSPHERE = 0.25
-WEIGHT_SOIL = 0.20
-WEIGHT_WATER = 0.20
-WEIGHT_FLORA = 0.20
-WEIGHT_FAUNA = 0.15
-MAX_FOOD_BONUS = 0.03
-MAX_WATER_BONUS = 0.02
-MAX_AIR_BONUS = 0.025
-MAX_MEDICINE_BONUS = 0.01
-MAX_STRESS_REDUCTION = 0.05
-MAX_PURPOSE_BOOST = 0.03
+BIOME_NAMES = ("barren", "lichen", "moss", "grassland", "shrubland", "forest")
+BIOME_UP_THRESHOLDS = (0.0, 0.08, 0.18, 0.32, 0.50, 0.70)
+BIOME_DOWN_THRESHOLDS = (0.0, 0.05, 0.14, 0.27, 0.44, 0.63)
+assert len(BIOME_NAMES) == len(BIOME_UP_THRESHOLDS) == len(BIOME_DOWN_THRESHOLDS)
+
+PRESSURE_GATE_KPA = 5.0
+TEMPERATURE_GATE_C = -40.0
+PERCHLORATE_GATE = 0.3
+
+MAX_FOOD_BONUS = 0.015
+MAX_AIR_BONUS = 0.010
+MAX_WATER_BONUS = 0.008
+MAX_NATURE_STRESS_REDUCTION = 0.05
+
+MARS_BASELINE_PRESSURE_KPA = 0.6
+TERRAFORM_PRESSURE_RATE = 0.012
+TERRAFORM_O2_RATE = 0.003
+FLORA_O2_RATE = 0.002
+GREENHOUSE_TECH_TEMP_BONUS = 0.15
+ATMO_GREENHOUSE_COEFF = 0.05
+OUTDOOR_PLANT_TEMP_COEFF = 0.5
+FARM_PERCHLORATE_RATE = 0.008
+FARM_ORGANIC_RATE = 0.004
+FLORA_ORGANIC_RATE = 0.002
+TERRAFORM_MOISTURE_RATE = 0.003
+FARM_MOISTURE_RATE = 0.002
+PRESSURE_MOISTURE_BONUS = 0.005
+MOISTURE_DRY_FACTOR = 0.98
+FARM_GREENHOUSE_RATE = 0.006
+GREENHOUSE_DECAY_ACTIVE = 0.001
+GREENHOUSE_DECAY_IDLE = 0.005
+OUTDOOR_BASE_RATE = 0.003
+OUTDOOR_FROM_GREENHOUSE = 0.002
+OUTDOOR_DIE_FACTOR = 0.95
+OUTDOOR_DIE_FLAT = 0.001
+BLOOM_PROBABILITY = 0.02
+BLOOM_MIN_INDEX = 0.15
+BLOOM_BONUS = 1.1
+CONTAM_PROBABILITY = 0.02
+CONTAM_MIN_PERCHLORATE = 0.5
+CONTAM_ORGANIC_FACTOR = 0.9
 
 
 @dataclass
-class Atmosphere:
-    """Mars atmospheric state."""
-    pressure_kpa: float = AMBIENT_PRESSURE_KPA
-    o2_fraction: float = 0.001
-    co2_fraction: float = 0.95
+class EcologyState:
+    """Mars biosphere state."""
+    pressure_kpa: float = 0.6
+    o2_kpa: float = 0.001
+    temperature_c: float = -60.0
+    perchlorate: float = 0.8
+    soil_organic: float = 0.0
+    soil_moisture: float = 0.05
+    greenhouse_crops: float = 0.0
+    outdoor_plants: float = 0.0
+    biome_level: int = 0
+    biosphere_index: float = 0.0
+    biome_unlocks: list = field(default_factory=list)
 
-    def health(self) -> float:
-        """Normalised health score [0, 1]."""
-        p = min(1.0, self.pressure_kpa / 30.0)
-        o = min(1.0, self.o2_fraction / 0.21)
-        c = max(0.0, (self.co2_fraction - 0.5) * 0.5)
-        return max(0.0, min(1.0, p * 0.5 + o * 0.3 - c * 0.2))
-
-    def clamp(self) -> None:
-        self.pressure_kpa = max(AMBIENT_PRESSURE_KPA, self.pressure_kpa)
-        self.o2_fraction = max(0.0, min(0.25, self.o2_fraction))
-        self.co2_fraction = max(0.01, min(1.0, self.co2_fraction))
-
-    def to_dict(self) -> dict[str, float]:
-        return {"pressure_kpa": round(self.pressure_kpa, 4),
-                "o2_fraction": round(self.o2_fraction, 4),
-                "co2_fraction": round(self.co2_fraction, 4),
-                "health": round(self.health(), 4)}
+    def to_dict(self) -> dict:
+        return {
+            "pressure_kpa": round(self.pressure_kpa, 4),
+            "o2_kpa": round(self.o2_kpa, 4),
+            "temperature_c": round(self.temperature_c, 2),
+            "perchlorate": round(self.perchlorate, 4),
+            "soil_organic": round(self.soil_organic, 4),
+            "soil_moisture": round(self.soil_moisture, 4),
+            "greenhouse_crops": round(self.greenhouse_crops, 4),
+            "outdoor_plants": round(self.outdoor_plants, 4),
+            "biome_level": self.biome_level,
+            "biosphere_index": round(self.biosphere_index, 4),
+            "biome_name": BIOME_NAMES[self.biome_level],
+            "biome_unlocks": list(self.biome_unlocks),
+        }
 
     @classmethod
-    def from_dict(cls, d: dict) -> Atmosphere:
-        return cls(pressure_kpa=d.get("pressure_kpa", AMBIENT_PRESSURE_KPA),
-                   o2_fraction=d.get("o2_fraction", 0.001),
-                   co2_fraction=d.get("co2_fraction", 0.95))
-
-
-@dataclass
-class SoilState:
-    """Mars soil composition."""
-    perchlorate: float = INITIAL_PERCHLORATE
-    organic_content: float = 0.01
-    moisture: float = 0.05
-
-    def health(self) -> float:
-        p = 1.0 - self.perchlorate
-        o = min(1.0, self.organic_content / 0.3)
-        m = min(1.0, self.moisture / 0.3)
-        return max(0.0, min(1.0, p * 0.4 + o * 0.35 + m * 0.25))
+    def from_dict(cls, d: dict) -> "EcologyState":
+        """Reconstruct from dict."""
+        return cls(
+            pressure_kpa=d.get("pressure_kpa", 0.6),
+            o2_kpa=d.get("o2_kpa", 0.001),
+            temperature_c=d.get("temperature_c", -60.0),
+            perchlorate=d.get("perchlorate", 0.8),
+            soil_organic=d.get("soil_organic", 0.0),
+            soil_moisture=d.get("soil_moisture", 0.05),
+            greenhouse_crops=d.get("greenhouse_crops", 0.0),
+            outdoor_plants=d.get("outdoor_plants", 0.0),
+            biome_level=d.get("biome_level", 0),
+            biosphere_index=d.get("biosphere_index", 0.0),
+            biome_unlocks=list(d.get("biome_unlocks", [])),
+        )
 
     def clamp(self) -> None:
+        """Enforce physical bounds on all fields."""
+        self.pressure_kpa = max(0.0, self.pressure_kpa)
+        self.o2_kpa = max(0.0, min(self.pressure_kpa, self.o2_kpa))
+        self.temperature_c = max(-80.0, min(30.0, self.temperature_c))
         self.perchlorate = max(0.0, min(1.0, self.perchlorate))
-        self.organic_content = max(0.0, min(1.0, self.organic_content))
-        self.moisture = max(0.0, min(1.0, self.moisture))
+        self.soil_organic = max(0.0, min(1.0, self.soil_organic))
+        self.soil_moisture = max(0.0, min(1.0, self.soil_moisture))
+        self.greenhouse_crops = max(0.0, min(1.0, self.greenhouse_crops))
+        self.outdoor_plants = max(0.0, min(1.0, self.outdoor_plants))
+        self.biome_level = max(0, min(len(BIOME_NAMES) - 1, self.biome_level))
+        self.biosphere_index = max(0.0, min(1.0, self.biosphere_index))
 
-    def to_dict(self) -> dict[str, float]:
-        return {"perchlorate": round(self.perchlorate, 4),
-                "organic_content": round(self.organic_content, 4),
-                "moisture": round(self.moisture, 4),
-                "health": round(self.health(), 4)}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> SoilState:
-        return cls(perchlorate=d.get("perchlorate", INITIAL_PERCHLORATE),
-                   organic_content=d.get("organic_content", 0.01),
-                   moisture=d.get("moisture", 0.05))
+    def health(self) -> float:
+        """Alias for biosphere_index for engine compatibility."""
+        return self.biosphere_index
 
 
 @dataclass
-class WaterCycle:
-    """Mars hydrological state."""
-    aquifer: float = 0.6
-    surface_water: float = 0.0
-    ice_reserves: float = 0.8
-
-    def health(self) -> float:
-        return max(0.0, min(1.0,
-            self.aquifer * 0.3 + self.surface_water * 0.4 + self.ice_reserves * 0.3))
-
-    def clamp(self) -> None:
-        self.aquifer = max(0.0, min(1.0, self.aquifer))
-        self.surface_water = max(0.0, min(1.0, self.surface_water))
-        self.ice_reserves = max(0.0, min(1.0, self.ice_reserves))
-
-    def to_dict(self) -> dict[str, float]:
-        return {"aquifer": round(self.aquifer, 4),
-                "surface_water": round(self.surface_water, 4),
-                "ice_reserves": round(self.ice_reserves, 4),
-                "health": round(self.health(), 4)}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> WaterCycle:
-        return cls(aquifer=d.get("aquifer", 0.6),
-                   surface_water=d.get("surface_water", 0.0),
-                   ice_reserves=d.get("ice_reserves", 0.8))
-
-
-@dataclass
-class Flora:
-    """Mars plant life."""
-    crops: float = 0.1
-    wild_plants: float = 0.0
-    biomass: float = 0.05
-
-    def health(self) -> float:
-        return max(0.0, min(1.0,
-            self.crops * 0.4 + self.wild_plants * 0.3 + self.biomass * 0.3))
-
-    def clamp(self) -> None:
-        self.crops = max(0.0, min(1.0, self.crops))
-        self.wild_plants = max(0.0, min(1.0, self.wild_plants))
-        self.biomass = max(0.0, min(1.0, self.biomass))
-
-    def to_dict(self) -> dict[str, float]:
-        return {"crops": round(self.crops, 4), "wild_plants": round(self.wild_plants, 4),
-                "biomass": round(self.biomass, 4), "health": round(self.health(), 4)}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> Flora:
-        return cls(crops=d.get("crops", 0.1), wild_plants=d.get("wild_plants", 0.0),
-                   biomass=d.get("biomass", 0.05))
-
-
-@dataclass
-class Fauna:
-    """Mars animal / microbial life."""
-    insects: float = 0.0
-    microbes: float = 0.02
-
-    def health(self) -> float:
-        return max(0.0, min(1.0, self.insects * 0.5 + self.microbes * 0.5))
-
-    def clamp(self) -> None:
-        self.insects = max(0.0, min(1.0, self.insects))
-        self.microbes = max(0.0, min(1.0, self.microbes))
-
-    def to_dict(self) -> dict[str, float]:
-        return {"insects": round(self.insects, 4), "microbes": round(self.microbes, 4),
-                "health": round(self.health(), 4)}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> Fauna:
-        return cls(insects=d.get("insects", 0.0), microbes=d.get("microbes", 0.02))
-
-
-@dataclass
-class Biosphere:
-    """Top-level ecology container for the Mars colony."""
-    atmosphere: Atmosphere = field(default_factory=Atmosphere)
-    soil: SoilState = field(default_factory=SoilState)
-    water: WaterCycle = field(default_factory=WaterCycle)
-    flora: Flora = field(default_factory=Flora)
-    fauna: Fauna = field(default_factory=Fauna)
-
-    def biosphere_index(self) -> float:
-        """Weighted composite health score [0, 1]."""
-        return max(0.0, min(1.0,
-            self.atmosphere.health() * WEIGHT_ATMOSPHERE
-            + self.soil.health() * WEIGHT_SOIL
-            + self.water.health() * WEIGHT_WATER
-            + self.flora.health() * WEIGHT_FLORA
-            + self.fauna.health() * WEIGHT_FAUNA))
-
-    def health(self) -> float:
-        """Alias for biosphere_index — used by engine integration."""
-        return self.biosphere_index()
-
-    def clamp(self) -> None:
-        self.atmosphere.clamp()
-        self.soil.clamp()
-        self.water.clamp()
-        self.flora.clamp()
-        self.fauna.clamp()
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"atmosphere": self.atmosphere.to_dict(), "soil": self.soil.to_dict(),
-                "water": self.water.to_dict(), "flora": self.flora.to_dict(),
-                "fauna": self.fauna.to_dict(),
-                "biosphere_index": round(self.biosphere_index(), 4)}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> Biosphere:
-        return cls(atmosphere=Atmosphere.from_dict(d.get("atmosphere", {})),
-                   soil=SoilState.from_dict(d.get("soil", {})),
-                   water=WaterCycle.from_dict(d.get("water", {})),
-                   flora=Flora.from_dict(d.get("flora", {})),
-                   fauna=Fauna.from_dict(d.get("fauna", {})))
+class EcologyYearContext:
+    """Input context for one ecology tick."""
+    year: int
+    terraform_count: int
+    farm_count: int
+    research_count: int
+    population: int
+    infrastructure_completed: list
 
 
 @dataclass
 class EcologyTickResult:
     """Output of one ecology tick."""
-    biosphere_before: dict[str, Any] = field(default_factory=dict)
-    biosphere_after: dict[str, Any] = field(default_factory=dict)
-    resource_bonus: dict[str, float] = field(default_factory=dict)
-    psych_pressure: dict[str, float] = field(default_factory=dict)
-    events: list[str] = field(default_factory=list)
+    resource_bonuses: dict = field(default_factory=dict)
+    nature_stress_reduction: float = 0.0
+    biome_transition: dict | None = None
+    tipping_event: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        return {"biosphere_before": self.biosphere_before,
-                "biosphere_after": self.biosphere_after,
-                "resource_bonus": self.resource_bonus,
-                "psych_pressure": self.psych_pressure,
-                "events": self.events}
+    def to_dict(self) -> dict:
+        d: dict[str, Any] = {
+            "resource_bonuses": self.resource_bonuses,
+            "nature_stress_reduction": round(self.nature_stress_reduction, 4),
+        }
+        if self.biome_transition:
+            d["biome_transition"] = self.biome_transition
+        if self.tipping_event:
+            d["tipping_event"] = self.tipping_event
+        return d
 
 
-# ---------------------------------------------------------------------------
-# Tick: advance biosphere by one Martian year
-# ---------------------------------------------------------------------------
+def compute_atmosphere_score(eco: EcologyState) -> float:
+    """Normalize atmosphere state into [0, 1] score."""
+    pressure_score = min(1.0, eco.pressure_kpa / 50.0)
+    o2_score = min(1.0, eco.o2_kpa / 16.0)
+    temp_score = max(0.0, min(1.0, (eco.temperature_c + 60.0) / 80.0))
+    return pressure_score * 0.3 + o2_score * 0.4 + temp_score * 0.3
+
+
+def compute_soil_score(eco: EcologyState) -> float:
+    """Normalize soil health into [0, 1] score."""
+    perc_score = 1.0 - eco.perchlorate
+    return perc_score * 0.4 + eco.soil_organic * 0.35 + eco.soil_moisture * 0.25
+
+
+def compute_flora_score(eco: EcologyState) -> float:
+    """Normalize flora coverage into [0, 1] score."""
+    return eco.greenhouse_crops * 0.6 + eco.outdoor_plants * 0.4
+
+
+def compute_biosphere_index(eco: EcologyState) -> float:
+    """Compute weighted composite biosphere health [0-1]."""
+    atmo = compute_atmosphere_score(eco)
+    soil = compute_soil_score(eco)
+    flora = compute_flora_score(eco)
+    return atmo * 0.3 + soil * 0.3 + flora * 0.4
+
+
+def compute_biome_level(biosphere_index: float, current_level: int) -> int:
+    """Compute biome level from biosphere index with hysteresis."""
+    new_level = current_level
+    for level in range(current_level + 1, len(BIOME_UP_THRESHOLDS)):
+        if biosphere_index >= BIOME_UP_THRESHOLDS[level]:
+            new_level = level
+        else:
+            break
+    if new_level == current_level and current_level > 0:
+        if biosphere_index < BIOME_DOWN_THRESHOLDS[current_level]:
+            new_level = current_level - 1
+    return new_level
+
+
+def outdoor_habitable(eco: EcologyState) -> bool:
+    """Check if outdoor conditions support plant life."""
+    return (eco.pressure_kpa >= PRESSURE_GATE_KPA
+            and eco.temperature_c >= TEMPERATURE_GATE_C
+            and eco.perchlorate < PERCHLORATE_GATE)
+
+
+def has_greenhouse_tech(infra_completed: list) -> bool:
+    """Check if any greenhouse technology is completed."""
+    return any("greenhouse" in str(t).lower() for t in infra_completed)
+
+
+def compute_ecology_bonuses(eco: EcologyState) -> dict:
+    """Compute resource bonuses from ecology state."""
+    food = (eco.greenhouse_crops * MAX_FOOD_BONUS
+            + eco.outdoor_plants * MAX_FOOD_BONUS * 0.5)
+    air = eco.outdoor_plants * MAX_AIR_BONUS + eco.o2_kpa * 0.001
+    water = eco.soil_moisture * MAX_WATER_BONUS
+    return {"food": round(food, 6), "air": round(air, 6), "water": round(water, 6)}
+
+
+def compute_resource_modifiers(eco: EcologyState) -> dict[str, float]:
+    """Compute resource spoilage/maintenance multipliers from ecology.
+
+    Returns multipliers close to 1.0 that reduce spoilage as ecology improves.
+    Applied to resource drain in the engine (one-year lag).
+    """
+    h = eco.biosphere_index
+    return {
+        "food_spoilage_mult": max(0.5, 1.0 - h * 0.3),
+        "air_maintenance_mult": max(0.5, 1.0 - h * 0.2),
+        "water_maintenance_mult": max(0.5, 1.0 - h * 0.15),
+    }
+
+
+def compute_nature_stress_reduction(eco: EcologyState) -> float:
+    """Compute stress reduction from nature exposure."""
+    return eco.biosphere_index * MAX_NATURE_STRESS_REDUCTION
+
+
+def compute_ecology_psych_pressure(eco: EcologyState) -> dict:
+    """Compute psychology deltas from ecology state."""
+    h = eco.biosphere_index
+    return {
+        "stress_delta": -h * MAX_NATURE_STRESS_REDUCTION,
+        "purpose_delta": h * 0.02,
+    }
+
+
+def update_biome_level(eco: EcologyState) -> dict | None:
+    """Update biome level with hysteresis. Returns transition info or None."""
+    old_level = eco.biome_level
+    new_level = compute_biome_level(eco.biosphere_index, old_level)
+    if new_level == old_level:
+        return None
+    first_time = new_level > old_level and new_level not in eco.biome_unlocks
+    eco.biome_level = new_level
+    if first_time:
+        eco.biome_unlocks.append(new_level)
+    return {
+        "from_level": old_level, "to_level": new_level,
+        "from_name": BIOME_NAMES[old_level], "to_name": BIOME_NAMES[new_level],
+        "direction": "up" if new_level > old_level else "down",
+        "first_time": first_time,
+    }
+
 
 def tick_ecology(
-    bio: Biosphere,
-    year: int,
-    *,
-    terraformers: int = 0,
-    farmers: int = 0,
-    researchers: int = 0,
-    saboteurs: int = 0,
-    infra_completed: list[str] | None = None,
-    event_damage: float = 0.0,
-    rng: random.Random,
+    eco: EcologyState,
+    ctx: EcologyYearContext,
+    rng: _random_module.Random,
 ) -> EcologyTickResult:
-    """Advance the biosphere by one Martian year.  Mutates *bio* in place."""
-    result = EcologyTickResult(biosphere_before=bio.to_dict())
-    _infra = infra_completed or []
+    """Advance ecology by one year. Mutates eco in place.
+
+    Resource bonuses are computed from state BEFORE mutation (1-year lag).
+    """
+    result = EcologyTickResult()
+    result.resource_bonuses = compute_ecology_bonuses(eco)
+    result.nature_stress_reduction = compute_nature_stress_reduction(eco)
 
     # --- Atmosphere ---
-    terraform_pressure = terraformers * PRESSURE_PER_TERRAFORM
-    bio.atmosphere.pressure_kpa += terraform_pressure - PRESSURE_DECAY
-    bio.atmosphere.pressure_kpa = max(AMBIENT_PRESSURE_KPA, bio.atmosphere.pressure_kpa)
+    pressure_gain = ctx.terraform_count * TERRAFORM_PRESSURE_RATE
+    pressure_gain *= max(0.5, 1.0 + rng.gauss(0, 0.1))
+    eco.pressure_kpa += pressure_gain
 
-    flora_o2 = bio.flora.biomass * O2_PRODUCTION_PER_FLORA
-    flora_co2 = bio.flora.biomass * CO2_ABSORPTION_PER_FLORA
-    bio.atmosphere.o2_fraction += flora_o2
-    bio.atmosphere.co2_fraction -= flora_co2
+    o2_gain = (ctx.terraform_count * TERRAFORM_O2_RATE
+               + (eco.greenhouse_crops + eco.outdoor_plants) * FLORA_O2_RATE)
+    eco.o2_kpa += o2_gain
 
-    if event_damage > 0.3:
-        damage = event_damage * 0.15 * rng.uniform(0.5, 1.0)
-        if "shelter_reinforcement" in _infra:
-            damage *= 0.6
-        bio.atmosphere.pressure_kpa = max(AMBIENT_PRESSURE_KPA,
-            bio.atmosphere.pressure_kpa - damage)
-        result.events.append(f"event damage reduced pressure by {damage:.2f} kPa")
-
-    if saboteurs > 0:
-        sab_damage = saboteurs * 0.05 * rng.uniform(0.3, 1.0)
-        bio.flora.crops = max(0.0, bio.flora.crops - sab_damage)
-        result.events.append(f"sabotage damaged crops by {sab_damage:.3f}")
+    temp_gain = 0.0
+    if eco.pressure_kpa > MARS_BASELINE_PRESSURE_KPA:
+        temp_gain += ((eco.pressure_kpa - MARS_BASELINE_PRESSURE_KPA)
+                      * ATMO_GREENHOUSE_COEFF)
+    if has_greenhouse_tech(ctx.infrastructure_completed):
+        temp_gain += GREENHOUSE_TECH_TEMP_BONUS
+    temp_gain += eco.outdoor_plants * OUTDOOR_PLANT_TEMP_COEFF
+    eco.temperature_c += temp_gain
 
     # --- Soil ---
-    bio.soil.perchlorate -= farmers * PERCHLORATE_REMEDIATION_PER_FARM
-    bio.soil.organic_content += (farmers * ORGANIC_BUILDUP_PER_FARM
-                                  + bio.fauna.microbes * ORGANIC_BUILDUP_FROM_FAUNA)
-    if bio.water.surface_water > 0:
-        bio.soil.moisture += MOISTURE_FROM_WATER_CYCLE
-    else:
-        bio.soil.moisture -= 0.005
+    eco.perchlorate = max(
+        0.0, eco.perchlorate - ctx.farm_count * FARM_PERCHLORATE_RATE
+    )
+    organic_gain = (ctx.farm_count * FARM_ORGANIC_RATE
+                    + eco.greenhouse_crops * FLORA_ORGANIC_RATE)
+    eco.soil_organic = min(1.0, eco.soil_organic + organic_gain)
 
-    # --- Water cycle ---
-    bio.water.aquifer -= AQUIFER_DRAIN_RATE
-    if bio.atmosphere.pressure_kpa >= SURFACE_WATER_PRESSURE_THRESHOLD:
-        fill = SURFACE_WATER_FILL_RATE * (bio.water.ice_reserves * 0.5 + 0.5)
-        bio.water.surface_water += fill
-        if bio.water.surface_water > 0.01:
-            result.events.append("surface water forming")
-    else:
-        bio.water.surface_water -= 0.01
-    bio.water.ice_reserves -= ICE_SUBLIMATION_RATE
-    if "water_recycler" in _infra:
-        bio.water.aquifer += 0.002
-    if researchers > 0 and rng.random() < 0.1 * researchers:
-        discovery = rng.uniform(0.02, 0.06)
-        bio.water.aquifer += discovery
-        result.events.append(f"aquifer discovery: +{discovery:.3f}")
+    moisture_gain = (ctx.terraform_count * TERRAFORM_MOISTURE_RATE
+                     + ctx.farm_count * FARM_MOISTURE_RATE)
+    if eco.pressure_kpa >= PRESSURE_GATE_KPA:
+        moisture_gain += PRESSURE_MOISTURE_BONUS
+    eco.soil_moisture = min(
+        1.0, eco.soil_moisture * MOISTURE_DRY_FACTOR + moisture_gain
+    )
 
     # --- Flora ---
-    crop_growth = farmers * CROP_BONUS_PER_FARM
-    if "greenhouse_dome" in _infra:
-        crop_growth *= 1.3
-    bio.flora.crops += crop_growth
-    can_wild = (bio.soil.perchlorate < WILD_PLANT_PERCHLORATE_MAX
-                and bio.atmosphere.pressure_kpa >= WILD_PLANT_PRESSURE_MIN)
-    if can_wild:
-        mf = min(1.0, bio.soil.moisture / 0.15)
-        of = min(1.0, bio.soil.organic_content / 0.1)
-        bio.flora.wild_plants += WILD_GROWTH_RATE * mf * of
-        if bio.flora.wild_plants > 0.01:
-            result.events.append("wild plants emerging")
-    else:
-        bio.flora.wild_plants -= FLORA_DECAY_RATE
-    bio.flora.biomass = bio.flora.crops * 0.6 + bio.flora.wild_plants * 0.4
+    soil_quality = compute_soil_score(eco)
+    greenhouse_growth = (ctx.farm_count * FARM_GREENHOUSE_RATE
+                         * (0.3 + 0.7 * soil_quality))
+    greenhouse_decay = (GREENHOUSE_DECAY_IDLE if ctx.farm_count == 0
+                        else GREENHOUSE_DECAY_ACTIVE)
+    eco.greenhouse_crops = max(
+        0.0, min(1.0, eco.greenhouse_crops + greenhouse_growth - greenhouse_decay)
+    )
 
-    # --- Fauna ---
-    if bio.flora.biomass >= INSECT_FLORA_MIN:
-        bio.fauna.insects += FAUNA_GROWTH_RATE * bio.flora.biomass
+    if outdoor_habitable(eco):
+        outdoor_growth = (OUTDOOR_BASE_RATE * soil_quality
+                          + eco.greenhouse_crops * OUTDOOR_FROM_GREENHOUSE)
+        eco.outdoor_plants = min(1.0, eco.outdoor_plants + outdoor_growth)
     else:
-        bio.fauna.insects -= FAUNA_DECAY_RATE
-    if bio.soil.organic_content >= MICROBE_ORGANIC_MIN:
-        bio.fauna.microbes += FAUNA_GROWTH_RATE * bio.soil.organic_content
-    else:
-        bio.fauna.microbes -= FAUNA_DECAY_RATE * 0.5
+        eco.outdoor_plants = max(
+            0.0, eco.outdoor_plants * OUTDOOR_DIE_FACTOR - OUTDOOR_DIE_FLAT
+        )
 
-    # Random ecological events
-    if rng.random() < 0.05:
-        _ecological_event(bio, rng, result)
+    # --- Stochastic events ---
+    roll = rng.random()
+    if roll < BLOOM_PROBABILITY and eco.biosphere_index >= BLOOM_MIN_INDEX:
+        eco.greenhouse_crops = min(1.0, eco.greenhouse_crops * BLOOM_BONUS)
+        result.tipping_event = "ecological_bloom"
+    elif (roll < BLOOM_PROBABILITY + CONTAM_PROBABILITY
+          and eco.perchlorate >= CONTAM_MIN_PERCHLORATE):
+        eco.soil_organic *= CONTAM_ORGANIC_FACTOR
+        result.tipping_event = "perchlorate_contamination"
 
-    bio.clamp()
-    result.biosphere_after = bio.to_dict()
+    # --- Composite index + biome update ---
+    eco.biosphere_index = compute_biosphere_index(eco)
+    transition = update_biome_level(eco)
+    if transition:
+        result.biome_transition = transition
+    eco.clamp()
     return result
-
-
-def _ecological_event(bio: Biosphere, rng: random.Random,
-                      result: EcologyTickResult) -> None:
-    """Apply a rare ecological event."""
-    etype = rng.choice(["microbe_bloom", "crop_blight", "ice_melt", "regolith_shift"])
-    if etype == "microbe_bloom":
-        b = rng.uniform(0.02, 0.06)
-        bio.fauna.microbes += b
-        bio.soil.organic_content += b * 0.5
-        result.events.append(f"microbe bloom: +{b:.3f}")
-    elif etype == "crop_blight":
-        loss = rng.uniform(0.02, 0.08)
-        bio.flora.crops -= loss
-        result.events.append(f"crop blight: -{loss:.3f}")
-    elif etype == "ice_melt":
-        m = rng.uniform(0.02, 0.05)
-        bio.water.ice_reserves -= m
-        bio.water.aquifer += m * 0.7
-        result.events.append(f"ice melt: aquifer +{m * 0.7:.3f}")
-    elif etype == "regolith_shift":
-        s = rng.uniform(0.01, 0.04)
-        bio.soil.perchlorate += s
-        result.events.append(f"regolith shift: perchlorate +{s:.3f}")
-
-
-# ---------------------------------------------------------------------------
-# Resource / modifier / upkeep / psych functions
-# ---------------------------------------------------------------------------
-
-def compute_ecology_resource_bonus(bio: Biosphere) -> dict[str, float]:
-    """Compute additive resource bonuses from the biosphere (one-year lag)."""
-    food = min(MAX_FOOD_BONUS, bio.flora.crops * 0.02 + bio.flora.wild_plants * 0.01)
-    water = min(MAX_WATER_BONUS, bio.water.surface_water * 0.015 + bio.water.aquifer * 0.005)
-    air = min(MAX_AIR_BONUS, bio.atmosphere.o2_fraction * 0.1
-              * min(1.0, bio.atmosphere.pressure_kpa / 15.0))
-    medicine = min(MAX_MEDICINE_BONUS, bio.flora.biomass * 0.008 + bio.fauna.microbes * 0.005)
-    return {"food": round(food, 6), "water": round(water, 6),
-            "air": round(air, 6), "medicine": round(medicine, 6)}
-
-
-def compute_ecology_psych_pressure(bio: Biosphere) -> dict[str, float]:
-    """Compute psychology effects: greening -> less stress, more purpose."""
-    idx = bio.biosphere_index()
-    return {"stress": round(-MAX_STRESS_REDUCTION * idx, 6),
-            "purpose": round(MAX_PURPOSE_BOOST * idx, 6)}
-
-
-def compute_ecology_modifiers(bio: Biosphere) -> dict[str, float]:
-    """Multiplier-style resource modifiers (compatible with infra pattern).
-
-    A fully green biosphere reduces food spoilage by 25%, air maintenance
-    by 20%, water maintenance by 15%.  Scales linearly with biosphere index.
-    """
-    idx = bio.biosphere_index()
-    return {"food_spoilage_mult": round(max(0.75, 1.0 - 0.25 * idx), 4),
-            "air_maintenance_mult": round(max(0.80, 1.0 - 0.20 * idx), 4),
-            "water_maintenance_mult": round(max(0.85, 1.0 - 0.15 * idx), 4)}
-
-
-def compute_ecology_upkeep(bio: Biosphere) -> dict[str, float]:
-    """Operating costs for maintaining the biosphere (greenhouses etc.)."""
-    return {"power": round(bio.flora.crops * 0.003 + bio.fauna.insects * 0.001, 6),
-            "water": round(bio.flora.biomass * 0.002, 6)}

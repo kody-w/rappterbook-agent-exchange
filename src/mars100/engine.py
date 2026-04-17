@@ -653,28 +653,18 @@ class Mars100Engine:
         avg_skill = sum(research_skills) / max(1, len(research_skills))
         infra_event = tick_infrastructure(self.infra, researchers, avg_skill, self.year)
 
-        # --- ecology: tick biosphere (dedicated RNG stream) ---
-        eco_terraformers = sum(1 for a in actions.values() if a == "terraform")
-        eco_farmers = sum(1 for a in actions.values() if a == "farm")
-        eco_researchers = sum(1 for a in actions.values() if a == "research")
-        eco_saboteurs = sum(1 for a in actions.values() if a == "sabotage")
-        eco_damage = sum(e.severity for e in events if e.severity > 0.5) * 0.5
-        ecology_result = tick_ecology(
-            self.ecology, self.year,
-            terraformers=eco_terraformers, farmers=eco_farmers,
-            researchers=eco_researchers, saboteurs=eco_saboteurs,
-            infra_completed=self.infra.completed,
-            event_damage=eco_damage,
-            rng=self.ecology_rng,
+        # --- ecology: atmosphere, soil, water, flora biosphere ---
+        eco_ctx = EcologyYearContext(
+            year=self.year,
+            terraform_count=sum(1 for a in actions.values() if a == "terraform"),
+            farm_count=sum(1 for a in actions.values() if a == "farm"),
+            research_count=sum(1 for a in actions.values() if a == "research"),
+            population=len(active),
+            infrastructure_completed=[t for t in self.infra.completed],
         )
+        ecology_result = tick_ecology(self.ecology, eco_ctx, self.ecology_rng)
         # Stage ecology modifiers for NEXT year (one-year lag)
         self.pending_ecology_mods = compute_ecology_modifiers(self.ecology)
-        # Deduct ecology upkeep costs
-        eco_upkeep = compute_ecology_upkeep(self.ecology)
-        for res_name, cost in eco_upkeep.items():
-            if res_name in RESOURCE_NAMES:
-                current = getattr(self.resources, res_name)
-                setattr(self.resources, res_name, max(0.0, current - cost))
 
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
@@ -752,12 +742,11 @@ class Mars100Engine:
             self.psych_map, psych_contexts, self.year, self.psych_rng)
 
         # Ecology -> psychology: nature exposure reduces stress
-        eco_psych = compute_nature_stress_reduction(self.ecology)
+        nature_stress_relief = compute_nature_stress_reduction(self.ecology)
         for cid in active_ids:
             ps = self.psych_map.get(cid)
             if ps is not None:
-                ps.stress = max(0.0, min(1.0, ps.stress + eco_psych["stress"]))
-                ps.purpose = max(0.0, min(1.0, ps.purpose + eco_psych["purpose"]))
+                ps.stress = max(0.0, ps.stress - nature_stress_relief)
 
         # --- behavior: social contagion (frozen snapshot, simultaneous) ---
         frozen_psych = {cid: self.psych_map[cid].to_dict()
