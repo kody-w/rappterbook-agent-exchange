@@ -85,6 +85,22 @@ class SocialGraph:
                         affection=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
                         respect=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))))
 
+    def add_colonist(self, new_id: str, existing_ids: list[str],
+                     rng: random.Random) -> None:
+        """Integrate a new colonist (e.g. newborn) into the social graph."""
+        self.edges[new_id] = {}
+        for other in existing_ids:
+            if other != new_id:
+                self.edges[new_id][other] = Relationship(
+                    trust=max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1))),
+                    affection=max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1))),
+                    respect=max(0.0, min(1.0, 0.3 + rng.gauss(0, 0.1))))
+                if other in self.edges:
+                    self.edges[other][new_id] = Relationship(
+                        trust=max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1))),
+                        affection=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
+                        respect=max(0.0, min(1.0, 0.3 + rng.gauss(0, 0.1))))
+
     def get(self, from_id: str, to_id: str) -> Relationship:
         return self.edges.get(from_id, {}).get(to_id, Relationship())
 
@@ -154,3 +170,24 @@ def tick_resources(resources: Resources, active_count: int,
     resources.clamp()
     after = resources.to_dict()
     return {name: after[name] - before[name] for name in RESOURCE_NAMES}
+
+
+def compute_value_convergence(colonists: list) -> dict:
+    """Measure stat standard deviation across living colonists.
+
+    Returns a dict mapping stat names to their std-dev.  Lower values mean
+    the population's values are converging; higher values mean diverging.
+    A convergence_score (mean of all std-devs) summarises the trend.
+    """
+    from src.mars100.colonist import STAT_NAMES
+    active = [c for c in colonists if getattr(c, "is_active", lambda: True)()]
+    if len(active) < 2:
+        return {name: 0.0 for name in STAT_NAMES} | {"convergence_score": 0.0}
+    result: dict[str, float] = {}
+    for name in STAT_NAMES:
+        values = [getattr(c.stats, name) for c in active]
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / len(values)
+        result[name] = variance ** 0.5
+    result["convergence_score"] = sum(v for k, v in result.items() if k != "convergence_score") / len(STAT_NAMES)
+    return result

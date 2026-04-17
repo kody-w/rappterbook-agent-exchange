@@ -10,8 +10,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from src.mars100.colonist import Colonist, STAT_NAMES, SKILL_NAMES, create_founding_ten
-from src.mars100.colony import Resources, SocialGraph, tick_resources, RESOURCE_NAMES
+from src.mars100.colonist import (
+    Colonist, STAT_NAMES, SKILL_NAMES, create_founding_ten,
+    create_child, COLONIST_NAMES,
+)
+from src.mars100.colony import (
+    Resources, SocialGraph, tick_resources, RESOURCE_NAMES,
+    compute_value_convergence,
+)
 from src.mars100.events import Event, generate_events
 from src.mars100.governance import (
     GovernanceProposal, GovernanceState, apply_governance,
@@ -44,6 +50,8 @@ class YearResult:
     social_cohesion: float
     governance_state: dict
     colonist_snapshots: list[dict]
+    convergence: dict = field(default_factory=dict)
+    births: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +65,8 @@ class YearResult:
             "social_cohesion": self.social_cohesion,
             "governance_state": self.governance_state,
             "colonist_snapshots": self.colonist_snapshots,
+            "convergence": self.convergence,
+            "births": self.births,
         }
 
 
@@ -73,10 +83,13 @@ class SimulationResult:
     governance_changes: int
     meta_events: int
     final_cohesion: float
+    convergence_trend: str = "stable"
+    promoted_insights: list[dict] = field(default_factory=list)
+    total_births: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "1.0",
+            "_meta": {"engine": "mars-100", "version": "2.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -85,10 +98,14 @@ class SimulationResult:
                 "governance_changes": self.governance_changes,
                 "meta_awareness_events": self.meta_events,
                 "final_cohesion": self.final_cohesion,
+                "convergence_trend": self.convergence_trend,
+                "total_births": self.total_births,
+                "promoted_insights": len(self.promoted_insights),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
+            "promoted_insights": self.promoted_insights,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -105,6 +122,10 @@ class Mars100Engine:
         self.social = SocialGraph()
         self.governance = GovernanceState()
         self.year = 0
+        self.insight_queue: list[dict] = []
+        self.promoted_insights: list[dict] = []
+        self.births: list[dict] = []
+        self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -240,13 +261,55 @@ class Mars100Engine:
         active_count = len(self._active_colonists())
         max_severity = max((e.severity for e in events), default=0.3)
         templates = [
-            f"(let ((surplus (- food (* {active_count} 0.06)))) (if (> surplus 0) (+ morale 0.1) (- morale 0.2)))",
+            f"(let ((surplus (- food (* {active_count} 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
             f"(let ((risk (* paranoia {max_severity:.2f}))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
             "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
             "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
             "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
         ]
         return self.rng.choice(templates)
+
+    def _check_births(self) -> list[dict]:
+        """Check for births among high-affinity colonist pairs.
+
+        Births require: year >= 10, resources average > 0.4, pair
+        trust+affection > 1.4, and a random roll.  At most 1 birth per year.
+        """
+        if self.year < 10:
+            return []
+        if self.resources.average() < 0.4:
+            return []
+        active = self._active_colonists()
+        if len(active) < 2:
+            return []
+        pairs: list[tuple[Colonist, Colonist, float]] = []
+        for i, a in enumerate(active):
+            for b in active[i + 1:]:
+                rel_ab = self.social.get(a.id, b.id)
+                rel_ba = self.social.get(b.id, a.id)
+                score = (rel_ab.trust + rel_ab.affection + rel_ba.trust + rel_ba.affection) / 2
+                if score > 1.4:
+                    pairs.append((a, b, score))
+        if not pairs:
+            return []
+        pairs.sort(key=lambda x: x[2], reverse=True)
+        birth_prob = 0.15
+        births: list[dict] = []
+        for parent_a, parent_b, _ in pairs[:1]:
+            if self.rng.random() < birth_prob:
+                child_id = f"child-{self.next_id}"
+                self.next_id += 1
+                child = create_child(parent_a, parent_b, child_id, self.year, self.rng)
+                self.colonists.append(child)
+                active_ids = [c.id for c in self._active_colonists()]
+                self.social.add_colonist(child.id, active_ids, self.rng)
+                births.append({
+                    "id": child.id, "name": child.name, "year": self.year,
+                    "parents": [parent_a.id, parent_b.id],
+                    "element": child.element,
+                })
+                self.births.extend(births)
+        return births
 
     def _check_death(self, colonist: Colonist) -> str | None:
         rate = BASE_DEATH_RATE
@@ -326,6 +389,54 @@ class Mars100Engine:
         score += (rel.trust - 0.5) * 0.3
         return score + self.rng.gauss(0, 0.15) > 0.5
 
+    def _extract_insight(self, subsim_log: list[dict]) -> None:
+        """Extract insights from deep sub-simulations (depth >= 2)."""
+        for entry in subsim_log:
+            depth = entry.get("depth", 1)
+            if depth < 2:
+                continue
+            result = entry.get("result")
+            if result is None:
+                continue
+            insight = {
+                "year": self.year,
+                "depth": depth,
+                "colonist_id": entry.get("colonist_id", "unknown"),
+                "result": str(result)[:200],
+                "expression": entry.get("expression", "")[:200],
+            }
+            self.insight_queue.append(insight)
+
+    def _maybe_promote_insight(self) -> None:
+        """Promote recurring insight themes to proposed amendments."""
+        if len(self.insight_queue) < 3:
+            return
+        themes: dict[str, list[dict]] = {}
+        for ins in self.insight_queue:
+            key = ins["result"][:50]
+            themes.setdefault(key, []).append(ins)
+        for theme_key, instances in themes.items():
+            if len(instances) >= 3:
+                amendment = self._draft_amendment(theme_key, instances)
+                self.promoted_insights.append(amendment)
+                for ins in instances:
+                    self.insight_queue.remove(ins)
+                return
+
+    def _draft_amendment(self, theme: str, instances: list[dict]) -> dict:
+        """Draft a proposed constitutional amendment from a recurring insight."""
+        years = [i["year"] for i in instances]
+        depths = [i["depth"] for i in instances]
+        return {
+            "theme": theme,
+            "first_seen_year": min(years),
+            "occurrences": len(instances),
+            "max_depth": max(depths),
+            "colonists_involved": list({i["colonist_id"] for i in instances}),
+            "proposed_text": f"Amendment from Mars-100 sub-sim insight: {theme}",
+            "status": "proposed",
+        }
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
@@ -392,6 +503,8 @@ class Mars100Engine:
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
+        year_births = self._check_births()
+
         deaths: list[dict] = []
         exiles: list[dict] = []
         for colonist in list(active):
@@ -411,6 +524,10 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        convergence = compute_value_convergence(self._active_colonists())
+        self._extract_insight([s.to_dict() for s in subsim_log])
+        self._maybe_promote_insight()
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -422,12 +539,14 @@ class Mars100Engine:
             social_cohesion=self.social.colony_cohesion(self._active_ids()),
             governance_state=self.governance.to_dict(),
             colonist_snapshots=[c.to_dict() for c in self.colonists],
+            convergence=convergence,
+            births=year_births,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
-        total_deaths = total_exiles = total_subsims = gov_changes = meta_count = 0
+        total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -436,6 +555,7 @@ class Mars100Engine:
             total_deaths += len(result.deaths)
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
+            total_births += len(result.births)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -449,4 +569,22 @@ class Mars100Engine:
             total_subsims=total_subsims, governance_changes=gov_changes,
             meta_events=meta_count,
             final_cohesion=self.social.colony_cohesion(self._active_ids()),
+            convergence_trend=self._compute_convergence_trend(years),
+            promoted_insights=self.promoted_insights,
+            total_births=total_births,
         )
+
+    def _compute_convergence_trend(self, years: list[YearResult]) -> str:
+        """Classify overall convergence trend from yearly data."""
+        scores = [y.convergence.get("convergence_score", 0.5)
+                  for y in years if y.convergence]
+        if len(scores) < 10:
+            return "insufficient_data"
+        early = sum(scores[:10]) / 10
+        late = sum(scores[-10:]) / 10
+        diff = late - early
+        if diff > 0.1:
+            return "converging"
+        elif diff < -0.1:
+            return "diverging"
+        return "stable"
