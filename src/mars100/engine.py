@@ -45,6 +45,13 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.laws import (
+    Law, generate_laws, compute_law_action_modifiers,
+    compute_law_consumption_modifier, compute_law_exile_thresholds,
+    compute_law_stress_cost, compute_law_purpose_cost,
+    compute_satisfaction, compute_colony_satisfaction,
+    check_governance_crisis,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -76,6 +83,7 @@ class YearResult:
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
     earth: dict = field(default_factory=dict)
+    governance_satisfaction: float = 0.5
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
@@ -98,6 +106,7 @@ class YearResult:
             "infrastructure": self.infrastructure,
             "culture": self.culture,
             "earth": self.earth,
+            "governance_satisfaction": self.governance_satisfaction,
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
             "economics": self.economics,
@@ -132,7 +141,7 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -185,6 +194,8 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.gov_rng = random.Random(seed + 11003)
+        self.pending_laws: list[Law] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -260,6 +271,33 @@ class Mars100Engine:
         for act, delta in econ_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Psychology perturbation (v9.0): stress/loneliness/purpose shift actions
+        psych = self.psych_map.get(colonist.id)
+        if psych:
+            if psych.stress > 0.6:
+                sx = psych.stress - 0.6
+                weights["sabotage"] = max(0.01, weights.get("sabotage", 1.0) * (1.0 + sx))
+                weights["hoard"] = max(0.01, weights.get("hoard", 1.0) * (1.0 + sx * 0.5))
+                weights["pray"] = max(0.01, weights.get("pray", 1.0) * (1.0 + sx * 0.3))
+                weights["cooperate"] = max(0.01, weights.get("cooperate", 1.0) * max(0.3, 1.0 - sx))
+            if psych.loneliness > 0.6:
+                weights["pray"] = max(0.01, weights.get("pray", 1.0) * 1.2)
+                weights["rest"] = max(0.01, weights.get("rest", 1.0) * 1.2)
+            if psych.purpose > 0.7:
+                px = psych.purpose - 0.7
+                weights["research"] = max(0.01, weights.get("research", 1.0) * (1.0 + px))
+                weights["terraform"] = max(0.01, weights.get("terraform", 1.0) * (1.0 + px * 0.5))
+            if psych.morale < 0.3:
+                weights["rest"] = max(0.01, weights.get("rest", 1.0) * 1.5)
+                weights["explore"] = max(0.01, weights.get("explore", 1.0) * 0.5)
+
+        # Law modifiers (v9.0): active governance laws shift action weights
+        active_laws = [Law.from_dict(ld) for ld in self.governance.active_laws]
+        law_mods = compute_law_action_modifiers(active_laws)
+        for act, mult in law_mods.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] * mult)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -441,7 +479,10 @@ class Mars100Engine:
                 count += 1
         if count > 0:
             avg_trust /= count
-        return avg_trust < 0.15 and colonist.skills.sabotage > 0.5
+        # Law-based exile thresholds (v9.0)
+        active_laws = [Law.from_dict(ld) for ld in self.governance.active_laws]
+        trust_thresh, sab_thresh = compute_law_exile_thresholds(active_laws)
+        return avg_trust < trust_thresh and colonist.skills.sabotage > sab_thresh
 
     def _check_meta_awareness(self, colonist: Colonist) -> dict | None:
         prob = (META_AWARENESS_BASE * self.year +
@@ -581,6 +622,10 @@ class Mars100Engine:
             gov_proposal.passed = resolve_vote(gov_proposal, len(active))
             if gov_proposal.passed:
                 apply_governance(gov_proposal, self.governance, active_ids, self.rng)
+                self.pending_laws = generate_laws(
+                    self.governance.gov_type, self.year,
+                    self.resources.to_dict(), self.gov_rng)
+                self.governance.last_gov_change_year = self.year
 
         skill_bonuses = self._compute_skill_bonuses(actions)
         event_effects: dict[str, float] = {}
@@ -605,6 +650,15 @@ class Mars100Engine:
             if res_name in RESOURCE_NAMES:
                 current = getattr(self.resources, res_name)
                 setattr(self.resources, res_name, max(0.0, current - cost))
+
+        # Law-based rationing (v9.0)
+        active_laws_tick = [Law.from_dict(ld) for ld in self.governance.active_laws]
+        consumption_mod = compute_law_consumption_modifier(active_laws_tick)
+        if consumption_mod < 1.0:
+            savings = (1.0 - consumption_mod) * 0.03 * len(active)
+            for rname in RESOURCE_NAMES:
+                current = getattr(self.resources, rname)
+                setattr(self.resources, rname, min(1.0, current + savings / 5))
 
         # Infrastructure: choose + start project if idle
         resources_snapshot = self.resources.to_dict()
@@ -640,25 +694,39 @@ class Mars100Engine:
             resources=self.resources, economic_state=self.economics,
             year=self.year, rng=self.econ_rng)
 
-        # Economic revolt: force governance re-election next year
+        # Unified governance challenge (v9.0): economic revolt OR satisfaction crisis
+        challenge_cause = None
         if self.economics.pending_revolt:
             self.economics.pending_revolt = False
-            if active:
-                proposer = self.econ_rng.choice(active)
-                revolt_proposal = generate_proposal(
-                    self.year, proposer.id, self.governance, self.econ_rng)
-                revolt_proposal.subsim_result = {"revolt": True}
-                for c in active:
-                    if c.id == revolt_proposal.proposer_id:
-                        revolt_proposal.votes_for.append(c.id)
-                    elif self._vote_on_proposal(c, revolt_proposal):
-                        revolt_proposal.votes_for.append(c.id)
-                    else:
-                        revolt_proposal.votes_against.append(c.id)
-                revolt_proposal.passed = resolve_vote(revolt_proposal, len(active))
-                if revolt_proposal.passed:
-                    apply_governance(revolt_proposal, self.governance,
-                                     active_ids, self.econ_rng)
+            challenge_cause = "economic_unrest"
+        elif check_governance_crisis(
+                self.governance.satisfaction_history, self.year,
+                self.governance.last_gov_change_year,
+                self.governance.last_crisis_year, self.gov_rng):
+            challenge_cause = "low_satisfaction"
+            self.governance.last_crisis_year = self.year
+
+        if challenge_cause and active:
+            ch_rng = self.econ_rng if challenge_cause == "economic_unrest" else self.gov_rng
+            proposer = ch_rng.choice(active)
+            revolt_proposal = generate_proposal(
+                self.year, proposer.id, self.governance, ch_rng)
+            revolt_proposal.subsim_result = {"revolt": True, "cause": challenge_cause}
+            for c in active:
+                if c.id == revolt_proposal.proposer_id:
+                    revolt_proposal.votes_for.append(c.id)
+                elif self._vote_on_proposal(c, revolt_proposal):
+                    revolt_proposal.votes_for.append(c.id)
+                else:
+                    revolt_proposal.votes_against.append(c.id)
+            revolt_proposal.passed = resolve_vote(revolt_proposal, len(active))
+            if revolt_proposal.passed:
+                apply_governance(revolt_proposal, self.governance,
+                                 active_ids, ch_rng)
+                self.pending_laws = generate_laws(
+                    self.governance.gov_type, self.year,
+                    self.resources.to_dict(), self.gov_rng)
+                self.governance.last_gov_change_year = self.year
 
         # --- psychology tick (dedicated RNG stream) ---
         event_sev = events[0].severity if events else 0.0
@@ -695,6 +763,43 @@ class Mars100Engine:
             ))
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
+
+        # Activate pending laws from previous year (v9.0)
+        if self.pending_laws:
+            self.governance.active_laws = [l.to_dict() for l in self.pending_laws]
+            self.pending_laws = []
+        if self.governance.gov_type == "anarchy":
+            for ld in self.governance.active_laws:
+                ld["active"] = False
+                ld["repealed_year"] = self.year
+
+        # Law stress/purpose costs (v9.0)
+        law_stress_cost = compute_law_stress_cost(active_laws_tick)
+        law_purpose_cost = compute_law_purpose_cost(active_laws_tick)
+        if law_stress_cost > 0 or law_purpose_cost != 0:
+            for c_law in self._active_colonists():
+                ps = self.psych_map.get(c_law.id)
+                if ps:
+                    ps.stress = max(0.0, min(1.0, ps.stress + law_stress_cost))
+                    ps.purpose = max(0.0, min(1.0, ps.purpose - law_purpose_cost))
+
+        # Compute governance satisfaction (v9.0)
+        prev_avg = sum(resources_before.values()) / max(1, len(resources_before))
+        curr_avg = self.resources.average()
+        resource_trend = curr_avg - prev_avg
+        satisfactions: list[float] = []
+        for c_sat in self._active_colonists():
+            ps = self.psych_map.get(c_sat.id)
+            sat = compute_satisfaction(
+                resolve=c_sat.stats.resolve, empathy=c_sat.stats.empathy,
+                improvisation=c_sat.stats.improvisation,
+                paranoia=c_sat.stats.paranoia, faith=c_sat.stats.faith,
+                stress=ps.stress if ps else 0.15,
+                morale=ps.morale if ps else 0.5,
+                laws=active_laws_tick, resource_trend=resource_trend)
+            satisfactions.append(sat)
+        colony_satisfaction = compute_colony_satisfaction(satisfactions)
+        self.governance.satisfaction_history.append(colony_satisfaction)
 
         year_births = self._check_births()
 
@@ -832,6 +937,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            governance_satisfaction=colony_satisfaction,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:

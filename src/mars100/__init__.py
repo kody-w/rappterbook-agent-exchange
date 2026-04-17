@@ -48,6 +48,13 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.laws import (
+    Law, generate_laws, compute_law_action_modifiers,
+    compute_law_consumption_modifier, compute_law_exile_thresholds,
+    compute_law_stress_cost, compute_law_purpose_cost,
+    compute_satisfaction, compute_colony_satisfaction,
+    check_governance_crisis,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +86,9 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "Law", "generate_laws", "compute_law_action_modifiers",
+    "compute_law_consumption_modifier", "compute_law_exile_thresholds",
+    "compute_law_stress_cost", "compute_law_purpose_cost",
+    "compute_satisfaction", "compute_colony_satisfaction",
+    "check_governance_crisis",
 ]
