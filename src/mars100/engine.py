@@ -45,6 +45,11 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.behavior import (
+    BehaviorProfile, BehaviorTickResult, ContagionDelta,
+    compute_action_perturbation, compute_social_contagion,
+    update_learned_preferences,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +85,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    behavior: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +108,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "behavior": self.behavior,
         }
 
 
@@ -129,10 +136,11 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_behavior: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -157,6 +165,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_behavior": self.final_behavior,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +194,7 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.behavior_map: dict[str, BehaviorProfile] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -249,17 +259,23 @@ class Mars100Engine:
                     w += 1.0
             weights[action] = max(0.01, w)
 
-        # Cultural pressure from colony memory
+        # External pressure: cultural + economic + behavioral (combined clamp)
         cultural_pressure = compute_cultural_pressure(self.culture)
-        for act, delta in cultural_pressure.items():
-            if act in weights:
-                weights[act] = max(0.01, weights[act] + delta)
-
-        # Economic pressure from personal wealth
         econ_pressure = compute_economic_pressure(colonist)
-        for act, delta in econ_pressure.items():
+        psych = self.psych_map.get(colonist.id)
+        profile = self.behavior_map.get(colonist.id, BehaviorProfile())
+        behavior_pressure = compute_action_perturbation(
+            psych.stress if psych else 0.0,
+            psych.morale if psych else 0.5,
+            psych.purpose if psych else 0.5,
+            profile, ACTIONS,
+        ) if psych else {}
+        for act in ACTIONS:
+            combined = (cultural_pressure.get(act, 0.0)
+                        + econ_pressure.get(act, 0.0)
+                        + behavior_pressure.get(act, 0.0))
             if act in weights:
-                weights[act] = max(0.01, weights[act] + delta)
+                weights[act] = max(0.01, weights[act] + combined)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -696,6 +712,43 @@ class Mars100Engine:
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
 
+        # --- behavior: social contagion (frozen snapshot, simultaneous) ---
+        frozen_psych = {cid: self.psych_map[cid].to_dict()
+                        for cid in active_ids if cid in self.psych_map}
+        contagion_deltas: list[ContagionDelta] = []
+        for c in active:
+            trust_pairs = [
+                (oid, self.social.get(c.id, oid).trust)
+                for oid in active_ids if oid != c.id
+            ]
+            cd = compute_social_contagion(c.id, frozen_psych, trust_pairs)
+            contagion_deltas.append(cd)
+        for cd in contagion_deltas:
+            ps = self.psych_map.get(cd.colonist_id)
+            if ps is not None:
+                ps.stress = max(0.0, min(1.0, ps.stress + cd.stress_delta))
+                ps.loneliness = max(0.0, min(1.0,
+                    ps.loneliness + cd.loneliness_delta))
+                ps.purpose = max(0.0, min(1.0,
+                    ps.purpose + cd.purpose_delta))
+
+        # --- behavior: update learned preferences from action outcomes ---
+        behavior_result = BehaviorTickResult(
+            contagion=[cd.to_dict() for cd in contagion_deltas])
+        for cid, action in actions.items():
+            profile = self.behavior_map.get(cid)
+            if profile is None:
+                profile = BehaviorProfile()
+                self.behavior_map[cid] = profile
+            updated = update_learned_preferences(
+                profile, action, resource_delta)
+            behavior_result.learned_updates[cid] = updated
+            ps = self.psych_map.get(cid)
+            if ps:
+                perturb = compute_action_perturbation(
+                    ps.stress, ps.morale, ps.purpose, profile, ACTIONS)
+                behavior_result.perturbations[cid] = perturb
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -832,6 +885,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            behavior=behavior_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -872,6 +926,7 @@ class Mars100Engine:
             final_earth=self.earth.to_dict(),
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
+            final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
