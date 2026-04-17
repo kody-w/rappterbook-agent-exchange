@@ -1,0 +1,6135 @@
+{
+  "_meta": {
+    "engine": "mars-100",
+    "version": "1.0",
+    "year": 75,
+    "timestamp": "2026-04-17T00:39:56.617287+00:00"
+  },
+  "seed": 42,
+  "year": 75,
+  "resources": {
+    "food": 1829.0,
+    "water": 255.4,
+    "power": 348.6,
+    "oxygen": 561.5,
+    "materials": 50.5
+  },
+  "environment": {
+    "temperature_c": -60.0,
+    "pressure_kpa": 0.636,
+    "dust_opacity": 0.3,
+    "terraform_progress": 0.9255000000000019
+  },
+  "colonists": [
+    {
+      "id": "ares",
+      "name": "Ares",
+      "element": "fire",
+      "role": "commander",
+      "stats": {
+        "resolve": 0.9490852171696922,
+        "improvisation": 0.36404320437324467,
+        "empathy": 0.35341496004128314,
+        "hoarding": 0.2530004993913927,
+        "faith": 0.12850708182722015,
+        "paranoia": 0.6544079105961553
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.4,
+        "coding": 0.3,
+        "prayer": 0.1,
+        "sabotage": 0.5
+      },
+      "alive": false,
+      "health": 0.805,
+      "morale": 0.927,
+      "years_alive": 63,
+      "actions_taken": [
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research"
+      ],
+      "diary": [
+        "Year 55: Proposed a new way to govern ourselves.",
+        "Year 56: Made progress on the terraform model.",
+        "Year 57: Made progress on the terraform model.",
+        "Year 58: Expanded the habitat module.",
+        "Year 59: Made progress on the terraform model.",
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Expanded the habitat module.",
+        "Year 62: Made progress on the terraform model.",
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model."
+      ],
+      "votes": {
+        "direct_democracy": 1,
+        "meditation_mandate": -1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 40,
+          "proposer": "ares",
+          "proposal": "direct_democracy",
+          "votes_for": 8,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 59,
+            "satisfaction": 54,
+            "efficiency": 52,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 45,
+          "proposer": "ares",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 49,
+            "satisfaction": 51,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "ares",
+          "proposal": "exile_vote",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "exile_vote",
+            "stability": 41,
+            "satisfaction": 47,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "ares",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 50,
+            "satisfaction": 51,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "ares",
+          "proposal": "exile_vote",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "exile_vote",
+            "stability": 50,
+            "satisfaction": 45,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.2 0.5) \"farm\"\n       (if (> 0.5 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.3 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.6 0.6) \"sabotage\"\n       (if (> 0.9 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.3 0.6) \"mediate\"\n       (if (> 0.2 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.4 0.7) \"explore\"\n       (if (> 0.3 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.4 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 40,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 59,
+            "satisfaction": 54,
+            "efficiency": 52,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 45,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 49,
+            "satisfaction": 51,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "exile_vote",
+          "result": {
+            "proposal": "exile_vote",
+            "stability": 41,
+            "satisfaction": 47,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 50,
+            "satisfaction": 51,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "exile_vote",
+          "result": {
+            "proposal": "exile_vote",
+            "stability": 50,
+            "satisfaction": 45,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "lyra",
+      "name": "Lyra",
+      "element": "air",
+      "role": "diplomat",
+      "stats": {
+        "resolve": 0.5239792809491407,
+        "improvisation": 0.7936676722251133,
+        "empathy": 0.9443852597545873,
+        "hoarding": 0.22953203322116073,
+        "faith": 0.38412781256650635,
+        "paranoia": 0.37846499555811786
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.3,
+        "mediation": 0.9,
+        "coding": 0.2,
+        "prayer": 0.4,
+        "sabotage": 0.0
+      },
+      "alive": false,
+      "health": 0.845,
+      "morale": 1.0,
+      "years_alive": 69,
+      "actions_taken": [
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance"
+      ],
+      "diary": [
+        "Year 61: Expanded the habitat module.",
+        "Year 62: Made progress on the terraform model.",
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Made progress on the terraform model.",
+        "Year 67: Made progress on the terraform model.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Made progress on the terraform model.",
+        "Year 70: Proposed a new way to govern ourselves."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "surveillance_system": 1,
+        "meritocracy": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 50,
+          "proposer": "lyra",
+          "proposal": "expand_solar",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "lyra",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 43,
+            "satisfaction": 47,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "lyra",
+          "proposal": "direct_democracy",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 66,
+            "satisfaction": 52,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "lyra",
+          "proposal": "expand_solar",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 63,
+            "satisfaction": 52,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "lyra",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.1 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.2 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.2 0.6) \"sabotage\"\n       (if (> 0.5 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.9 0.6) \"mediate\"\n       (if (> 0.5 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.6 0.7) \"explore\"\n       (if (> 0.1 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.9 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 50,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 43,
+            "satisfaction": 47,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 66,
+            "satisfaction": 52,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 63,
+            "satisfaction": 52,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "thane",
+      "name": "Thane",
+      "element": "earth",
+      "role": "engineer",
+      "stats": {
+        "resolve": 0.44579285795857737,
+        "improvisation": 0.0,
+        "empathy": 0.4875647244822107,
+        "hoarding": 0.7654376408454088,
+        "faith": 0.18214445886893754,
+        "paranoia": 0.30325090049069786
+      },
+      "skills": {
+        "terraforming": 0.8,
+        "hydroponics": 0.4,
+        "mediation": 0.2,
+        "coding": 0.7,
+        "prayer": 0.0,
+        "sabotage": 0.2
+      },
+      "alive": false,
+      "health": 0.935,
+      "morale": 0.975,
+      "years_alive": 68,
+      "actions_taken": [
+        "propose-governance",
+        "repair",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "repair",
+        "farm",
+        "propose-governance",
+        "repair",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "repair",
+        "farm"
+      ],
+      "diary": [
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Fixed critical systems after solar_flare.",
+        "Year 62: Tended the greenhouses. resource_strike tested us.",
+        "Year 63: Tended the greenhouses. supply_ship tested us.",
+        "Year 64: Tended the greenhouses. dust_storm tested us.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Tended the greenhouses. supply_ship tested us.",
+        "Year 67: Tended the greenhouses. earth_contact tested us.",
+        "Year 68: Fixed critical systems after equipment_failure.",
+        "Year 69: Tended the greenhouses. supply_ship tested us."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": -1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 45,
+          "proposer": "thane",
+          "proposal": "elect_council",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 63,
+            "satisfaction": 64,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "thane",
+          "proposal": "power_conservation",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 46,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "thane",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 69,
+            "satisfaction": 58,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "thane",
+          "proposal": "meritocracy",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 60,
+            "satisfaction": 53,
+            "efficiency": 44,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "thane",
+          "proposal": "meritocracy",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 58,
+            "satisfaction": 47,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.4 0.5) \"farm\"\n       (if (> 0.8 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.7 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.4 0.6) \"sabotage\"\n       (if (> 0.7 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.4 0.6) \"mediate\"\n       (if (> 0.1 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.3 0.7) \"explore\"\n       (if (> 0.8 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.2 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 45,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 63,
+            "satisfaction": 64,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 46,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 69,
+            "satisfaction": 58,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 60,
+            "satisfaction": 53,
+            "efficiency": 44,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 58,
+            "satisfaction": 47,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "vex",
+      "name": "Vex",
+      "element": "fire",
+      "role": "security",
+      "stats": {
+        "resolve": 0.8890673781312898,
+        "improvisation": 0.6599188881852075,
+        "empathy": 0.09477118684399898,
+        "hoarding": 0.5785753756232513,
+        "faith": 0.10792387306720297,
+        "paranoia": 1.0
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.1,
+        "mediation": 0.3,
+        "coding": 0.5,
+        "prayer": 0.0,
+        "sabotage": 0.8
+      },
+      "alive": false,
+      "health": 0.817,
+      "morale": 0.787,
+      "years_alive": 37,
+      "actions_taken": [
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "build",
+        "propose-governance",
+        "research",
+        "build",
+        "research",
+        "research",
+        "build",
+        "research",
+        "build",
+        "research",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research"
+      ],
+      "diary": [
+        "Year 29: Made progress on the terraform model.",
+        "Year 30: Expanded the habitat module.",
+        "Year 31: Made progress on the terraform model.",
+        "Year 32: Expanded the habitat module.",
+        "Year 33: Made progress on the terraform model.",
+        "Year 34: Made progress on the terraform model.",
+        "Year 35: Proposed a new way to govern ourselves.",
+        "Year 36: Expanded the habitat module.",
+        "Year 37: Made progress on the terraform model.",
+        "Year 38: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": -1,
+        "meditation_mandate": -1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "consensus_rule": 1,
+        "power_conservation": -1,
+        "care_rotation": 1,
+        "expand_solar": -1,
+        "surveillance_system": 1
+      },
+      "proposals_made": [
+        {
+          "year": 10,
+          "proposer": "vex",
+          "proposal": "surveillance_system",
+          "votes_for": 8,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "surveillance_system",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 15,
+          "proposer": "vex",
+          "proposal": "power_conservation",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposer": "vex",
+          "proposal": "elect_council",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 57,
+            "satisfaction": 49,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposer": "vex",
+          "proposal": "surveillance_system",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "surveillance_system",
+            "stability": 64,
+            "satisfaction": 48,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposer": "vex",
+          "proposal": "expand_solar",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 44,
+            "satisfaction": 54,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.1 0.5) \"farm\"\n       (if (> 0.6 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.5 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.9 0.6) \"sabotage\"\n       (if (> 0.8 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.2 0.6) \"mediate\"\n       (if (> 0.1 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.5 0.7) \"explore\"\n       (if (> 0.2 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.3 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 10,
+          "proposal": "surveillance_system",
+          "result": {
+            "proposal": "surveillance_system",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 15,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 57,
+            "satisfaction": 49,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposal": "surveillance_system",
+          "result": {
+            "proposal": "surveillance_system",
+            "stability": 64,
+            "satisfaction": 48,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 44,
+            "satisfaction": 54,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "sera",
+      "name": "Sera",
+      "element": "water",
+      "role": "biologist",
+      "stats": {
+        "resolve": 0.31218734682559474,
+        "improvisation": 0.6284541609269128,
+        "empathy": 0.7836651239404197,
+        "hoarding": 0.19181076740589403,
+        "faith": 0.7436699087630569,
+        "paranoia": 0.15635869214902082
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.9,
+        "mediation": 0.5,
+        "coding": 0.1,
+        "prayer": 0.7,
+        "sabotage": 0.0
+      },
+      "alive": false,
+      "health": 0.806,
+      "morale": 1.0,
+      "years_alive": 42,
+      "actions_taken": [
+        "build",
+        "propose-governance",
+        "research",
+        "build",
+        "research",
+        "research",
+        "build",
+        "research",
+        "build",
+        "research",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "build",
+        "propose-governance",
+        "research",
+        "build",
+        "research"
+      ],
+      "diary": [
+        "Year 34: Made progress on the terraform model.",
+        "Year 35: Proposed a new way to govern ourselves.",
+        "Year 36: Expanded the habitat module.",
+        "Year 37: Made progress on the terraform model.",
+        "Year 38: Made progress on the terraform model.",
+        "Year 39: Expanded the habitat module.",
+        "Year 40: Proposed a new way to govern ourselves.",
+        "Year 41: Made progress on the terraform model.",
+        "Year 42: Expanded the habitat module.",
+        "Year 43: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 15,
+          "proposer": "sera",
+          "proposal": "direct_democracy",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 41,
+            "satisfaction": 61,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposer": "sera",
+          "proposal": "consensus_rule",
+          "votes_for": 7,
+          "votes_against": 2,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "consensus_rule",
+            "stability": 68,
+            "satisfaction": 61,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposer": "sera",
+          "proposal": "consensus_rule",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "consensus_rule",
+            "stability": 60,
+            "satisfaction": 62,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposer": "sera",
+          "proposal": "direct_democracy",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 60,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 40,
+          "proposer": "sera",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 40,
+            "satisfaction": 58,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.9 0.5) \"farm\"\n       (if (> 0.2 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.1 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.3 0.6) \"sabotage\"\n       (if (> 0.4 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.7 0.6) \"mediate\"\n       (if (> 0.8 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.7 0.7) \"explore\"\n       (if (> 0.5 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.5 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 15,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 41,
+            "satisfaction": 61,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposal": "consensus_rule",
+          "result": {
+            "proposal": "consensus_rule",
+            "stability": 68,
+            "satisfaction": 61,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposal": "consensus_rule",
+          "result": {
+            "proposal": "consensus_rule",
+            "stability": 60,
+            "satisfaction": 62,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 60,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 40,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 40,
+            "satisfaction": 58,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "kai",
+      "name": "Kai",
+      "element": "air",
+      "role": "architect",
+      "stats": {
+        "resolve": 0.4510725256220403,
+        "improvisation": 0.9456445178730191,
+        "empathy": 0.5378999339211796,
+        "hoarding": 0.3259783641860342,
+        "faith": 0.2638677158057759,
+        "paranoia": 0.43143900274524377
+      },
+      "skills": {
+        "terraforming": 0.7,
+        "hydroponics": 0.3,
+        "mediation": 0.4,
+        "coding": 0.8,
+        "prayer": 0.1,
+        "sabotage": 0.1
+      },
+      "alive": false,
+      "health": 0.901,
+      "morale": 0.975,
+      "years_alive": 68,
+      "actions_taken": [
+        "propose-governance",
+        "repair",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "repair",
+        "explore",
+        "propose-governance",
+        "repair",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "repair",
+        "explore"
+      ],
+      "diary": [
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Fixed critical systems after solar_flare.",
+        "Year 62: Ventured beyond the hab. The resource_strike reminded me why.",
+        "Year 63: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 64: Ventured beyond the hab. The dust_storm reminded me why.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 67: Ventured beyond the hab. The earth_contact reminded me why.",
+        "Year 68: Fixed critical systems after equipment_failure.",
+        "Year 69: Ventured beyond the hab. The supply_ship reminded me why."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": -1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 45,
+          "proposer": "kai",
+          "proposal": "elect_council",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 60,
+            "satisfaction": 57,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "kai",
+          "proposal": "meritocracy",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 63,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "kai",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 68,
+            "satisfaction": 47,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "kai",
+          "proposal": "elect_council",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 52,
+            "satisfaction": 47,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "kai",
+          "proposal": "power_conservation",
+          "votes_for": 5,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 47,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.3 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.8 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.4 0.6) \"sabotage\"\n       (if (> 0.6 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.5 0.6) \"mediate\"\n       (if (> 0.3 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.9 0.7) \"explore\"\n       (if (> 0.7 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.4 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 45,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 60,
+            "satisfaction": 57,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 63,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 68,
+            "satisfaction": 47,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 52,
+            "satisfaction": 47,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 47,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "nova",
+      "name": "Nova",
+      "element": "fire",
+      "role": "geologist",
+      "stats": {
+        "resolve": 0.8456504451032355,
+        "improvisation": 0.24028713126698104,
+        "empathy": 0.21865608479966042,
+        "hoarding": 0.633378076146794,
+        "faith": 0.21045580361116004,
+        "paranoia": 0.376393006960268
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.2,
+        "mediation": 0.3,
+        "coding": 0.4,
+        "prayer": 0.2,
+        "sabotage": 0.3
+      },
+      "alive": false,
+      "health": 0.84,
+      "morale": 0.975,
+      "years_alive": 68,
+      "actions_taken": [
+        "propose-governance",
+        "build",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "build",
+        "farm",
+        "propose-governance",
+        "build",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "build",
+        "farm"
+      ],
+      "diary": [
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Expanded the habitat module.",
+        "Year 62: Tended the greenhouses. resource_strike tested us.",
+        "Year 63: Tended the greenhouses. supply_ship tested us.",
+        "Year 64: Tended the greenhouses. dust_storm tested us.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Tended the greenhouses. supply_ship tested us.",
+        "Year 67: Tended the greenhouses. earth_contact tested us.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Tended the greenhouses. supply_ship tested us."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": -1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 45,
+          "proposer": "nova",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 48,
+            "satisfaction": 45,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "nova",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 56,
+            "satisfaction": 57,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "nova",
+          "proposal": "power_conservation",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 58,
+            "satisfaction": 60,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "nova",
+          "proposal": "power_conservation",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "nova",
+          "proposal": "expand_solar",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.2 0.5) \"farm\"\n       (if (> 0.4 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.4 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.5 0.6) \"sabotage\"\n       (if (> 0.8 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.4 0.6) \"mediate\"\n       (if (> 0.3 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.6 0.7) \"explore\"\n       (if (> 0.9 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.3 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 45,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 48,
+            "satisfaction": 45,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 56,
+            "satisfaction": 57,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 58,
+            "satisfaction": 60,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "mira",
+      "name": "Mira",
+      "element": "water",
+      "role": "medic",
+      "stats": {
+        "resolve": 0.358859726303638,
+        "improvisation": 0.8896703443743303,
+        "empathy": 0.9923710567784773,
+        "hoarding": 0.04320730637009939,
+        "faith": 0.5630655827308091,
+        "paranoia": 0.31772720814246486
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.6,
+        "mediation": 0.8,
+        "coding": 0.3,
+        "prayer": 0.5,
+        "sabotage": 0.0
+      },
+      "alive": false,
+      "health": 0.909,
+      "morale": 1.0,
+      "years_alive": 71,
+      "actions_taken": [
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "research",
+        "research"
+      ],
+      "diary": [
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Made progress on the terraform model.",
+        "Year 67: Made progress on the terraform model.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Made progress on the terraform model.",
+        "Year 70: Proposed a new way to govern ourselves.",
+        "Year 71: Made progress on the terraform model.",
+        "Year 72: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "power_conservation": 1,
+        "expand_solar": 1,
+        "consensus_rule": 1,
+        "care_rotation": 1
+      },
+      "proposals_made": [
+        {
+          "year": 50,
+          "proposer": "mira",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "mira",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 68,
+            "satisfaction": 56,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "mira",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 58,
+            "satisfaction": 61,
+            "efficiency": 54,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "mira",
+          "proposal": "elect_council",
+          "votes_for": 5,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 54,
+            "satisfaction": 54,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "mira",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 51,
+            "satisfaction": 51,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.6 0.5) \"farm\"\n       (if (> 0.1 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.3 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.2 0.6) \"sabotage\"\n       (if (> 0.5 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.9 0.6) \"mediate\"\n       (if (> 0.6 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.7 0.7) \"explore\"\n       (if (> 0.2 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.8 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 50,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 68,
+            "satisfaction": 56,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 58,
+            "satisfaction": 61,
+            "efficiency": 54,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 54,
+            "satisfaction": 54,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 51,
+            "satisfaction": 51,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "orion",
+      "name": "Orion",
+      "element": "earth",
+      "role": "programmer",
+      "stats": {
+        "resolve": 0.6810737188593928,
+        "improvisation": 0.3560944984894676,
+        "empathy": 0.4127586295170114,
+        "hoarding": 0.6040092933160192,
+        "faith": 0.02443173273072252,
+        "paranoia": 0.4295478994100346
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.9,
+        "prayer": 0.1,
+        "sabotage": 0.4
+      },
+      "alive": false,
+      "health": 0.918,
+      "morale": 1.0,
+      "years_alive": 70,
+      "actions_taken": [
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "repair",
+        "research",
+        "propose-governance",
+        "repair",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "repair",
+        "research",
+        "propose-governance",
+        "research"
+      ],
+      "diary": [
+        "Year 62: Made progress on the terraform model.",
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Made progress on the terraform model.",
+        "Year 67: Made progress on the terraform model.",
+        "Year 68: Fixed critical systems after equipment_failure.",
+        "Year 69: Made progress on the terraform model.",
+        "Year 70: Proposed a new way to govern ourselves.",
+        "Year 71: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": -1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 50,
+          "proposer": "orion",
+          "proposal": "meritocracy",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 67,
+            "satisfaction": 65,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "orion",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 40,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "orion",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 51,
+            "satisfaction": 53,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "orion",
+          "proposal": "elect_council",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 44,
+            "satisfaction": 46,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "orion",
+          "proposal": "meritocracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 48,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.2 0.5) \"farm\"\n       (if (> 0.5 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.9 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.7 0.6) \"sabotage\"\n       (if (> 0.6 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.3 0.6) \"mediate\"\n       (if (> 0.2 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.5 0.7) \"explore\"\n       (if (> 0.3 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.2 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 50,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 67,
+            "satisfaction": 65,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 40,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 51,
+            "satisfaction": 53,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 44,
+            "satisfaction": 46,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 48,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "zeph",
+      "name": "Zeph",
+      "element": "air",
+      "role": "pilot",
+      "stats": {
+        "resolve": 0.8510451746125055,
+        "improvisation": 0.8107159782717827,
+        "empathy": 0.5696884081297773,
+        "hoarding": 0.2909761446948239,
+        "faith": 0.28788821656919417,
+        "paranoia": 0.29642310861858306
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.3,
+        "mediation": 0.6,
+        "coding": 0.5,
+        "prayer": 0.3,
+        "sabotage": 0.1
+      },
+      "alive": false,
+      "health": 0.801,
+      "morale": 0.91,
+      "years_alive": 74,
+      "actions_taken": [
+        "explore",
+        "explore",
+        "build",
+        "explore",
+        "propose-governance",
+        "build",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "build",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance"
+      ],
+      "diary": [
+        "Year 66: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 67: Ventured beyond the hab. The earth_contact reminded me why.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 70: Proposed a new way to govern ourselves.",
+        "Year 71: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 72: Ventured beyond the hab. The earth_contact reminded me why.",
+        "Year 73: Ventured beyond the hab. The resource_strike reminded me why.",
+        "Year 74: Ventured beyond the hab. The resource_strike reminded me why.",
+        "Year 75: Proposed a new way to govern ourselves."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 55,
+          "proposer": "zeph",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 48,
+            "satisfaction": 62,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "zeph",
+          "proposal": "meritocracy",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 45,
+            "satisfaction": 47,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "zeph",
+          "proposal": "meritocracy",
+          "votes_for": 5,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 70,
+            "satisfaction": 57,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "zeph",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 63,
+            "efficiency": 51,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 75,
+          "proposer": "zeph",
+          "proposal": "elect_council",
+          "votes_for": 0,
+          "votes_against": 0,
+          "adopted": false,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 46,
+            "satisfaction": 48,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.2 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.5 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.3 0.6) \"sabotage\"\n       (if (> 0.7 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.6 0.6) \"mediate\"\n       (if (> 0.4 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.8 0.7) \"explore\"\n       (if (> 0.4 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.6 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 55,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 48,
+            "satisfaction": 62,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 45,
+            "satisfaction": 47,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 70,
+            "satisfaction": 57,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 63,
+            "efficiency": 51,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 75,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 46,
+            "satisfaction": 48,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ]
+    }
+  ],
+  "relationships": {},
+  "governance": [
+    {
+      "year": 40,
+      "proposer": "sera",
+      "proposal": "care_rotation",
+      "votes_for": 7,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "care_rotation",
+        "stability": 40,
+        "satisfaction": 58,
+        "efficiency": 42,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 40,
+      "proposer": "kai",
+      "proposal": "direct_democracy",
+      "votes_for": 7,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 61,
+        "satisfaction": 64,
+        "efficiency": 49,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 40,
+      "proposer": "nova",
+      "proposal": "direct_democracy",
+      "votes_for": 8,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 60,
+        "satisfaction": 57,
+        "efficiency": 62,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 40,
+      "proposer": "mira",
+      "proposal": "care_rotation",
+      "votes_for": 7,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "care_rotation",
+        "stability": 66,
+        "satisfaction": 57,
+        "efficiency": 60,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 40,
+      "proposer": "orion",
+      "proposal": "surveillance_system",
+      "votes_for": 8,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "surveillance_system",
+        "stability": 65,
+        "satisfaction": 45,
+        "efficiency": 58,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 40,
+      "proposer": "zeph",
+      "proposal": "elect_council",
+      "votes_for": 7,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 56,
+        "satisfaction": 61,
+        "efficiency": 52,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "ares",
+      "proposal": "expand_solar",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 49,
+        "satisfaction": 51,
+        "efficiency": 61,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "lyra",
+      "proposal": "meritocracy",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 57,
+        "satisfaction": 64,
+        "efficiency": 51,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "thane",
+      "proposal": "elect_council",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 63,
+        "satisfaction": 64,
+        "efficiency": 56,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "kai",
+      "proposal": "elect_council",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 60,
+        "satisfaction": 57,
+        "efficiency": 48,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "nova",
+      "proposal": "expand_solar",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 48,
+        "satisfaction": 45,
+        "efficiency": 59,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "mira",
+      "proposal": "meritocracy",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 41,
+        "satisfaction": 46,
+        "efficiency": 51,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "orion",
+      "proposal": "meritocracy",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 66,
+        "satisfaction": 45,
+        "efficiency": 58,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 45,
+      "proposer": "zeph",
+      "proposal": "expand_solar",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 69,
+        "satisfaction": 46,
+        "efficiency": 60,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "ares",
+      "proposal": "exile_vote",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "exile_vote",
+        "stability": 41,
+        "satisfaction": 47,
+        "efficiency": 50,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "lyra",
+      "proposal": "expand_solar",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 61,
+        "satisfaction": 54,
+        "efficiency": 53,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "thane",
+      "proposal": "power_conservation",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 42,
+        "satisfaction": 46,
+        "efficiency": 58,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "kai",
+      "proposal": "meritocracy",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 52,
+        "satisfaction": 63,
+        "efficiency": 57,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "nova",
+      "proposal": "power_conservation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 56,
+        "satisfaction": 57,
+        "efficiency": 49,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "mira",
+      "proposal": "care_rotation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "care_rotation",
+        "stability": 46,
+        "satisfaction": 65,
+        "efficiency": 49,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "orion",
+      "proposal": "meritocracy",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 67,
+        "satisfaction": 65,
+        "efficiency": 46,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 50,
+      "proposer": "zeph",
+      "proposal": "meritocracy",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 51,
+        "satisfaction": 59,
+        "efficiency": 43,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "ares",
+      "proposal": "expand_solar",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 50,
+        "satisfaction": 51,
+        "efficiency": 50,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "lyra",
+      "proposal": "care_rotation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "care_rotation",
+        "stability": 43,
+        "satisfaction": 47,
+        "efficiency": 60,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "thane",
+      "proposal": "power_conservation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 69,
+        "satisfaction": 58,
+        "efficiency": 43,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "kai",
+      "proposal": "expand_solar",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 68,
+        "satisfaction": 47,
+        "efficiency": 61,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "nova",
+      "proposal": "power_conservation",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 58,
+        "satisfaction": 60,
+        "efficiency": 42,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "mira",
+      "proposal": "care_rotation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "care_rotation",
+        "stability": 68,
+        "satisfaction": 56,
+        "efficiency": 48,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "orion",
+      "proposal": "expand_solar",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 40,
+        "satisfaction": 54,
+        "efficiency": 50,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 55,
+      "proposer": "zeph",
+      "proposal": "power_conservation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 48,
+        "satisfaction": 62,
+        "efficiency": 57,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "ares",
+      "proposal": "exile_vote",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "exile_vote",
+        "stability": 50,
+        "satisfaction": 45,
+        "efficiency": 57,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "lyra",
+      "proposal": "direct_democracy",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 66,
+        "satisfaction": 52,
+        "efficiency": 56,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "thane",
+      "proposal": "meritocracy",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 60,
+        "satisfaction": 53,
+        "efficiency": 44,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "kai",
+      "proposal": "elect_council",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 52,
+        "satisfaction": 47,
+        "efficiency": 48,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "nova",
+      "proposal": "power_conservation",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 42,
+        "satisfaction": 59,
+        "efficiency": 57,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "mira",
+      "proposal": "expand_solar",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 58,
+        "satisfaction": 61,
+        "efficiency": 54,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "orion",
+      "proposal": "power_conservation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 51,
+        "satisfaction": 53,
+        "efficiency": 57,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "zeph",
+      "proposal": "meritocracy",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 45,
+        "satisfaction": 47,
+        "efficiency": 59,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "lyra",
+      "proposal": "expand_solar",
+      "votes_for": 6,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 63,
+        "satisfaction": 52,
+        "efficiency": 55,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "thane",
+      "proposal": "meritocracy",
+      "votes_for": 6,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 58,
+        "satisfaction": 47,
+        "efficiency": 46,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "kai",
+      "proposal": "power_conservation",
+      "votes_for": 5,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 53,
+        "satisfaction": 56,
+        "efficiency": 47,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "nova",
+      "proposal": "expand_solar",
+      "votes_for": 6,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "expand_solar",
+        "stability": 53,
+        "satisfaction": 56,
+        "efficiency": 53,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "mira",
+      "proposal": "elect_council",
+      "votes_for": 5,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 54,
+        "satisfaction": 54,
+        "efficiency": 56,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "orion",
+      "proposal": "elect_council",
+      "votes_for": 6,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 44,
+        "satisfaction": 46,
+        "efficiency": 60,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "zeph",
+      "proposal": "meritocracy",
+      "votes_for": 5,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 70,
+        "satisfaction": 57,
+        "efficiency": 58,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 70,
+      "proposer": "lyra",
+      "proposal": "direct_democracy",
+      "votes_for": 3,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 61,
+        "satisfaction": 54,
+        "efficiency": 50,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 70,
+      "proposer": "mira",
+      "proposal": "direct_democracy",
+      "votes_for": 3,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 51,
+        "satisfaction": 51,
+        "efficiency": 55,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 70,
+      "proposer": "orion",
+      "proposal": "meritocracy",
+      "votes_for": 3,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 52,
+        "satisfaction": 48,
+        "efficiency": 57,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 70,
+      "proposer": "zeph",
+      "proposal": "direct_democracy",
+      "votes_for": 3,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 61,
+        "satisfaction": 63,
+        "efficiency": 51,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 75,
+      "proposer": "zeph",
+      "proposal": "elect_council",
+      "votes_for": 0,
+      "votes_against": 0,
+      "adopted": false,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 46,
+        "satisfaction": 48,
+        "efficiency": 43,
+        "viable": true,
+        "depth": 1
+      }
+    }
+  ],
+  "archived_souls": [
+    {
+      "id": "vex",
+      "name": "Vex",
+      "element": "fire",
+      "role": "security",
+      "stats": {
+        "resolve": 0.8890673781312898,
+        "improvisation": 0.6599188881852075,
+        "empathy": 0.09477118684399898,
+        "hoarding": 0.5785753756232513,
+        "faith": 0.10792387306720297,
+        "paranoia": 1.0
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.1,
+        "mediation": 0.3,
+        "coding": 0.5,
+        "prayer": 0.0,
+        "sabotage": 0.8
+      },
+      "alive": false,
+      "health": 0.817,
+      "morale": 0.787,
+      "years_alive": 37,
+      "actions_taken": [
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "build",
+        "propose-governance",
+        "research",
+        "build",
+        "research",
+        "research",
+        "build",
+        "research",
+        "build",
+        "research",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research"
+      ],
+      "diary": [
+        "Year 29: Made progress on the terraform model.",
+        "Year 30: Expanded the habitat module.",
+        "Year 31: Made progress on the terraform model.",
+        "Year 32: Expanded the habitat module.",
+        "Year 33: Made progress on the terraform model.",
+        "Year 34: Made progress on the terraform model.",
+        "Year 35: Proposed a new way to govern ourselves.",
+        "Year 36: Expanded the habitat module.",
+        "Year 37: Made progress on the terraform model.",
+        "Year 38: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": -1,
+        "meditation_mandate": -1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "consensus_rule": 1,
+        "power_conservation": -1,
+        "care_rotation": 1,
+        "expand_solar": -1,
+        "surveillance_system": 1
+      },
+      "proposals_made": [
+        {
+          "year": 10,
+          "proposer": "vex",
+          "proposal": "surveillance_system",
+          "votes_for": 8,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "surveillance_system",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 15,
+          "proposer": "vex",
+          "proposal": "power_conservation",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposer": "vex",
+          "proposal": "elect_council",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 57,
+            "satisfaction": 49,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposer": "vex",
+          "proposal": "surveillance_system",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "surveillance_system",
+            "stability": 64,
+            "satisfaction": 48,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposer": "vex",
+          "proposal": "expand_solar",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 44,
+            "satisfaction": 54,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.1 0.5) \"farm\"\n       (if (> 0.6 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.5 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.9 0.6) \"sabotage\"\n       (if (> 0.8 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.2 0.6) \"mediate\"\n       (if (> 0.1 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.5 0.7) \"explore\"\n       (if (> 0.2 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.3 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 10,
+          "proposal": "surveillance_system",
+          "result": {
+            "proposal": "surveillance_system",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 15,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 57,
+            "satisfaction": 49,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposal": "surveillance_system",
+          "result": {
+            "proposal": "surveillance_system",
+            "stability": 64,
+            "satisfaction": 48,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 44,
+            "satisfaction": 54,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 38,
+      "death_cause": "accident",
+      "epitaph": "Vex (fire), security. Survived 37 Mars years."
+    },
+    {
+      "id": "sera",
+      "name": "Sera",
+      "element": "water",
+      "role": "biologist",
+      "stats": {
+        "resolve": 0.31218734682559474,
+        "improvisation": 0.6284541609269128,
+        "empathy": 0.7836651239404197,
+        "hoarding": 0.19181076740589403,
+        "faith": 0.7436699087630569,
+        "paranoia": 0.15635869214902082
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.9,
+        "mediation": 0.5,
+        "coding": 0.1,
+        "prayer": 0.7,
+        "sabotage": 0.0
+      },
+      "alive": false,
+      "health": 0.806,
+      "morale": 1.0,
+      "years_alive": 42,
+      "actions_taken": [
+        "build",
+        "propose-governance",
+        "research",
+        "build",
+        "research",
+        "research",
+        "build",
+        "research",
+        "build",
+        "research",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "build",
+        "propose-governance",
+        "research",
+        "build",
+        "research"
+      ],
+      "diary": [
+        "Year 34: Made progress on the terraform model.",
+        "Year 35: Proposed a new way to govern ourselves.",
+        "Year 36: Expanded the habitat module.",
+        "Year 37: Made progress on the terraform model.",
+        "Year 38: Made progress on the terraform model.",
+        "Year 39: Expanded the habitat module.",
+        "Year 40: Proposed a new way to govern ourselves.",
+        "Year 41: Made progress on the terraform model.",
+        "Year 42: Expanded the habitat module.",
+        "Year 43: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 15,
+          "proposer": "sera",
+          "proposal": "direct_democracy",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 41,
+            "satisfaction": 61,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposer": "sera",
+          "proposal": "consensus_rule",
+          "votes_for": 7,
+          "votes_against": 2,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "consensus_rule",
+            "stability": 68,
+            "satisfaction": 61,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposer": "sera",
+          "proposal": "consensus_rule",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "consensus_rule",
+            "stability": 60,
+            "satisfaction": 62,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposer": "sera",
+          "proposal": "direct_democracy",
+          "votes_for": 9,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 60,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 40,
+          "proposer": "sera",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 40,
+            "satisfaction": 58,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.9 0.5) \"farm\"\n       (if (> 0.2 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.1 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.3 0.6) \"sabotage\"\n       (if (> 0.4 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.7 0.6) \"mediate\"\n       (if (> 0.8 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.7 0.7) \"explore\"\n       (if (> 0.5 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.5 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 15,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 41,
+            "satisfaction": 61,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 20,
+          "proposal": "consensus_rule",
+          "result": {
+            "proposal": "consensus_rule",
+            "stability": 68,
+            "satisfaction": 61,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 25,
+          "proposal": "consensus_rule",
+          "result": {
+            "proposal": "consensus_rule",
+            "stability": 60,
+            "satisfaction": 62,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 35,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 60,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 40,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 40,
+            "satisfaction": 58,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 43,
+      "death_cause": "accident",
+      "epitaph": "Sera (water), biologist. Survived 42 Mars years."
+    },
+    {
+      "id": "ares",
+      "name": "Ares",
+      "element": "fire",
+      "role": "commander",
+      "stats": {
+        "resolve": 0.9490852171696922,
+        "improvisation": 0.36404320437324467,
+        "empathy": 0.35341496004128314,
+        "hoarding": 0.2530004993913927,
+        "faith": 0.12850708182722015,
+        "paranoia": 0.6544079105961553
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.4,
+        "coding": 0.3,
+        "prayer": 0.1,
+        "sabotage": 0.5
+      },
+      "alive": false,
+      "health": 0.805,
+      "morale": 0.927,
+      "years_alive": 63,
+      "actions_taken": [
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research"
+      ],
+      "diary": [
+        "Year 55: Proposed a new way to govern ourselves.",
+        "Year 56: Made progress on the terraform model.",
+        "Year 57: Made progress on the terraform model.",
+        "Year 58: Expanded the habitat module.",
+        "Year 59: Made progress on the terraform model.",
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Expanded the habitat module.",
+        "Year 62: Made progress on the terraform model.",
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model."
+      ],
+      "votes": {
+        "direct_democracy": 1,
+        "meditation_mandate": -1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 40,
+          "proposer": "ares",
+          "proposal": "direct_democracy",
+          "votes_for": 8,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 59,
+            "satisfaction": 54,
+            "efficiency": 52,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 45,
+          "proposer": "ares",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 49,
+            "satisfaction": 51,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "ares",
+          "proposal": "exile_vote",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "exile_vote",
+            "stability": 41,
+            "satisfaction": 47,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "ares",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 50,
+            "satisfaction": 51,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "ares",
+          "proposal": "exile_vote",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "exile_vote",
+            "stability": 50,
+            "satisfaction": 45,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.2 0.5) \"farm\"\n       (if (> 0.5 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.3 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.6 0.6) \"sabotage\"\n       (if (> 0.9 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.3 0.6) \"mediate\"\n       (if (> 0.2 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.4 0.7) \"explore\"\n       (if (> 0.3 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.4 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 40,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 59,
+            "satisfaction": 54,
+            "efficiency": 52,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 45,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 49,
+            "satisfaction": 51,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "exile_vote",
+          "result": {
+            "proposal": "exile_vote",
+            "stability": 41,
+            "satisfaction": 47,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 50,
+            "satisfaction": 51,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "exile_vote",
+          "result": {
+            "proposal": "exile_vote",
+            "stability": 50,
+            "satisfaction": 45,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 64,
+      "death_cause": "old_age",
+      "epitaph": "Ares (fire), commander. Survived 63 Mars years."
+    },
+    {
+      "id": "thane",
+      "name": "Thane",
+      "element": "earth",
+      "role": "engineer",
+      "stats": {
+        "resolve": 0.44579285795857737,
+        "improvisation": 0.0,
+        "empathy": 0.4875647244822107,
+        "hoarding": 0.7654376408454088,
+        "faith": 0.18214445886893754,
+        "paranoia": 0.30325090049069786
+      },
+      "skills": {
+        "terraforming": 0.8,
+        "hydroponics": 0.4,
+        "mediation": 0.2,
+        "coding": 0.7,
+        "prayer": 0.0,
+        "sabotage": 0.2
+      },
+      "alive": false,
+      "health": 0.935,
+      "morale": 0.975,
+      "years_alive": 68,
+      "actions_taken": [
+        "propose-governance",
+        "repair",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "repair",
+        "farm",
+        "propose-governance",
+        "repair",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "repair",
+        "farm"
+      ],
+      "diary": [
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Fixed critical systems after solar_flare.",
+        "Year 62: Tended the greenhouses. resource_strike tested us.",
+        "Year 63: Tended the greenhouses. supply_ship tested us.",
+        "Year 64: Tended the greenhouses. dust_storm tested us.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Tended the greenhouses. supply_ship tested us.",
+        "Year 67: Tended the greenhouses. earth_contact tested us.",
+        "Year 68: Fixed critical systems after equipment_failure.",
+        "Year 69: Tended the greenhouses. supply_ship tested us."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": -1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 45,
+          "proposer": "thane",
+          "proposal": "elect_council",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 63,
+            "satisfaction": 64,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "thane",
+          "proposal": "power_conservation",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 46,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "thane",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 69,
+            "satisfaction": 58,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "thane",
+          "proposal": "meritocracy",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 60,
+            "satisfaction": 53,
+            "efficiency": 44,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "thane",
+          "proposal": "meritocracy",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 58,
+            "satisfaction": 47,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.4 0.5) \"farm\"\n       (if (> 0.8 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.7 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.4 0.6) \"sabotage\"\n       (if (> 0.7 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.4 0.6) \"mediate\"\n       (if (> 0.1 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.3 0.7) \"explore\"\n       (if (> 0.8 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.2 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 45,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 63,
+            "satisfaction": 64,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 46,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 69,
+            "satisfaction": 58,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 60,
+            "satisfaction": 53,
+            "efficiency": 44,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 58,
+            "satisfaction": 47,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 69,
+      "death_cause": "old_age",
+      "epitaph": "Thane (earth), engineer. Survived 68 Mars years."
+    },
+    {
+      "id": "kai",
+      "name": "Kai",
+      "element": "air",
+      "role": "architect",
+      "stats": {
+        "resolve": 0.4510725256220403,
+        "improvisation": 0.9456445178730191,
+        "empathy": 0.5378999339211796,
+        "hoarding": 0.3259783641860342,
+        "faith": 0.2638677158057759,
+        "paranoia": 0.43143900274524377
+      },
+      "skills": {
+        "terraforming": 0.7,
+        "hydroponics": 0.3,
+        "mediation": 0.4,
+        "coding": 0.8,
+        "prayer": 0.1,
+        "sabotage": 0.1
+      },
+      "alive": false,
+      "health": 0.901,
+      "morale": 0.975,
+      "years_alive": 68,
+      "actions_taken": [
+        "propose-governance",
+        "repair",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "repair",
+        "explore",
+        "propose-governance",
+        "repair",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "repair",
+        "explore"
+      ],
+      "diary": [
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Fixed critical systems after solar_flare.",
+        "Year 62: Ventured beyond the hab. The resource_strike reminded me why.",
+        "Year 63: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 64: Ventured beyond the hab. The dust_storm reminded me why.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 67: Ventured beyond the hab. The earth_contact reminded me why.",
+        "Year 68: Fixed critical systems after equipment_failure.",
+        "Year 69: Ventured beyond the hab. The supply_ship reminded me why."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": -1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 45,
+          "proposer": "kai",
+          "proposal": "elect_council",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 60,
+            "satisfaction": 57,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "kai",
+          "proposal": "meritocracy",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 63,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "kai",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 68,
+            "satisfaction": 47,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "kai",
+          "proposal": "elect_council",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 52,
+            "satisfaction": 47,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "kai",
+          "proposal": "power_conservation",
+          "votes_for": 5,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 47,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.3 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.8 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.4 0.6) \"sabotage\"\n       (if (> 0.6 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.5 0.6) \"mediate\"\n       (if (> 0.3 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.9 0.7) \"explore\"\n       (if (> 0.7 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.4 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 45,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 60,
+            "satisfaction": 57,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 63,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 68,
+            "satisfaction": 47,
+            "efficiency": 61,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 52,
+            "satisfaction": 47,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 47,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 69,
+      "death_cause": "old_age",
+      "epitaph": "Kai (air), architect. Survived 68 Mars years."
+    },
+    {
+      "id": "nova",
+      "name": "Nova",
+      "element": "fire",
+      "role": "geologist",
+      "stats": {
+        "resolve": 0.8456504451032355,
+        "improvisation": 0.24028713126698104,
+        "empathy": 0.21865608479966042,
+        "hoarding": 0.633378076146794,
+        "faith": 0.21045580361116004,
+        "paranoia": 0.376393006960268
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.2,
+        "mediation": 0.3,
+        "coding": 0.4,
+        "prayer": 0.2,
+        "sabotage": 0.3
+      },
+      "alive": false,
+      "health": 0.84,
+      "morale": 0.975,
+      "years_alive": 68,
+      "actions_taken": [
+        "propose-governance",
+        "build",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "build",
+        "farm",
+        "propose-governance",
+        "build",
+        "farm",
+        "farm",
+        "farm",
+        "propose-governance",
+        "farm",
+        "farm",
+        "build",
+        "farm"
+      ],
+      "diary": [
+        "Year 60: Proposed a new way to govern ourselves.",
+        "Year 61: Expanded the habitat module.",
+        "Year 62: Tended the greenhouses. resource_strike tested us.",
+        "Year 63: Tended the greenhouses. supply_ship tested us.",
+        "Year 64: Tended the greenhouses. dust_storm tested us.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Tended the greenhouses. supply_ship tested us.",
+        "Year 67: Tended the greenhouses. earth_contact tested us.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Tended the greenhouses. supply_ship tested us."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": -1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 45,
+          "proposer": "nova",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 48,
+            "satisfaction": 45,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposer": "nova",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 56,
+            "satisfaction": 57,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "nova",
+          "proposal": "power_conservation",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 58,
+            "satisfaction": 60,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "nova",
+          "proposal": "power_conservation",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "nova",
+          "proposal": "expand_solar",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.2 0.5) \"farm\"\n       (if (> 0.4 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.4 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.5 0.6) \"sabotage\"\n       (if (> 0.8 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.4 0.6) \"mediate\"\n       (if (> 0.3 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.6 0.7) \"explore\"\n       (if (> 0.9 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.3 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 45,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 48,
+            "satisfaction": 45,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 50,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 56,
+            "satisfaction": 57,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 58,
+            "satisfaction": 60,
+            "efficiency": 42,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 42,
+            "satisfaction": 59,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 53,
+            "satisfaction": 56,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 69,
+      "death_cause": "old_age",
+      "epitaph": "Nova (fire), geologist. Survived 68 Mars years."
+    },
+    {
+      "id": "lyra",
+      "name": "Lyra",
+      "element": "air",
+      "role": "diplomat",
+      "stats": {
+        "resolve": 0.5239792809491407,
+        "improvisation": 0.7936676722251133,
+        "empathy": 0.9443852597545873,
+        "hoarding": 0.22953203322116073,
+        "faith": 0.38412781256650635,
+        "paranoia": 0.37846499555811786
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.3,
+        "mediation": 0.9,
+        "coding": 0.2,
+        "prayer": 0.4,
+        "sabotage": 0.0
+      },
+      "alive": false,
+      "health": 0.845,
+      "morale": 1.0,
+      "years_alive": 69,
+      "actions_taken": [
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance"
+      ],
+      "diary": [
+        "Year 61: Expanded the habitat module.",
+        "Year 62: Made progress on the terraform model.",
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Made progress on the terraform model.",
+        "Year 67: Made progress on the terraform model.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Made progress on the terraform model.",
+        "Year 70: Proposed a new way to govern ourselves."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "surveillance_system": 1,
+        "meritocracy": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 50,
+          "proposer": "lyra",
+          "proposal": "expand_solar",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "lyra",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 43,
+            "satisfaction": 47,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "lyra",
+          "proposal": "direct_democracy",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 66,
+            "satisfaction": 52,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "lyra",
+          "proposal": "expand_solar",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 63,
+            "satisfaction": 52,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "lyra",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.1 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.2 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.2 0.6) \"sabotage\"\n       (if (> 0.5 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.9 0.6) \"mediate\"\n       (if (> 0.5 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.6 0.7) \"explore\"\n       (if (> 0.1 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.9 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 50,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 53,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 43,
+            "satisfaction": 47,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 66,
+            "satisfaction": 52,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 63,
+            "satisfaction": 52,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 70,
+      "death_cause": "old_age",
+      "epitaph": "Lyra (air), diplomat. Survived 69 Mars years."
+    },
+    {
+      "id": "orion",
+      "name": "Orion",
+      "element": "earth",
+      "role": "programmer",
+      "stats": {
+        "resolve": 0.6810737188593928,
+        "improvisation": 0.3560944984894676,
+        "empathy": 0.4127586295170114,
+        "hoarding": 0.6040092933160192,
+        "faith": 0.02443173273072252,
+        "paranoia": 0.4295478994100346
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.9,
+        "prayer": 0.1,
+        "sabotage": 0.4
+      },
+      "alive": false,
+      "health": 0.918,
+      "morale": 1.0,
+      "years_alive": 70,
+      "actions_taken": [
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "repair",
+        "research",
+        "propose-governance",
+        "repair",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "repair",
+        "research",
+        "propose-governance",
+        "research"
+      ],
+      "diary": [
+        "Year 62: Made progress on the terraform model.",
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Made progress on the terraform model.",
+        "Year 67: Made progress on the terraform model.",
+        "Year 68: Fixed critical systems after equipment_failure.",
+        "Year 69: Made progress on the terraform model.",
+        "Year 70: Proposed a new way to govern ourselves.",
+        "Year 71: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": -1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 50,
+          "proposer": "orion",
+          "proposal": "meritocracy",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 67,
+            "satisfaction": 65,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "orion",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 40,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "orion",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 51,
+            "satisfaction": 53,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "orion",
+          "proposal": "elect_council",
+          "votes_for": 6,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 44,
+            "satisfaction": 46,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "orion",
+          "proposal": "meritocracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 48,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.2 0.5) \"farm\"\n       (if (> 0.5 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.9 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.7 0.6) \"sabotage\"\n       (if (> 0.6 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.3 0.6) \"mediate\"\n       (if (> 0.2 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.5 0.7) \"explore\"\n       (if (> 0.3 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.2 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 50,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 67,
+            "satisfaction": 65,
+            "efficiency": 46,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 40,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 51,
+            "satisfaction": 53,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 44,
+            "satisfaction": 46,
+            "efficiency": 60,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 48,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 71,
+      "death_cause": "old_age",
+      "epitaph": "Orion (earth), programmer. Survived 70 Mars years."
+    },
+    {
+      "id": "mira",
+      "name": "Mira",
+      "element": "water",
+      "role": "medic",
+      "stats": {
+        "resolve": 0.358859726303638,
+        "improvisation": 0.8896703443743303,
+        "empathy": 0.9923710567784773,
+        "hoarding": 0.04320730637009939,
+        "faith": 0.5630655827308091,
+        "paranoia": 0.31772720814246486
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.6,
+        "mediation": 0.8,
+        "coding": 0.3,
+        "prayer": 0.5,
+        "sabotage": 0.0
+      },
+      "alive": false,
+      "health": 0.909,
+      "morale": 1.0,
+      "years_alive": 71,
+      "actions_taken": [
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "build",
+        "research",
+        "research",
+        "research",
+        "propose-governance",
+        "research",
+        "research",
+        "build",
+        "research",
+        "propose-governance",
+        "research",
+        "research"
+      ],
+      "diary": [
+        "Year 63: Made progress on the terraform model.",
+        "Year 64: Made progress on the terraform model.",
+        "Year 65: Proposed a new way to govern ourselves.",
+        "Year 66: Made progress on the terraform model.",
+        "Year 67: Made progress on the terraform model.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Made progress on the terraform model.",
+        "Year 70: Proposed a new way to govern ourselves.",
+        "Year 71: Made progress on the terraform model.",
+        "Year 72: Made progress on the terraform model."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "power_conservation": 1,
+        "expand_solar": 1,
+        "consensus_rule": 1,
+        "care_rotation": 1
+      },
+      "proposals_made": [
+        {
+          "year": 50,
+          "proposer": "mira",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposer": "mira",
+          "proposal": "care_rotation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "care_rotation",
+            "stability": 68,
+            "satisfaction": 56,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "mira",
+          "proposal": "expand_solar",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "expand_solar",
+            "stability": 58,
+            "satisfaction": 61,
+            "efficiency": 54,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "mira",
+          "proposal": "elect_council",
+          "votes_for": 5,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 54,
+            "satisfaction": 54,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "mira",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 51,
+            "satisfaction": 51,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.6 0.5) \"farm\"\n       (if (> 0.1 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.3 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.2 0.6) \"sabotage\"\n       (if (> 0.5 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.9 0.6) \"mediate\"\n       (if (> 0.6 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.7 0.7) \"explore\"\n       (if (> 0.2 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.8 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 50,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 46,
+            "satisfaction": 65,
+            "efficiency": 49,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 55,
+          "proposal": "care_rotation",
+          "result": {
+            "proposal": "care_rotation",
+            "stability": 68,
+            "satisfaction": 56,
+            "efficiency": 48,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "expand_solar",
+          "result": {
+            "proposal": "expand_solar",
+            "stability": 58,
+            "satisfaction": 61,
+            "efficiency": 54,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 54,
+            "satisfaction": 54,
+            "efficiency": 56,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 51,
+            "satisfaction": 51,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 72,
+      "death_cause": "old_age",
+      "epitaph": "Mira (water), medic. Survived 71 Mars years."
+    },
+    {
+      "id": "zeph",
+      "name": "Zeph",
+      "element": "air",
+      "role": "pilot",
+      "stats": {
+        "resolve": 0.8510451746125055,
+        "improvisation": 0.8107159782717827,
+        "empathy": 0.5696884081297773,
+        "hoarding": 0.2909761446948239,
+        "faith": 0.28788821656919417,
+        "paranoia": 0.29642310861858306
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.3,
+        "mediation": 0.6,
+        "coding": 0.5,
+        "prayer": 0.3,
+        "sabotage": 0.1
+      },
+      "alive": false,
+      "health": 0.801,
+      "morale": 0.91,
+      "years_alive": 74,
+      "actions_taken": [
+        "explore",
+        "explore",
+        "build",
+        "explore",
+        "propose-governance",
+        "build",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "build",
+        "explore",
+        "propose-governance",
+        "explore",
+        "explore",
+        "explore",
+        "explore",
+        "propose-governance"
+      ],
+      "diary": [
+        "Year 66: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 67: Ventured beyond the hab. The earth_contact reminded me why.",
+        "Year 68: Expanded the habitat module.",
+        "Year 69: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 70: Proposed a new way to govern ourselves.",
+        "Year 71: Ventured beyond the hab. The supply_ship reminded me why.",
+        "Year 72: Ventured beyond the hab. The earth_contact reminded me why.",
+        "Year 73: Ventured beyond the hab. The resource_strike reminded me why.",
+        "Year 74: Ventured beyond the hab. The resource_strike reminded me why.",
+        "Year 75: Proposed a new way to govern ourselves."
+      ],
+      "votes": {
+        "exile_vote": 1,
+        "direct_democracy": 1,
+        "meditation_mandate": 1,
+        "elect_council": 1,
+        "meritocracy": 1,
+        "surveillance_system": 1,
+        "consensus_rule": 1,
+        "power_conservation": 1,
+        "care_rotation": 1,
+        "expand_solar": 1
+      },
+      "proposals_made": [
+        {
+          "year": 55,
+          "proposer": "zeph",
+          "proposal": "power_conservation",
+          "votes_for": 7,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "power_conservation",
+            "stability": 48,
+            "satisfaction": 62,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposer": "zeph",
+          "proposal": "meritocracy",
+          "votes_for": 6,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 45,
+            "satisfaction": 47,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposer": "zeph",
+          "proposal": "meritocracy",
+          "votes_for": 5,
+          "votes_against": 1,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 70,
+            "satisfaction": 57,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "zeph",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 63,
+            "efficiency": 51,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 75,
+          "proposer": "zeph",
+          "proposal": "elect_council",
+          "votes_for": 0,
+          "votes_against": 0,
+          "adopted": false,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 46,
+            "satisfaction": 48,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.2 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.5 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.3 0.6) \"sabotage\"\n       (if (> 0.7 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.6 0.6) \"mediate\"\n       (if (> 0.4 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.8 0.7) \"explore\"\n       (if (> 0.4 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.6 0.5) \"mediate\" \"research\")))))\n",
+      "sub_sim_log": [
+        {
+          "year": 55,
+          "proposal": "power_conservation",
+          "result": {
+            "proposal": "power_conservation",
+            "stability": 48,
+            "satisfaction": 62,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 60,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 45,
+            "satisfaction": 47,
+            "efficiency": 59,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 65,
+          "proposal": "meritocracy",
+          "result": {
+            "proposal": "meritocracy",
+            "stability": 70,
+            "satisfaction": 57,
+            "efficiency": 58,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposal": "direct_democracy",
+          "result": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 63,
+            "efficiency": 51,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 75,
+          "proposal": "elect_council",
+          "result": {
+            "proposal": "elect_council",
+            "stability": 46,
+            "satisfaction": 48,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "death_year": 75,
+      "death_cause": "old_age",
+      "epitaph": "Zeph (air), pilot. Survived 74 Mars years."
+    }
+  ],
+  "factions": {
+    "faction-air": [
+      "lyra",
+      "mira",
+      "orion",
+      "zeph"
+    ]
+  },
+  "leader": "lyra",
+  "governance_type": "direct_democracy",
+  "meta_insights": [],
+  "year_deltas": [
+    {
+      "year": 66,
+      "timestamp": "2026-04-17T00:39:56.588423+00:00",
+      "event": {
+        "name": "supply_ship",
+        "severity": 0.91,
+        "food_mod": 0.273,
+        "morale_mod": 0.182,
+        "power_mod": 0.091,
+        "description": "A supply ship arrives with catastrophic cargo"
+      },
+      "decisions": {
+        "lyra": "research",
+        "thane": "farm",
+        "kai": "explore",
+        "nova": "farm",
+        "mira": "research",
+        "orion": "research",
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "lyra",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0007
+        },
+        {
+          "colonist": "thane",
+          "action": "farm",
+          "success": true,
+          "food_produced": 18.0
+        },
+        {
+          "colonist": "kai",
+          "action": "explore",
+          "success": true
+        },
+        {
+          "colonist": "nova",
+          "action": "farm",
+          "success": true,
+          "food_produced": 14.0
+        },
+        {
+          "colonist": "mira",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0008
+        },
+        {
+          "colonist": "orion",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0014
+        },
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "water": 36.6
+          }
+        }
+      ],
+      "governance_events": [],
+      "deaths": [],
+      "resources": {
+        "food": 2000.0,
+        "water": 73.7,
+        "power": 217.8,
+        "oxygen": 151.4,
+        "materials": 0.9
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.8907000000000018
+      },
+      "population": 7,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "thane",
+          "kai",
+          "nova",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "meritocracy",
+      "diaries": {
+        "lyra": "Year 66: Made progress on the terraform model.",
+        "thane": "Year 66: Tended the greenhouses. supply_ship tested us.",
+        "kai": "Year 66: Ventured beyond the hab. The supply_ship reminded me why.",
+        "nova": "Year 66: Tended the greenhouses. supply_ship tested us.",
+        "mira": "Year 66: Made progress on the terraform model.",
+        "orion": "Year 66: Made progress on the terraform model.",
+        "zeph": "Year 66: Ventured beyond the hab. The supply_ship reminded me why."
+      },
+      "summary": "Year 66: A supply ship arrives with catastrophic cargo (severity 0.91). Population: 7/10 alive. Resources: food=2000, power=218, water=74. Current system: meritocracy."
+    },
+    {
+      "year": 67,
+      "timestamp": "2026-04-17T00:39:56.591116+00:00",
+      "event": {
+        "name": "earth_contact",
+        "severity": 0.467,
+        "food_mod": 0.0,
+        "morale_mod": 0.14,
+        "power_mod": 0.0,
+        "description": "A minor communication window with Earth opens"
+      },
+      "decisions": {
+        "lyra": "research",
+        "thane": "farm",
+        "kai": "explore",
+        "nova": "farm",
+        "mira": "research",
+        "orion": "research",
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "lyra",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0007
+        },
+        {
+          "colonist": "thane",
+          "action": "farm",
+          "success": true,
+          "food_produced": 18.0
+        },
+        {
+          "colonist": "kai",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "food": 15.3
+          }
+        },
+        {
+          "colonist": "nova",
+          "action": "farm",
+          "success": true,
+          "food_produced": 14.0
+        },
+        {
+          "colonist": "mira",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0008
+        },
+        {
+          "colonist": "orion",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0014
+        },
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true
+        }
+      ],
+      "governance_events": [],
+      "deaths": [],
+      "resources": {
+        "food": 2000.0,
+        "water": 51.0,
+        "power": 212.6,
+        "oxygen": 169.0,
+        "materials": 0.9
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9006000000000018
+      },
+      "population": 7,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "thane",
+          "kai",
+          "nova",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "meritocracy",
+      "diaries": {
+        "lyra": "Year 67: Made progress on the terraform model.",
+        "thane": "Year 67: Tended the greenhouses. earth_contact tested us.",
+        "kai": "Year 67: Ventured beyond the hab. The earth_contact reminded me why.",
+        "nova": "Year 67: Tended the greenhouses. earth_contact tested us.",
+        "mira": "Year 67: Made progress on the terraform model.",
+        "orion": "Year 67: Made progress on the terraform model.",
+        "zeph": "Year 67: Ventured beyond the hab. The earth_contact reminded me why."
+      },
+      "summary": "Year 67: A minor communication window with Earth opens (severity 0.467). Population: 7/10 alive. Resources: food=2000, power=213, water=51. Current system: meritocracy."
+    },
+    {
+      "year": 68,
+      "timestamp": "2026-04-17T00:39:56.593522+00:00",
+      "event": {
+        "name": "equipment_failure",
+        "severity": 0.952,
+        "food_mod": -0.048,
+        "morale_mod": -0.143,
+        "power_mod": -0.286,
+        "description": "A catastrophic equipment malfunction detected"
+      },
+      "decisions": {
+        "lyra": "build",
+        "thane": "repair",
+        "kai": "repair",
+        "nova": "build",
+        "mira": "build",
+        "orion": "repair",
+        "zeph": "build"
+      },
+      "action_results": [
+        {
+          "colonist": "lyra",
+          "action": "build",
+          "success": false
+        },
+        {
+          "colonist": "thane",
+          "action": "repair",
+          "success": true,
+          "power_restored": 36.0
+        },
+        {
+          "colonist": "kai",
+          "action": "repair",
+          "success": true,
+          "power_restored": 39.0
+        },
+        {
+          "colonist": "nova",
+          "action": "build",
+          "success": false
+        },
+        {
+          "colonist": "mira",
+          "action": "build",
+          "success": false
+        },
+        {
+          "colonist": "orion",
+          "action": "repair",
+          "success": true,
+          "power_restored": 42.0
+        },
+        {
+          "colonist": "zeph",
+          "action": "build",
+          "success": false
+        }
+      ],
+      "governance_events": [],
+      "deaths": [],
+      "resources": {
+        "food": 2000.0,
+        "water": 47.5,
+        "power": 263.5,
+        "oxygen": 187.0,
+        "materials": 0.9
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9076000000000018
+      },
+      "population": 7,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "thane",
+          "kai",
+          "nova",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "meritocracy",
+      "diaries": {
+        "lyra": "Year 68: Expanded the habitat module.",
+        "thane": "Year 68: Fixed critical systems after equipment_failure.",
+        "kai": "Year 68: Fixed critical systems after equipment_failure.",
+        "nova": "Year 68: Expanded the habitat module.",
+        "mira": "Year 68: Expanded the habitat module.",
+        "orion": "Year 68: Fixed critical systems after equipment_failure.",
+        "zeph": "Year 68: Expanded the habitat module."
+      },
+      "summary": "Year 68: A catastrophic equipment malfunction detected (severity 0.952). Population: 7/10 alive. Resources: food=2000, power=264, water=48. Current system: meritocracy."
+    },
+    {
+      "year": 69,
+      "timestamp": "2026-04-17T00:39:56.598875+00:00",
+      "event": {
+        "name": "supply_ship",
+        "severity": 0.59,
+        "food_mod": 0.177,
+        "morale_mod": 0.118,
+        "power_mod": 0.059,
+        "description": "A supply ship arrives with major cargo"
+      },
+      "decisions": {
+        "lyra": "research",
+        "thane": "farm",
+        "kai": "explore",
+        "nova": "farm",
+        "mira": "research",
+        "orion": "research",
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "lyra",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0007
+        },
+        {
+          "colonist": "thane",
+          "action": "farm",
+          "success": true,
+          "food_produced": 18.0
+        },
+        {
+          "colonist": "kai",
+          "action": "explore",
+          "success": true
+        },
+        {
+          "colonist": "nova",
+          "action": "farm",
+          "success": true,
+          "food_produced": 14.0
+        },
+        {
+          "colonist": "mira",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0008
+        },
+        {
+          "colonist": "orion",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0014
+        },
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "materials": 15.0
+          }
+        }
+      ],
+      "governance_events": [],
+      "deaths": [
+        {
+          "colonist": "thane",
+          "name": "Thane",
+          "year": 69,
+          "cause": "old_age",
+          "years_alive": 68,
+          "final_diary": "Year 69: Tended the greenhouses. supply_ship tested us."
+        },
+        {
+          "colonist": "kai",
+          "name": "Kai",
+          "year": 69,
+          "cause": "old_age",
+          "years_alive": 68,
+          "final_diary": "Year 69: Ventured beyond the hab. The supply_ship reminded me why."
+        },
+        {
+          "colonist": "nova",
+          "name": "Nova",
+          "year": 69,
+          "cause": "old_age",
+          "years_alive": 68,
+          "final_diary": "Year 69: Tended the greenhouses. supply_ship tested us."
+        }
+      ],
+      "resources": {
+        "food": 2000.0,
+        "water": 47.8,
+        "power": 273.8,
+        "oxygen": 205.6,
+        "materials": 15.9
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9145000000000019
+      },
+      "population": 4,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "thane",
+          "nova",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "meritocracy",
+      "diaries": {
+        "lyra": "Year 69: Made progress on the terraform model.",
+        "thane": "Year 69: Tended the greenhouses. supply_ship tested us.",
+        "kai": "Year 69: Ventured beyond the hab. The supply_ship reminded me why.",
+        "nova": "Year 69: Tended the greenhouses. supply_ship tested us.",
+        "mira": "Year 69: Made progress on the terraform model.",
+        "orion": "Year 69: Made progress on the terraform model.",
+        "zeph": "Year 69: Ventured beyond the hab. The supply_ship reminded me why."
+      },
+      "summary": "Year 69: A supply ship arrives with major cargo (severity 0.59). Population: 4/10 alive. Resources: food=2000, power=274, water=48. Lost: Thane, Kai, Nova. Current system: meritocracy."
+    },
+    {
+      "year": 70,
+      "timestamp": "2026-04-17T00:39:56.611782+00:00",
+      "event": {
+        "name": "resource_strike",
+        "severity": 0.731,
+        "food_mod": 0.146,
+        "morale_mod": 0.073,
+        "power_mod": 0.0,
+        "description": "A major mineral deposit discovered"
+      },
+      "decisions": {
+        "lyra": "propose-governance",
+        "mira": "propose-governance",
+        "orion": "propose-governance",
+        "zeph": "propose-governance"
+      },
+      "action_results": [
+        {
+          "colonist": "lyra",
+          "action": "propose-governance",
+          "success": true
+        },
+        {
+          "colonist": "mira",
+          "action": "propose-governance",
+          "success": true
+        },
+        {
+          "colonist": "orion",
+          "action": "propose-governance",
+          "success": true
+        },
+        {
+          "colonist": "zeph",
+          "action": "propose-governance",
+          "success": true
+        }
+      ],
+      "governance_events": [
+        {
+          "year": 70,
+          "proposer": "lyra",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 54,
+            "efficiency": 50,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "mira",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 51,
+            "satisfaction": 51,
+            "efficiency": 55,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "orion",
+          "proposal": "meritocracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "meritocracy",
+            "stability": 52,
+            "satisfaction": 48,
+            "efficiency": 57,
+            "viable": true,
+            "depth": 1
+          }
+        },
+        {
+          "year": 70,
+          "proposer": "zeph",
+          "proposal": "direct_democracy",
+          "votes_for": 3,
+          "votes_against": 0,
+          "adopted": true,
+          "sub_sim_evidence": {
+            "proposal": "direct_democracy",
+            "stability": 61,
+            "satisfaction": 63,
+            "efficiency": 51,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "deaths": [
+        {
+          "colonist": "lyra",
+          "name": "Lyra",
+          "year": 70,
+          "cause": "old_age",
+          "years_alive": 69,
+          "final_diary": "Year 70: Proposed a new way to govern ourselves."
+        }
+      ],
+      "resources": {
+        "food": 2000.0,
+        "water": 55.7,
+        "power": 283.6,
+        "oxygen": 248.5,
+        "materials": 15.9
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9175000000000019
+      },
+      "population": 3,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "direct_democracy",
+      "diaries": {
+        "lyra": "Year 70: Proposed a new way to govern ourselves.",
+        "mira": "Year 70: Proposed a new way to govern ourselves.",
+        "orion": "Year 70: Proposed a new way to govern ourselves.",
+        "zeph": "Year 70: Proposed a new way to govern ourselves."
+      },
+      "summary": "Year 70: A major mineral deposit discovered (severity 0.731). Population: 3/10 alive. Resources: food=2000, power=284, water=56. Lost: Lyra. Governance: 'direct_democracy' by lyra \u2014 ADOPTED (3-0). Governance: 'direct_democracy' by mira \u2014 ADOPTED (3-0). Governance: 'meritocracy' by orion \u2014 ADOPTED (3-0). Governance: 'direct_democracy' by zeph \u2014 ADOPTED (3-0). Current system: direct_democracy."
+    },
+    {
+      "year": 71,
+      "timestamp": "2026-04-17T00:39:56.613691+00:00",
+      "event": {
+        "name": "supply_ship",
+        "severity": 0.955,
+        "food_mod": 0.287,
+        "morale_mod": 0.191,
+        "power_mod": 0.096,
+        "description": "A supply ship arrives with catastrophic cargo"
+      },
+      "decisions": {
+        "mira": "research",
+        "orion": "research",
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "mira",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0008
+        },
+        {
+          "colonist": "orion",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0014
+        },
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "food": 30.7
+          }
+        }
+      ],
+      "governance_events": [],
+      "deaths": [
+        {
+          "colonist": "orion",
+          "name": "Orion",
+          "year": 71,
+          "cause": "old_age",
+          "years_alive": 70,
+          "final_diary": "Year 71: Made progress on the terraform model."
+        }
+      ],
+      "resources": {
+        "food": 2000.0,
+        "water": 73.7,
+        "power": 325.6,
+        "oxygen": 299.7,
+        "materials": 15.9
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9217000000000019
+      },
+      "population": 2,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "direct_democracy",
+      "diaries": {
+        "mira": "Year 71: Made progress on the terraform model.",
+        "orion": "Year 71: Made progress on the terraform model.",
+        "zeph": "Year 71: Ventured beyond the hab. The supply_ship reminded me why."
+      },
+      "summary": "Year 71: A supply ship arrives with catastrophic cargo (severity 0.955). Population: 2/10 alive. Resources: food=2000, power=326, water=74. Lost: Orion. Current system: direct_democracy."
+    },
+    {
+      "year": 72,
+      "timestamp": "2026-04-17T00:39:56.614790+00:00",
+      "event": {
+        "name": "earth_contact",
+        "severity": 0.317,
+        "food_mod": 0.0,
+        "morale_mod": 0.095,
+        "power_mod": 0.0,
+        "description": "A minor communication window with Earth opens"
+      },
+      "decisions": {
+        "mira": "research",
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "mira",
+          "action": "research",
+          "success": true,
+          "research_progress": 0.0008
+        },
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "materials": 34.6
+          }
+        }
+      ],
+      "governance_events": [],
+      "deaths": [
+        {
+          "colonist": "mira",
+          "name": "Mira",
+          "year": 72,
+          "cause": "old_age",
+          "years_alive": 71,
+          "final_diary": "Year 72: Made progress on the terraform model."
+        }
+      ],
+      "resources": {
+        "food": 2000.0,
+        "water": 101.8,
+        "power": 345.4,
+        "oxygen": 359.1,
+        "materials": 50.5
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9235000000000019
+      },
+      "population": 1,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "direct_democracy",
+      "diaries": {
+        "mira": "Year 72: Made progress on the terraform model.",
+        "zeph": "Year 72: Ventured beyond the hab. The earth_contact reminded me why."
+      },
+      "summary": "Year 72: A minor communication window with Earth opens (severity 0.317). Population: 1/10 alive. Resources: food=2000, power=345, water=102. Lost: Mira. Current system: direct_democracy."
+    },
+    {
+      "year": 73,
+      "timestamp": "2026-04-17T00:39:56.615344+00:00",
+      "event": {
+        "name": "resource_strike",
+        "severity": 0.937,
+        "food_mod": 0.187,
+        "morale_mod": 0.094,
+        "power_mod": 0.0,
+        "description": "A catastrophic mineral deposit discovered"
+      },
+      "decisions": {
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "food": 10.8
+          }
+        }
+      ],
+      "governance_events": [],
+      "deaths": [],
+      "resources": {
+        "food": 2000.0,
+        "water": 139.9,
+        "power": 370.1,
+        "oxygen": 426.5,
+        "materials": 50.5
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9245000000000019
+      },
+      "population": 1,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "direct_democracy",
+      "diaries": {
+        "zeph": "Year 73: Ventured beyond the hab. The resource_strike reminded me why."
+      },
+      "summary": "Year 73: A catastrophic mineral deposit discovered (severity 0.937). Population: 1/10 alive. Resources: food=2000, power=370, water=140. Current system: direct_democracy."
+    },
+    {
+      "year": 74,
+      "timestamp": "2026-04-17T00:39:56.615865+00:00",
+      "event": {
+        "name": "resource_strike",
+        "severity": 0.692,
+        "food_mod": 0.138,
+        "morale_mod": 0.069,
+        "power_mod": 0.0,
+        "description": "A major mineral deposit discovered"
+      },
+      "decisions": {
+        "zeph": "explore"
+      },
+      "action_results": [
+        {
+          "colonist": "zeph",
+          "action": "explore",
+          "success": true,
+          "discovered": {
+            "water": 39.2
+          }
+        }
+      ],
+      "governance_events": [],
+      "deaths": [],
+      "resources": {
+        "food": 2000.0,
+        "water": 217.3,
+        "power": 394.9,
+        "oxygen": 494.0,
+        "materials": 50.5
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9255000000000019
+      },
+      "population": 1,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "direct_democracy",
+      "diaries": {
+        "zeph": "Year 74: Ventured beyond the hab. The resource_strike reminded me why."
+      },
+      "summary": "Year 74: A major mineral deposit discovered (severity 0.692). Population: 1/10 alive. Resources: food=2000, power=395, water=217. Current system: direct_democracy."
+    },
+    {
+      "year": 75,
+      "timestamp": "2026-04-17T00:39:56.617119+00:00",
+      "event": {
+        "name": "dust_storm",
+        "severity": 0.901,
+        "food_mod": -0.135,
+        "morale_mod": -0.09,
+        "power_mod": -0.18,
+        "description": "A catastrophic dust storm engulfs the colony"
+      },
+      "decisions": {
+        "zeph": "propose-governance"
+      },
+      "action_results": [
+        {
+          "colonist": "zeph",
+          "action": "propose-governance",
+          "success": true
+        }
+      ],
+      "governance_events": [
+        {
+          "year": 75,
+          "proposer": "zeph",
+          "proposal": "elect_council",
+          "votes_for": 0,
+          "votes_against": 0,
+          "adopted": false,
+          "sub_sim_evidence": {
+            "proposal": "elect_council",
+            "stability": 46,
+            "satisfaction": 48,
+            "efficiency": 43,
+            "viable": true,
+            "depth": 1
+          }
+        }
+      ],
+      "deaths": [
+        {
+          "colonist": "zeph",
+          "name": "Zeph",
+          "year": 75,
+          "cause": "old_age",
+          "years_alive": 74,
+          "final_diary": "Year 75: Proposed a new way to govern ourselves."
+        }
+      ],
+      "resources": {
+        "food": 1829.0,
+        "water": 255.4,
+        "power": 348.6,
+        "oxygen": 561.5,
+        "materials": 50.5
+      },
+      "environment": {
+        "temperature_c": -60.0,
+        "pressure_kpa": 0.636,
+        "dust_opacity": 0.3,
+        "terraform_progress": 0.9255000000000019
+      },
+      "population": 0,
+      "factions": {
+        "faction-air": [
+          "lyra",
+          "mira",
+          "orion",
+          "zeph"
+        ]
+      },
+      "leader": "lyra",
+      "governance_type": "direct_democracy",
+      "diaries": {
+        "zeph": "Year 75: Proposed a new way to govern ourselves."
+      },
+      "summary": "Year 75: A catastrophic dust storm engulfs the colony (severity 0.901). Population: 0/10 alive. Resources: food=1829, power=349, water=255. Lost: Zeph. Governance: 'elect_council' by zeph \u2014 REJECTED (0-0). Current system: direct_democracy."
+    }
+  ]
+}
