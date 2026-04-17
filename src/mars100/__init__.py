@@ -26,6 +26,10 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.turtles import (
+    TurtleNode, TurtleTree, TurtleSummary,
+    run_turtle, turtle_vote_modifier, update_colonist_wisdom, aggregate_summary,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +49,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "TurtleNode", "TurtleTree", "TurtleSummary",
+    "run_turtle", "turtle_vote_modifier", "update_colonist_wisdom",
+    "aggregate_summary",
 ]

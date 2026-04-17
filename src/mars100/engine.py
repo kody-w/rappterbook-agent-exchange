@@ -29,6 +29,10 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.turtles import (
+    TurtleTree, run_turtle, turtle_vote_modifier,
+    update_colonist_wisdom, aggregate_summary,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +61,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    turtle_trees: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +78,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "turtle_trees": self.turtle_trees,
         }
 
 
@@ -93,10 +99,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    turtle_summary: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +121,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "turtle_summary": self.turtle_summary,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -135,6 +143,8 @@ class Mars100Engine:
         self.births: list[dict] = []
         self.infra = InfrastructureState()
         self.next_id = 10
+        self.turtle_wisdom: dict[str, float] = {}
+        self.all_turtle_trees: list[TurtleTree] = []
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -376,7 +386,8 @@ class Mars100Engine:
         return None
 
     def _vote_on_proposal(self, colonist: Colonist,
-                          proposal: GovernanceProposal) -> bool:
+                          proposal: GovernanceProposal,
+                          turtle_tree: TurtleTree | None = None) -> bool:
         colonist.governance_votes += 1
         score = 0.0
         if proposal.gov_type == "council":
@@ -398,6 +409,8 @@ class Mars100Engine:
                 score += float(proposal.subsim_result["result"]) * 0.2
             except (ValueError, TypeError):
                 pass
+        if turtle_tree is not None:
+            score += turtle_vote_modifier(turtle_tree)
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
         return score + self.rng.gauss(0, 0.15) > 0.5
@@ -475,6 +488,7 @@ class Mars100Engine:
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
         gov_proposal: GovernanceProposal | None = None
+        year_trees: list[TurtleTree] = []
         if should_propose(self.year, self.governance, self.rng) and active:
             proposer = self.rng.choice(active)
             gov_proposal = generate_proposal(self.year, proposer.id, self.governance, self.rng)
@@ -484,11 +498,24 @@ class Mars100Engine:
                                        year=self.year, bindings=proposer.lispy_bindings(),
                                        depth=1, budget=subsim_budget, log=subsim_log)
                 gov_proposal.subsim_result = gov_sim.to_dict()
+            # --- Turtles: deep recursive sub-sim for governance ---
+            turtle_tree = run_turtle(
+                gov_type=gov_proposal.gov_type,
+                colonist_id=proposer.id,
+                year=self.year,
+                bindings=proposer.lispy_bindings(),
+                wisdom=self.turtle_wisdom.get(proposer.id, 0.0),
+                coding=proposer.skills.coding,
+            )
+            update_colonist_wisdom(self.turtle_wisdom, proposer.id, turtle_tree)
+            year_trees.append(turtle_tree)
+            self.all_turtle_trees.append(turtle_tree)
             for colonist in active:
                 if colonist.id == gov_proposal.proposer_id:
                     gov_proposal.votes_for.append(colonist.id)
                     continue
-                if self._vote_on_proposal(colonist, gov_proposal):
+                if self._vote_on_proposal(colonist, gov_proposal,
+                                          turtle_tree=turtle_tree):
                     gov_proposal.votes_for.append(colonist.id)
                 else:
                     gov_proposal.votes_against.append(colonist.id)
@@ -586,6 +613,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            turtle_trees=[t.to_dict() for t in year_trees],
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +646,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            turtle_summary=aggregate_summary(self.all_turtle_trees).to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
