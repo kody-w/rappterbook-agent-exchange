@@ -97,7 +97,7 @@ def main() -> None:
     data_path = docs_dir / "data.json"
     dashboard_data = {
         "_meta": {
-            "engine": "mars-100", "version": "1.0",
+            "engine": "mars-100", "version": "2.1",
             "years": args.years, "seed": args.seed,
             "generated": datetime.now(timezone.utc).isoformat(),
         },

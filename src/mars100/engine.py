@@ -25,6 +25,11 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.earth import (
+    EarthState, Directive, Message,
+    earth_tick, colony_decides, apply_directive_effects,
+    check_independence, supply_ship_arrives,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,9 +57,13 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    earth_directive: dict | None = None
+    colony_response: str | None = None
+    supply_ship: dict | None = None
+    independence_event: bool = False
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "year": self.year, "events": self.events, "actions": self.actions,
             "subsim_log": self.subsim_log, "governance": self.governance,
             "resources_before": self.resources_before,
@@ -68,6 +77,15 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
         }
+        if self.earth_directive is not None:
+            d["earth_directive"] = self.earth_directive
+        if self.colony_response is not None:
+            d["colony_response"] = self.colony_response
+        if self.supply_ship is not None:
+            d["supply_ship"] = self.supply_ship
+        if self.independence_event:
+            d["independence_event"] = True
+        return d
 
 
 @dataclass
@@ -86,10 +104,13 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    earth_final_state: dict = field(default_factory=dict)
+    independence_year: int | None = None
+    total_supply_ships: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "2.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +122,14 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_supply_ships": self.total_supply_ships,
+                "independence_year": self.independence_year,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "earth_final_state": self.earth_final_state,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -117,10 +141,12 @@ class Mars100Engine:
         self.seed = seed
         self.total_years = total_years
         self.rng = random.Random(seed)
+        self.earth_rng = random.Random(seed + 7919)  # isolated RNG stream
         self.colonists = create_founding_ten(seed)
         self.resources = Resources()
         self.social = SocialGraph()
         self.governance = GovernanceState()
+        self.earth = EarthState()
         self.year = 0
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
@@ -446,6 +472,62 @@ class Mars100Engine:
         events = generate_events(self.year, self.rng)
         resources_before = self.resources.to_dict()
 
+        # --- Earth Contact Phase (runs first to create governance pressure) ---
+        year_directive_dict: dict | None = None
+        year_response: str | None = None
+        year_supply: dict[str, float] | None = None
+        year_independence = False
+
+        directive = earth_tick(self.earth, self.year, self.earth_rng)
+        if directive is not None:
+            year_directive_dict = directive.to_dict()
+            cohesion = self.social.colony_cohesion(active_ids)
+            response = colony_decides(
+                directive, self.governance.gov_type,
+                self.governance.leader_id, self.governance.council_ids,
+                active, cohesion, self.resources.average(), self.earth_rng,
+            )
+            year_response = response
+            # Apply resource effects
+            deltas = apply_directive_effects(directive, response, self.resources.to_dict())
+            for k, v in deltas.items():
+                if hasattr(self.resources, k):
+                    old = getattr(self.resources, k)
+                    setattr(self.resources, k, max(0.0, min(1.0, old + v)))
+            # Queue response back to Earth (1-year delay)
+            self.earth.message_queue.append(Message(
+                content={"response": response, "directive_type": directive.dtype},
+                sent_year=self.year,
+                arrives_year=self.year + 1,
+                direction="mars_to_earth",
+            ))
+            # Memory: colonists remember significant Earth interactions
+            if directive.dtype in ("recall_order", "governance_mandate", "budget_cut"):
+                for colonist in active:
+                    colonist.add_memory(self.year, f"Earth directive: {directive.description}", -0.3)
+
+        # Supply ship check (independent of directives)
+        supplies = supply_ship_arrives(self.earth, self.year, self.earth_rng)
+        if supplies:
+            year_supply = supplies
+            for k, v in supplies.items():
+                if hasattr(self.resources, k):
+                    old = getattr(self.resources, k)
+                    setattr(self.resources, k, min(1.0, old + v))
+
+        # Independence check
+        if not self.earth.independence_declared:
+            cohesion = self.social.colony_cohesion(active_ids)
+            declared = check_independence(
+                self.earth, len(active), self.resources.average(),
+                cohesion, self.year, self.earth_rng,
+            )
+            if declared:
+                year_independence = True
+                for colonist in active:
+                    colonist.add_memory(self.year, "Colony declared independence from Earth!", 0.8)
+
+        # --- Colonist Evolution Phase ---
         for colonist in active:
             colonist.evolve_stats(events[0].name if events else "calm", self.rng)
             for ev in events:
@@ -541,12 +623,17 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            earth_directive=year_directive_dict,
+            colony_response=year_response,
+            supply_ship=year_supply,
+            independence_event=year_independence,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
-        total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_deaths = total_exiles = total_subsims = gov_changes = 0
+        meta_count = total_births = total_supply_ships = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +643,8 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            if result.supply_ship is not None:
+                total_supply_ships += 1
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +661,9 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            earth_final_state=self.earth.to_dict(),
+            independence_year=self.earth.independence_year,
+            total_supply_ships=total_supply_ships,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

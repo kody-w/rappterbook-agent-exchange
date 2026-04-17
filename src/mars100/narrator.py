@@ -49,6 +49,23 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
             depth = ss.get("depth", 1)
             res = str(ss.get("result", "err"))[:40]
             lines.append(f"- depth-{depth} {ss['colonist_id']}: {res}")
+    earth_directive = year_result.get("earth_directive")
+    colony_response = year_result.get("colony_response")
+    supply_ship = year_result.get("supply_ship")
+    independence = year_result.get("independence_event", False)
+    if earth_directive or supply_ship or independence:
+        mood_label = "ACTIVE"
+        if independence:
+            mood_label = "SEVERED"
+        lines.append(f"\n### Earth [{mood_label}]")
+        if earth_directive:
+            dtype = earth_directive.get("type", "unknown")
+            lines.append(f"- Directive: **{dtype}** → Colony response: **{colony_response or '?'}**")
+        if supply_ship:
+            cargo = ", ".join(f"{k}:{v:+.0%}" for k, v in supply_ship.items())
+            lines.append(f"- 🚀 Supply ship arrived: {cargo}")
+        if independence:
+            lines.append("- 🏴 **INDEPENDENCE DECLARED** — Earth contact severed.")
     if governance:
         passed = "PASSED" if governance.get("passed") else "REJECTED"
         lines.append(f"\n### Governance: {governance['gov_type']} [{passed}]")
@@ -104,6 +121,20 @@ def generate_diary_entries(year_result: dict, colonist_snapshots: list[dict],
         for ev in events[:2]:
             if ev["name"] in event_reactions:
                 text_lines.append(event_reactions[ev["name"]])
+        earth_directive = year_result.get("earth_directive")
+        colony_response = year_result.get("colony_response")
+        supply_ship = year_result.get("supply_ship")
+        independence = year_result.get("independence_event", False)
+        if independence:
+            text_lines.append("Today we cut the cord. Earth is behind us.")
+        elif earth_directive:
+            dtype = earth_directive.get("type", "")
+            if colony_response == "reject":
+                text_lines.append(f"Earth demanded '{dtype}'. We said no.")
+            elif colony_response == "comply":
+                text_lines.append(f"Earth asked for '{dtype}'. We complied — but for how long?")
+        if supply_ship:
+            text_lines.append("A supply ship from Earth. A lifeline, or a leash?")
         text_lines.extend(["", f"*— {name}, {archetype}*"])
         entries.append({"colonist_id": colonist["id"], "year": year_result["year"],
                         "text": "\n".join(text_lines)})
@@ -126,7 +157,20 @@ def generate_final_report(sim_result: dict) -> str:
              f"- **Governance changes:** {summary.get('governance_changes', 0)}",
              f"- **Meta-awareness events:** {summary.get('meta_awareness_events', 0)}",
              f"- **Final cohesion:** {summary.get('final_cohesion', 0):.0%}",
-             f"- **Final governance:** {final_gov.get('gov_type', 'unknown')}", ""]
+             f"- **Final governance:** {final_gov.get('gov_type', 'unknown')}",
+             f"- **Supply ships:** {summary.get('total_supply_ships', 0)}",
+             f"- **Independence:** Year {summary.get('independence_year', 'N/A')}",
+             ""]
+
+    earth_state = sim_result.get("earth_final_state")
+    if earth_state:
+        lines.extend(["## Earth Relations", "",
+                       f"- **Directives received:** {earth_state.get('directives_sent', 0)}",
+                       f"- **Complied:** {earth_state.get('directives_complied', 0)}",
+                       f"- **Rejected:** {earth_state.get('directives_rejected', 0)}",
+                       f"- **Final mood:** {earth_state.get('mood', 'unknown')}",
+                       f"- **Independence:** {'Year ' + str(earth_state.get('independence_year')) if earth_state.get('independence_declared') else 'Not declared'}",
+                       ""])
 
     history = final_gov.get("history", [])
     if history:

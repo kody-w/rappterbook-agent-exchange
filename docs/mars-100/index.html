@@ -24,6 +24,8 @@ canvas{width:100%;height:200px}
 .tag-subsim{background:#1a2a3a;color:var(--blue)}
 .tag-death{background:#3a1a1a;color:var(--red)}
 .tag-birth{background:#1a3a1a;color:var(--green)}
+.tag-earth{background:#1a2a2a;color:var(--gold)}
+.tag-independence{background:#2a2a1a;color:#ffcc00;font-weight:bold}
 .timeline{max-height:500px;overflow-y:auto}
 .year-entry{padding:8px 12px;border-left:2px solid var(--border);margin-left:12px;margin-bottom:8px;font-size:0.85em}
 .year-entry:hover{border-left-color:var(--gold);background:rgba(255,170,68,0.05)}
@@ -53,7 +55,10 @@ canvas{width:100%;height:200px}
   <div class="card"><h2>🐢 Sub-Simulations</h2><div id="subsims"></div><p id="subsim-count" style="color:var(--muted);font-size:0.85em;margin-top:8px"></p></div>
 </div>
 <div class="card"><h2>📜 Timeline</h2><div id="timeline" class="timeline"></div></div>
-<div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
+<div class="grid">
+  <div class="card"><h2>🌍 Earth Contact</h2><canvas id="earthChart"></canvas><div id="earth-info"></div><div id="earth-log" class="timeline" style="max-height:300px"></div></div>
+  <div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
+</div>
 <div class="card"><h2>💀 Memorial</h2><div id="memorial"></div></div>
 </div>
 <script>
@@ -80,6 +85,8 @@ document.getElementById('vitals').innerHTML=`
 <div class="stat-row"><span class="stat-label">Peak pop</span><span>${s.peak_population}</span></div>
 <div class="stat-row"><span class="stat-label">Births</span><span class="alive">${s.total_births}</span></div>
 <div class="stat-row"><span class="stat-label">Deaths</span><span class="dead">${s.total_deaths}</span></div>
+<div class="stat-row"><span class="stat-label">Supply ships</span><span style="color:var(--gold)">${s.total_supply_ships||0}</span></div>
+<div class="stat-row"><span class="stat-label">Independence</span><span style="color:${s.independence_year?'var(--gold)':'var(--muted)'}">${s.independence_year?'Year '+s.independence_year:'Not declared'}</span></div>
 <div class="stat-row"><span class="stat-label">Sub-sims</span><span style="color:var(--purple)">${s.total_sub_simulations}</span></div>
 <div class="stat-row"><span class="stat-label">Proposals</span><span>${s.total_proposals}</span></div>
 <div class="stat-row"><span class="stat-label">Governance</span><span>${data.colony.governance.system}</span></div>`;
@@ -119,7 +126,30 @@ document.getElementById('governance').innerHTML=govE.length===0?'<p style="color
 govE.map(d=>`<div class="year-entry"><span class="year-label">Year ${d.year}</span>${d.governance_results.map(g=>'<div><span class="tag tag-proposal">'+g+'</span></div>').join('')}</div>`).join('');
 const dead=data.colony.dead_souls||[];
 document.getElementById('memorial').innerHTML=dead.length===0?'<p style="color:var(--muted)">No casualties. The colony endures.</p>':
-dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('')}
+dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('');
+const ef=data.earth_final_state||{};
+const ei=document.getElementById('earth-info');
+if(ef.independence_declared){ei.innerHTML='<div style="padding:8px;background:#2a2a1a;border-radius:4px;margin:8px 0;color:#ffcc00;text-align:center;font-weight:bold">🏴 INDEPENDENCE DECLARED — Year '+ef.independence_year+'</div>'}
+ei.innerHTML+=[
+['Earth mood',ef.mood||'unknown'],['Interest',((ef.interest||0)*100).toFixed(0)+'%'],
+['Budget',((ef.budget||0)*100).toFixed(0)+'%'],['Compliance',((ef.compliance_score||0)*100).toFixed(0)+'%'],
+['Directives sent',ef.directives_sent||0],['Complied',ef.directives_complied||0],
+['Rejected',ef.directives_rejected||0]
+].map(([k,v])=>`<div class="stat-row"><span class="stat-label">${k}</span><span>${v}</span></div>`).join('');
+const earthYears=deltas.filter(d=>d.earth_directive||d.earth_supply||d.earth_independence);
+const earthInterest=deltas.map(d=>d.earth_interest!==undefined?d.earth_interest:0.7);
+const earthBudget=deltas.map(d=>d.earth_budget!==undefined?d.earth_budget:0.7);
+const earthCanvas=document.getElementById('earthChart');
+if(earthCanvas&&earthInterest.some(v=>v>0)){
+drawChart(earthCanvas,[{data:earthInterest,color:'#ffaa44',label:'Interest'},{data:earthBudget,color:'#4488ff',label:'Budget'}],years)}
+const elog=document.getElementById('earth-log');
+const earthEvents=deltas.filter(d=>d.earth_event);
+elog.innerHTML=earthEvents.length===0?'<p style="color:var(--muted)">No Earth contact events.</p>':
+earthEvents.map(d=>{const e=d.earth_event;return`<div class="year-entry"><span class="year-label">Year ${d.year}</span>
+${e.directive?'<span class="tag tag-earth">'+e.directive.type+' → '+e.response+'</span>':''}
+${e.supply_ship?'<span class="tag tag-earth">🚀 Supply ship</span>':''}
+${e.independence?'<span class="tag tag-independence">🏴 INDEPENDENCE</span>':''}
+</div>`}).join('')}
 fetch('data.json').then(r=>r.json()).then(render).catch(err=>{
 document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p><p style="color:var(--muted)">Run: python3 src/mars100_engine.py --years 100</p>'})
 </script>
