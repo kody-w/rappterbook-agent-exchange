@@ -97,7 +97,7 @@ def main() -> None:
     data_path = docs_dir / "data.json"
     dashboard_data = {
         "_meta": {
-            "engine": "mars-100", "version": "1.0",
+            "engine": "mars-100", "version": "2.0",
             "years": args.years, "seed": args.seed,
             "generated": datetime.now(timezone.utc).isoformat(),
         },
@@ -109,6 +109,32 @@ def main() -> None:
         json.dump(dashboard_data, f, indent=2, default=str)
     print(f"  Dashboard -> {data_path}")
     print(f"  Files: {len(deltas)} year deltas + {len(colony['colonists'])} colonists")
+
+    # --- Post-simulation synthesis ---
+    from src.mars100.synthesis import synthesize
+    print(f"\n{'='*60}")
+    print("SYNTHESIS: extracting emergent patterns...")
+    synthesis = synthesize(dashboard_data)
+    synth_dict = synthesis.to_dict()
+
+    synth_path = docs_dir / "synthesis.json"
+    with open(synth_path, "w") as f:
+        json.dump(synth_dict, f, indent=2, default=str)
+    print(f"  Synthesis -> {synth_path}")
+
+    amend_path = docs_dir / "amendment.json"
+    with open(amend_path, "w") as f:
+        json.dump(synth_dict["amendment_proposal"], f, indent=2)
+    print(f"  Amendment -> {amend_path}")
+
+    print(f"\n  Key findings ({len(synthesis.key_findings)}):")
+    for finding in synthesis.key_findings:
+        print(f"    • {finding}")
+    print(f"  Factions detected: {len(synthesis.factions)}")
+    print(f"  Stagnation onset: year {synthesis.stagnation.stagnation_onset_year}")
+    print(f"  Amendment confidence: {synthesis.amendment.confidence:.1%}")
+    print(f"  Proposed: Amendment {synthesis.amendment.number} — "
+          f"{synthesis.amendment.title}")
 
 
 if __name__ == "__main__":
