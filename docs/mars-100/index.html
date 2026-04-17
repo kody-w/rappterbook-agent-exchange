@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: Recursive Colony Experiment</title>
+<style>
+:root{--bg:#0a0a12;--surface:#12121f;--border:#2a2a3f;--text:#e0e0f0;--muted:#888;--red:#ff4444;--green:#44ff88;--blue:#4488ff;--gold:#ffaa44;--purple:#aa44ff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Menlo','Courier New',monospace;background:var(--bg);color:var(--text);line-height:1.5;padding:20px;max-width:1400px;margin:0 auto}
+h1{font-size:1.8em;color:var(--gold);margin-bottom:4px}
+h2{font-size:1.2em;color:var(--blue);margin:20px 0 10px;border-bottom:1px solid var(--border);padding-bottom:4px}
+h3{font-size:1em;color:var(--purple);margin:12px 0 6px}
+.subtitle{color:var(--muted);font-size:0.9em;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+canvas{width:100%;height:200px}
+.stat-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:0.85em}
+.stat-label{color:var(--muted)}
+.alive{color:var(--green)}.dead{color:var(--red)}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.75em;margin:2px}
+.tag-proposal{background:#2a1a3a;color:var(--purple)}
+.tag-subsim{background:#1a2a3a;color:var(--blue)}
+.tag-death{background:#3a1a1a;color:var(--red)}
+.tag-birth{background:#1a3a1a;color:var(--green)}
+.timeline{max-height:500px;overflow-y:auto}
+.year-entry{padding:8px 12px;border-left:2px solid var(--border);margin-left:12px;margin-bottom:8px;font-size:0.85em}
+.year-entry:hover{border-left-color:var(--gold);background:rgba(255,170,68,0.05)}
+.year-label{color:var(--gold);font-weight:bold}
+.sexp{background:#0d0d18;padding:8px;border-radius:4px;font-size:0.8em;overflow-x:auto;white-space:pre-wrap;color:var(--green);margin:4px 0}
+.colonist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.colonist-card{background:#0d0d18;border:1px solid var(--border);border-radius:6px;padding:10px;font-size:0.8em}
+.colonist-card.dead{opacity:0.5;border-color:var(--red)}
+.bar{height:6px;border-radius:3px;margin:2px 0}
+.bar-fill{height:100%;border-radius:3px}
+.subsim-node{padding:4px 8px;margin:4px 0;border-left:3px solid var(--purple);background:rgba(170,68,255,0.05);font-size:0.8em}
+.subsim-node .depth{color:var(--purple);font-weight:bold}
+#loading{text-align:center;padding:40px;color:var(--muted)}
+</style>
+</head>
+<body>
+<h1>🔴 Mars-100: Recursive Colony Experiment</h1>
+<p class="subtitle">Turtles All the Way Down — 10 colonists, 100 Martian years, sub-sims to depth 3</p>
+<div id="loading">Loading simulation data...</div>
+<div id="app" style="display:none">
+<div class="grid">
+  <div class="card"><h2>📊 Colony Vitals</h2><div id="vitals"></div><h3>Population</h3><canvas id="popChart"></canvas></div>
+  <div class="card"><h2>🌡️ Resources</h2><canvas id="resourceChart"></canvas><h3>Morale</h3><canvas id="moraleChart"></canvas></div>
+</div>
+<div class="grid">
+  <div class="card"><h2>👥 Colonists</h2><div id="colonists" class="colonist-grid"></div></div>
+  <div class="card"><h2>🐢 Sub-Simulations</h2><div id="subsims"></div><p id="subsim-count" style="color:var(--muted);font-size:0.85em;margin-top:8px"></p></div>
+</div>
+<div class="card"><h2>📜 Timeline</h2><div id="timeline" class="timeline"></div></div>
+<div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
+<div class="card"><h2>💀 Memorial</h2><div id="memorial"></div></div>
+</div>
+<script>
+function drawChart(canvas,datasets,labels){
+const ctx=canvas.getContext('2d'),dpr=window.devicePixelRatio||1,rect=canvas.getBoundingClientRect();
+canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;ctx.scale(dpr,dpr);
+const W=rect.width,H=rect.height,pad={top:10,right:10,bottom:20,left:40};
+const plotW=W-pad.left-pad.right,plotH=H-pad.top-pad.bottom;
+let allVals=datasets.flatMap(d=>d.data),minV=Math.min(...allVals),maxV=Math.max(...allVals);
+if(maxV===minV)maxV=minV+1;const n=datasets[0].data.length;
+ctx.fillStyle='#0a0a12';ctx.fillRect(0,0,W,H);
+ctx.strokeStyle='#1a1a2f';ctx.lineWidth=0.5;
+for(let i=0;i<=4;i++){const y=pad.top+plotH*i/4;ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
+ctx.fillStyle='#666';ctx.font='10px monospace';ctx.textAlign='right';ctx.fillText(Math.round(maxV-(maxV-minV)*i/4),pad.left-4,y+4)}
+datasets.forEach(ds=>{ctx.strokeStyle=ds.color;ctx.lineWidth=1.5;ctx.beginPath();
+ds.data.forEach((v,i)=>{const x=pad.left+(i/Math.max(1,n-1))*plotW,y=pad.top+plotH-((v-minV)/(maxV-minV))*plotH;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke()});
+let lx=pad.left;datasets.forEach(ds=>{ctx.fillStyle=ds.color;ctx.fillRect(lx,2,12,6);ctx.fillStyle='#888';ctx.font='9px monospace';ctx.textAlign='left';ctx.fillText(ds.label,lx+15,8);lx+=ctx.measureText(ds.label).width+30})}
+function render(data){
+document.getElementById('loading').style.display='none';document.getElementById('app').style.display='block';
+const s=data.summary,deltas=data.deltas;
+document.getElementById('vitals').innerHTML=`
+<div class="stat-row"><span class="stat-label">Years survived</span><span>${s.years_survived}/100</span></div>
+<div class="stat-row"><span class="stat-label">Final pop</span><span class="${s.final_population>0?'alive':'dead'}">${s.final_population}</span></div>
+<div class="stat-row"><span class="stat-label">Peak pop</span><span>${s.peak_population}</span></div>
+<div class="stat-row"><span class="stat-label">Births</span><span class="alive">${s.total_births}</span></div>
+<div class="stat-row"><span class="stat-label">Deaths</span><span class="dead">${s.total_deaths}</span></div>
+<div class="stat-row"><span class="stat-label">Sub-sims</span><span style="color:var(--purple)">${s.total_sub_simulations}</span></div>
+<div class="stat-row"><span class="stat-label">Proposals</span><span>${s.total_proposals}</span></div>
+<div class="stat-row"><span class="stat-label">Governance</span><span>${data.colony.governance.system}</span></div>`;
+const years=s.population_curve.map((_,i)=>'Y'+(i+1));
+drawChart(document.getElementById('popChart'),[{data:s.population_curve,color:'#44ff88',label:'Population'}],years);
+drawChart(document.getElementById('resourceChart'),[
+{data:deltas.map(d=>d.resources_snapshot.food),color:'#ffaa44',label:'Food'},
+{data:deltas.map(d=>d.resources_snapshot.water),color:'#4488ff',label:'Water'},
+{data:deltas.map(d=>d.resources_snapshot.oxygen),color:'#88ccff',label:'O₂'}],years);
+drawChart(document.getElementById('moraleChart'),[{data:s.morale_curve,color:'#ff44aa',label:'Morale'}],years);
+const all=[...data.colony.colonists,...(data.colony.dead_souls||[])],seen=new Set(),uniq=all.filter(c=>{if(seen.has(c.id))return false;seen.add(c.id);return true});
+document.getElementById('colonists').innerHTML=uniq.map(c=>`<div class="colonist-card ${c.alive?'':'dead'}">
+<strong style="color:${{fire:'#ff6644',water:'#4488ff',earth:'#88aa44',air:'#ccccff'}[c.element]||'#fff'}">${c.name}</strong> #${c.id}
+<div style="font-size:0.9em;color:var(--muted)">${c.element} · ${c.alive?'🟢':'💀 '+(c.cause_of_death||'')}</div>
+${Object.entries(c.stats).map(([k,v])=>`<div style="display:flex;align-items:center;gap:4px;margin:1px 0">
+<span style="width:70px;font-size:0.75em;color:var(--muted)">${k}</span>
+<div class="bar" style="flex:1;background:#1a1a2f"><div class="bar-fill" style="width:${v}%;background:${v>60?'#44ff88':v>30?'#ffaa44':'#ff4444'}"></div></div>
+<span style="width:20px;text-align:right;font-size:0.75em">${v}</span></div>`).join('')}</div>`).join('');
+const allSS=deltas.flatMap(d=>d.sub_sims.map(s=>({...s,year:d.year})));
+document.getElementById('subsim-count').textContent=`${allSS.length} sub-simulations recorded`;
+document.getElementById('subsims').innerHTML=allSS.length===0?'<p style="color:var(--muted)">No sub-simulations yet.</p>':
+allSS.slice(0,50).map(ss=>`<div class="subsim-node"><span class="depth">depth:${ss.depth}</span> Year ${ss.year} · ${ss.colonist}
+<br>Proposal: <span class="tag tag-proposal">${ss.proposal}</span><br>Result: ${String(ss.result).substring(0,120)}
+${ss.s_expr?'<div class="sexp">'+ss.s_expr.substring(0,200)+'</div>':''}</div>`).join('');
+document.getElementById('timeline').innerHTML=deltas.map(d=>`<div class="year-entry">
+<span class="year-label">Year ${d.year}</span> · Pop: ${d.population} · ${d.event.id}
+<div style="color:var(--muted)">${d.event.desc}</div>
+${d.event_effects.map(e=>'<div>'+e+'</div>').join('')}
+${d.colonist_actions.slice(0,5).map(a=>'<div>'+a.action+'</div>').join('')}
+${d.colonist_actions.length>5?'<div style="color:var(--muted)">...+'+(d.colonist_actions.length-5)+' more</div>':''}
+${d.sub_sims.map(s=>'<span class="tag tag-subsim">sub-sim: '+s.colonist+'</span>').join('')}
+${d.resource_effects.filter(e=>e.toLowerCase().includes('dies')).map(e=>'<span class="tag tag-death">'+e+'</span>').join('')}
+${d.births.map(b=>'<span class="tag tag-birth">'+b+'</span>').join('')}
+${d.diary_entries.slice(0,2).map(e=>'<div style="font-style:italic;color:var(--muted);margin:4px 0">"'+e.entry.substring(0,150)+'"</div>').join('')}</div>`).join('');
+const govE=deltas.filter(d=>d.governance_results.length>0);
+document.getElementById('governance').innerHTML=govE.length===0?'<p style="color:var(--muted)">No governance proposals resolved.</p>':
+govE.map(d=>`<div class="year-entry"><span class="year-label">Year ${d.year}</span>${d.governance_results.map(g=>'<div><span class="tag tag-proposal">'+g+'</span></div>').join('')}</div>`).join('');
+const dead=data.colony.dead_souls||[];
+document.getElementById('memorial').innerHTML=dead.length===0?'<p style="color:var(--muted)">No casualties. The colony endures.</p>':
+dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('')}
+fetch('data.json').then(r=>r.json()).then(render).catch(err=>{
+document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p><p style="color:var(--muted)">Run: python3 src/mars100_engine.py --years 100</p>'})
+</script>
+</body>
+</html>
