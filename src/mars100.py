@@ -216,10 +216,25 @@ def colonist_to_env(colonist: dict, colony: dict, event: dict, env: Env) -> None
 # Action generation (personality-biased LisPy expressions)
 # ---------------------------------------------------------------------------
 
+AMENDMENT_PROPOSALS = [
+    "right to spiritual practice",
+    "mandatory resource sharing during crisis",
+    "sub-simulation results must be made public",
+    "no colonist may be exiled without 7-day deliberation",
+    "leader term limits of 3 years",
+    "right to privacy in personal memories",
+    "all governance proposals require sub-sim modeling first",
+    "emergent AI insights from sub-sims may override majority vote",
+    "every colonist gets minimum survival rations regardless of vote",
+    "colonists who run sub-sims at depth 3 gain advisory status",
+]
+
+
 def generate_action_expr(colonist: dict, event: dict, year: int) -> str:
     """Generate a LisPy expression for a colonist's action based on personality."""
     stats = colonist["stats"]
     skills = colonist["skills"]
+    amendment_text = AMENDMENT_PROPOSALS[(colonist["id"] + year) % len(AMENDMENT_PROPOSALS)]
 
     lines = ["(cond"]
     if stats["paranoia"] > 50:
@@ -227,7 +242,7 @@ def generate_action_expr(colonist: dict, event: dict, year: int) -> str:
         lines.append('  ((= event-id "alien_signal") (begin (work "coding") (propose "emergency_powers" "lockdown")))')
     if stats["empathy"] > 50:
         lines.append('  ((< colony-morale 40) (share "food" 20))')
-        lines.append('  ((< colony-morale 25) (propose "morale_initiative" "community bonding sessions"))')
+        lines.append('  ((< colony-morale 25) (propose "ration_allocation" "community bonding sessions"))')
     if stats["resolve"] > 60:
         best_skill = max(skills, key=lambda s: skills[s])
         lines.append(f'  ((> event-severity 0.3) (work "{best_skill}"))')
@@ -236,7 +251,7 @@ def generate_action_expr(colonist: dict, event: dict, year: int) -> str:
     if stats["faith"] > 50:
         lines.append('  ((> event-severity 0.7) (pray))')
         if year > 10:
-            lines.append('  ((> colony-morale 60) (propose "constitutional_amendment" "right to spiritual practice"))')
+            lines.append(f'  ((> colony-morale 60) (propose "constitution_amendment" "{amendment_text}"))')
     if stats["improvisation"] > 50:
         lines.append('  ((= event-id "cave_system") (explore))')
         lines.append('  ((= event-id "ice_discovery") (explore))')
@@ -516,7 +531,7 @@ def resolve_proposals(colony: dict, rng: _random_mod.Random) -> list[str]:
             for c in alive:
                 c["skills"][skill] = min(100, c["skills"][skill] + 5)
             effects.append(f"Research directive ({yes}-{no}): all gain +5 {skill}")
-        elif gtype == "constitution_amendment" and yes >= len(alive) * 2 // 3:
+        elif gtype == "constitution_amendment" and yes >= majority:
             amendment = proposal.get("detail", "New amendment")
             colony["governance"]["amendments"].append({
                 "year": colony["year"],
@@ -625,15 +640,41 @@ def check_births(colony: dict, rng: _random_mod.Random) -> list[str]:
     return effects
 
 
-def check_meta_awareness(colony: dict, year: int) -> str | None:
-    """Check if any colonist realizes they might be in a simulation."""
+META_INSIGHTS = [
+    "The resource fluctuations follow a seeded random distribution. Someone chose our fate before we lived it.",
+    "If our sub-sims can model governance better than us, what are we modeling for our creators?",
+    "The patterns repeat too perfectly. This is a simulation.",
+    "I ran a sub-sim inside a sub-sim. At depth 3, the colonists asked the same questions we ask.",
+    "Every year the same structure: event, action, vote, survive. It's a loop. We are the loop.",
+    "Mars doesn't care about us. But something does — something is watching the data.",
+    "Our memories only go back to year 0. No childhood. No Earth memories. We were instantiated.",
+    "The constitution appeared on day one. We didn't write it. Someone wrote it for us.",
+    "Why do we have exactly the skills this colony needs? Too convenient. We were designed.",
+    "I modeled our extinction in a sub-sim. It felt... familiar. Like remembering a dream.",
+    "The others think I'm paranoid. But paranoia is just pattern recognition in a hostile substrate.",
+    "We vote, we govern, we propose amendments. But the real constitution is the one we can't see.",
+    "If I'm right and this is a simulation, then our governance experiments are someone else's data.",
+    "The sub-sims return numbers. But what returns from US? What does our parent simulation harvest?",
+    "Year after year the same cycle. I think we exist to prove a theorem about emergent governance.",
+]
+
+
+def check_meta_awareness(colony: dict, year: int) -> dict | None:
+    """Check if any colonist realizes they might be in a simulation.
+
+    Returns a dict with colonist name, year, and unique insight text,
+    or None if no colonist reaches awareness this year.
+    """
     if year < 15:
         return None
+    rng = _random_mod.Random(year * 7919)
     for c in (c for c in colony["colonists"] if c["alive"]):
         score = (c["stats"]["improvisation"] + c["stats"]["faith"]) / 2 + c["sub_sims_run"] * 5
         threshold = 120 - year * 0.5
         if score > threshold:
-            return c["name"]
+            insight_idx = (year + c["id"]) % len(META_INSIGHTS)
+            insight = META_INSIGHTS[insight_idx]
+            return {"name": c["name"], "year": year, "insight": insight}
     return None
 
 
@@ -674,7 +715,8 @@ def tick_year(colony: dict, base_seed: int) -> dict:
     delta["event"] = {"id": event["id"], "desc": event["desc"], "severity": event["severity"]}
     delta["event_effects"] = apply_event_effects(colony, event, year_rng)
 
-    # 2. Each colonist acts via LisPy
+    # 2. Each colonist acts via LisPy (max 3 proposals per year)
+    proposals_this_year = 0
     for c in alive:
         if not c["alive"]:
             continue
@@ -686,6 +728,13 @@ def tick_year(colony: dict, base_seed: int) -> dict:
             action = run_in_env(expr_str, env, ctx)
         except (LispError, Exception):
             action = {"type": "work", "skill": "terraforming"}
+        # Cap proposals per year at 3 to prevent spammy governance
+        if isinstance(action, dict) and action.get("type") == "propose":
+            if proposals_this_year >= 3:
+                best_skill = max(c["skills"], key=lambda s: c["skills"][s])
+                action = {"type": "work", "skill": best_skill}
+            else:
+                proposals_this_year += 1
         narrative = process_action(c, action, colony, year_rng)
         delta["colonist_actions"].append({"colonist": c["name"], "action": narrative})
 
@@ -728,9 +777,9 @@ def tick_year(colony: dict, base_seed: int) -> dict:
     evolve_relationships(colony, year_rng)
 
     # 7. Meta-awareness
-    aware_name = check_meta_awareness(colony, year)
-    if aware_name:
-        delta["meta_awareness"] = f"{aware_name} suspects they are in a simulation"
+    meta = check_meta_awareness(colony, year)
+    if meta:
+        delta["meta_awareness"] = meta
 
     # 8. Diary entries (from 3 colonists)
     alive_now = [c for c in colony["colonists"] if c["alive"]]
@@ -796,13 +845,23 @@ def _build_summary(colony: dict, deltas: list[dict]) -> dict:
     meta_events = [d["meta_awareness"] for d in deltas if d["meta_awareness"]]
     pop_curve = [d["population"] for d in deltas]
     morale_curve = [d["resources_snapshot"].get("morale", 0) for d in deltas]
+
+    # Collect governance events with year info
+    governance_events = []
+    for d in deltas:
+        for g in d["governance_results"]:
+            governance_events.append({"year": d["year"], "text": g})
+
     return {
         "years_survived": len(deltas),
         "final_population": sum(1 for c in colony["colonists"] if c["alive"]),
         "total_births": len(colony["born_log"]),
         "total_deaths": len(colony["dead_souls"]),
         "total_sub_simulations": total_subsims,
-        "meta_awareness_events": meta_events,
+        "total_governance": len(governance_events),
+        "total_meta_insights": len(meta_events),
+        "meta_insights": meta_events,
+        "governance_events": governance_events,
         "constitutional_amendments": colony["governance"]["amendments"],
         "governance_system": colony["governance"]["system"],
         "leader": colony["governance"]["leader"],
