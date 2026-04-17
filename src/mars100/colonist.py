@@ -94,6 +94,8 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    pressure: float = 0.0
+    pressure_history: list[float] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -102,6 +104,8 @@ class Colonist:
             "skills": self.skills.to_dict(), "decision_expr": self.decision_expr,
             "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
+            "pressure": round(self.pressure, 4),
+            "pressure_history": [round(p, 4) for p in self.pressure_history],
             "memories": [m.to_dict() for m in self.memories],
         }
         if self.death_year is not None:
@@ -123,6 +127,8 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            pressure=d.get("pressure", 0.0),
+            pressure_history=d.get("pressure_history", []),
         )
 
     def is_active(self) -> bool:
@@ -172,6 +178,8 @@ class Colonist:
         bindings["element"] = self.element
         bindings["alive"] = self.alive
         bindings["memory-count"] = len(self.memories)
+        bindings["pressure"] = self.pressure
+        bindings["hope"] = max(0.0, 1.0 - self.pressure)
         return bindings
 
 

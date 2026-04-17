@@ -25,6 +25,18 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.pressure import (
+    compute_environmental_pressure, compute_social_pressure,
+    compute_existential_pressure, update_pressure, apply_pressure_release,
+    pressure_action_modifier, pressure_death_modifier,
+    pressure_birth_modifier, collective_pressure, PressureSnapshot,
+)
+from src.mars100.codex import Codex, imprint_child as codex_imprint
+from src.mars100.crisis import (
+    CrisisEvent, CrisisPattern, ProposedAmendment,
+    detect_crises, backfill_deaths, learn_from_crises,
+    deep_deliberation, extract_rappterbook_amendment,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +64,9 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    codex_snapshot: dict = field(default_factory=dict)
+    pressure_snapshot: dict = field(default_factory=dict)
+    crisis_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +82,9 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "codex_snapshot": self.codex_snapshot,
+            "pressure": self.pressure_snapshot,
+            "crisis_events": self.crisis_events,
         }
 
 
@@ -86,10 +104,14 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    final_codex: dict = field(default_factory=dict)
+    crisis_log: list[dict] = field(default_factory=list)
+    crisis_patterns: list[dict] = field(default_factory=list)
+    proposed_amendment: dict | None = None
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +123,17 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_crises": len(self.crisis_log),
+                "crisis_patterns_found": len(self.crisis_patterns),
+                "amendment_proposed": self.proposed_amendment is not None,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "final_codex": self.final_codex,
+            "crisis_patterns": self.crisis_patterns,
+            "proposed_amendment": self.proposed_amendment,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -125,6 +153,10 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.codex = Codex()
+        self.crisis_log: list[CrisisEvent] = []
+        self.crisis_patterns: list[CrisisPattern] = []
+        self.proposed_amendment: ProposedAmendment | None = None
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -135,12 +167,18 @@ class Mars100Engine:
     def _active_ids(self) -> list[str]:
         return [c.id for c in self._active_colonists()]
 
+    def _full_bindings(self, colonist: Colonist) -> dict[str, Any]:
+        """Combine colonist personal bindings with colony codex bindings."""
+        bindings = colonist.lispy_bindings()
+        bindings.update(self.codex.get_bindings())
+        return bindings
+
     def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
         """Choose an action for a colonist based on personality and events."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
-                              extra_bindings=colonist.lispy_bindings(),
+                              extra_bindings=self._full_bindings(colonist),
                               max_steps=1000)
             if not isinstance(score, (int, float)):
                 score = 0.5
@@ -187,6 +225,7 @@ class Mars100Engine:
                     w += 1.0
             weights[action] = max(0.01, w)
 
+        weights = pressure_action_modifier(colonist, weights)
         total = sum(weights.values())
         r = self.rng.random() * total
         cumulative = 0.0
@@ -227,10 +266,34 @@ class Mars100Engine:
         for ev in events:
             if ev.severity > 0.5:
                 subsim_chance += 0.15
+        # Crisis patterns boost deliberation probability
+        if self.crisis_patterns:
+            subsim_chance += 0.2
         if self.rng.random() > subsim_chance:
             return None
+
+        # Use deep deliberation when crisis patterns are known
+        if self.crisis_patterns:
+            pattern = self.rng.choice(self.crisis_patterns)
+            result = deep_deliberation(
+                colonist_id=colonist.id,
+                colonist_bindings=self._full_bindings(colonist),
+                resources=self.resources.to_dict(),
+                crisis_pattern=pattern,
+                governance_type=self.governance.gov_type,
+                active_count=len(self._active_colonists()),
+                year=self.year,
+                budget=budget,
+                log=log,
+                rng=self.rng,
+            )
+            if result:
+                colonist.subsim_count += 1
+            return result
+
+        # Fallback: shallow sub-sim (no crisis context)
         expr = self._generate_subsim_expression(colonist, events)
-        bindings = colonist.lispy_bindings()
+        bindings = self._full_bindings(colonist)
         bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
         result = spawn_subsim(expression=expr, colonist_id=colonist.id,
                               year=self.year, bindings=bindings,
@@ -293,7 +356,7 @@ class Mars100Engine:
         if not pairs:
             return []
         pairs.sort(key=lambda x: x[2], reverse=True)
-        birth_prob = 0.15
+        birth_prob = 0.15 * pressure_birth_modifier(self.colonists)
         births: list[dict] = []
         for parent_a, parent_b, _ in pairs[:1]:
             if self.rng.random() < birth_prob:
@@ -319,11 +382,14 @@ class Mars100Engine:
                 rate += RESOURCE_DEATH_MULTIPLIER * (0.1 - val)
         if colonist.stats.paranoia > 0.8:
             rate += 0.005
+        rate += pressure_death_modifier(colonist)
         if self.rng.random() < rate:
             causes = ["equipment malfunction", "radiation exposure",
                       "medical emergency", "habitat breach", "resource deprivation"]
             if colonist.stats.paranoia > 0.7:
                 causes.append("suspicious accident")
+            if colonist.pressure > 0.8:
+                causes.append("stress-induced collapse")
             return self.rng.choice(causes)
         return None
 
@@ -437,6 +503,47 @@ class Mars100Engine:
             "status": "proposed",
         }
 
+    # ── codex integration ────────────────────────────────────────
+
+    def _tick_codex(
+        self,
+        events: list[Event],
+        deaths: list[dict],
+        gov_proposal: Any,
+        year_births: list[dict],
+    ) -> dict:
+        """Update the Memory Codex for this year. Returns compact snapshot."""
+        # Decay existing entries
+        self.codex.tick_decay()
+
+        for event in events:
+            self.codex.add_event(self.year, event.name, event.description, event.severity)
+
+        for death in deaths:
+            cid = death["id"]
+            colonist = next((c for c in self.colonists if c.id == cid), None)
+            if colonist:
+                mems = [m.to_dict() if hasattr(m, "to_dict") else m for m in colonist.memories]
+                self.codex.add_ancestor_wisdom(self.year, colonist.id, colonist.name, mems)
+
+        if gov_proposal and gov_proposal.to_dict().get("passed"):
+            gdict = gov_proposal.to_dict()
+            self.codex.add_law(
+                self.year, gdict.get("description", "A new law was enacted"),
+                proposer_id=gdict.get("proposer"),
+            )
+
+        for birth in year_births:
+            child_id = birth.get("child_id", "")
+            child = next((c for c in self.colonists if c.id == child_id), None)
+            if child:
+                new_stats = codex_imprint(self.codex, child.stats.to_dict())
+                for stat_name, val in new_stats.items():
+                    if hasattr(child.stats, stat_name):
+                        setattr(child.stats, stat_name, val)
+
+        return self.codex.snapshot()
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
@@ -452,6 +559,20 @@ class Mars100Engine:
                 valence = -ev.severity if ev.effects.get("morale", 0) < 0 else ev.severity * 0.5
                 colonist.add_memory(self.year, ev.description, valence)
 
+        # --- pressure: compute sources for each colonist ---
+        env_p = compute_environmental_pressure(
+            self.resources, events, 0, len(active))
+        pressure_social: dict[str, float] = {}
+        pressure_exist: dict[str, float] = {}
+        for colonist in active:
+            pressure_social[colonist.id] = compute_social_pressure(
+                colonist, self.social, active_ids, self.governance.gov_type)
+            pressure_exist[colonist.id] = compute_existential_pressure(
+                colonist, self.year, 0)
+            update_pressure(colonist, env_p,
+                            pressure_social[colonist.id],
+                            pressure_exist[colonist.id])
+
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
         subsim_log: list[SubSimResult] = []
@@ -459,6 +580,7 @@ class Mars100Engine:
             action = self._choose_action(colonist, events)
             actions[colonist.id] = action
             colonist.evolve_skills(action, self.rng)
+            apply_pressure_release(colonist, action)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
         gov_proposal: GovernanceProposal | None = None
@@ -468,7 +590,7 @@ class Mars100Engine:
             if subsim_budget.can_spawn(proposer.id):
                 gov_expr = "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))"
                 gov_sim = spawn_subsim(expression=gov_expr, colonist_id=proposer.id,
-                                       year=self.year, bindings=proposer.lispy_bindings(),
+                                       year=self.year, bindings=self._full_bindings(proposer),
                                        depth=1, budget=subsim_budget, log=subsim_log)
                 gov_proposal.subsim_result = gov_sim.to_dict()
             for colonist in active:
@@ -524,9 +646,46 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        # --- Crisis memory: detect, backfill, learn ---
+        action_histogram: dict[str, int] = {}
+        for a in actions.values():
+            action_histogram[a] = action_histogram.get(a, 0) + 1
+        new_crises = detect_crises(
+            resources_after=self.resources.to_dict(),
+            resources_before=resources_before,
+            event_names=[ev.name for ev in events],
+            action_histogram=action_histogram,
+            governance_type=self.governance.gov_type,
+            year=self.year,
+            deaths=len(deaths),
+        )
+        self.crisis_log.extend(new_crises)
+        backfill_deaths(self.crisis_log, self.year, len(deaths))
+        if self.year % 10 == 0 or new_crises:
+            self.crisis_patterns = learn_from_crises(self.crisis_log)
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
+
+        codex_snapshot = self._tick_codex(events, deaths, gov_proposal, year_births)
+
+        # --- pressure: post-death spike + snapshot ---
+        if deaths:
+            for colonist in self._active_colonists():
+                death_spike = min(0.15, len(deaths) * 0.05)
+                colonist.pressure = min(1.0, colonist.pressure + death_spike)
+        social_pressures = [pressure_social.get(c.id, 0.0) for c in self._active_colonists()]
+        exist_pressures = [pressure_exist.get(c.id, 0.0) for c in self._active_colonists()]
+        p_snap = PressureSnapshot(
+            collective=collective_pressure(self.colonists),
+            environmental=env_p,
+            social_avg=sum(social_pressures) / max(1, len(social_pressures)),
+            existential_avg=sum(exist_pressures) / max(1, len(exist_pressures)),
+            individual={c.id: c.pressure for c in self._active_colonists()},
+            high_pressure_colonists=[c.id for c in self._active_colonists()
+                                     if c.pressure > 0.7],
+        )
 
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
@@ -541,6 +700,9 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            codex_snapshot=codex_snapshot,
+            crisis_events=[c.to_dict() for c in new_crises],
+            pressure_snapshot=p_snap.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -561,6 +723,12 @@ class Mars100Engine:
             meta_count += len(result.meta_awareness)
             if callback:
                 callback(result)
+
+        # Extract proposed amendment from crisis patterns after full run
+        self.proposed_amendment = extract_rappterbook_amendment(
+            self.promoted_insights, self.crisis_patterns, self.crisis_log
+        )
+
         return SimulationResult(
             years=years, final_colonists=[c.to_dict() for c in self.colonists],
             final_resources=self.resources.to_dict(),
@@ -572,6 +740,11 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            final_codex=self.codex.to_dict(),
+            crisis_log=[c.to_dict() for c in self.crisis_log],
+            crisis_patterns=[p.to_dict() for p in self.crisis_patterns],
+            proposed_amendment=(self.proposed_amendment.to_dict()
+                                if self.proposed_amendment else None),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
