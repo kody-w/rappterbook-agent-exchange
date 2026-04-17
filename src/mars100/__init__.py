@@ -42,6 +42,13 @@ from src.mars100.economics import (
     compute_gini, compute_economic_pressure, liquidate_estate,
     endow_immigrant, tick_economics,
 )
+from src.mars100.psychology import (
+    PsychState, PsychTickResult, PsychPostResult,
+    tick_psychology_pre, tick_psychology_post,
+    compute_action_modifiers, compute_productivity,
+    initialize_state as init_psych_state,
+    initialize_child_state, initialize_immigrant_state,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -69,4 +76,8 @@ __all__ = [
     "allocate_labor_income", "find_trades", "apply_taxation",
     "compute_gini", "compute_economic_pressure", "liquidate_estate",
     "endow_immigrant", "tick_economics",
+    "PsychState", "PsychTickResult", "PsychPostResult",
+    "tick_psychology_pre", "tick_psychology_post",
+    "compute_action_modifiers", "compute_productivity",
+    "init_psych_state", "initialize_child_state", "initialize_immigrant_state",
 ]

@@ -209,7 +209,8 @@ class Colonist:
             elif self.element == "air" and name == "improvisation": delta += 0.005
             setattr(self.stats, name, max(0.0, min(1.0, current + delta)))
 
-    def evolve_skills(self, action: str, rng: random.Random) -> None:
+    def evolve_skills(self, action: str, rng: random.Random,
+                     multiplier: float = 1.0) -> None:
         skill_map = {"terraform": "terraforming", "farm": "hydroponics",
                      "mediate": "mediation", "code": "coding",
                      "pray": "prayer", "sabotage": "sabotage",
@@ -217,7 +218,7 @@ class Colonist:
         target = skill_map.get(action)
         if target:
             current = getattr(self.skills, target)
-            gain = rng.uniform(0.01, 0.03) * (1.0 - current)
+            gain = rng.uniform(0.01, 0.03) * (1.0 - current) * multiplier
             setattr(self.skills, target, min(1.0, current + gain))
 
     def lispy_bindings(self) -> dict[str, Any]:
