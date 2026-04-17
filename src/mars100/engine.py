@@ -29,6 +29,7 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.culture import OralTradition, CultureSnapshot
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +58,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    cultural_memory: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +75,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "cultural_memory": self.cultural_memory,
         }
 
 
@@ -93,10 +96,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    cultural_memory: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +118,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "cultural_memory": self.cultural_memory,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +139,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.oral_tradition = OralTradition()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -197,6 +203,12 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Cultural memory bias from myths (reads previous year's oral tradition)
+        culture_biases = self.oral_tradition.action_bias(self.year)
+        for action, bias in culture_biases.items():
+            if action in weights:
+                weights[action] = max(0.01, weights[action] + bias)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -400,6 +412,10 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Cultural myth influence on governance preference
+        gov_signals = self.oral_tradition.governance_signals(self.year)
+        myth_bonus = gov_signals.get(proposal.gov_type, 0.0) * 0.1
+        score += myth_bonus
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -572,6 +588,29 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # Oral tradition: generate stories, spread, decay, promote
+        infra_event_dict = None
+        if infra_event and infra_event.get("completed"):
+            infra_event_dict = infra_event
+        culture_snap = self.oral_tradition.post_tick_update(
+            year=self.year,
+            active_colonists=self._active_colonists(),
+            events=[e.to_dict() for e in events],
+            deaths=deaths,
+            exiles=exiles,
+            governance=gov_proposal.to_dict() if gov_proposal else None,
+            meta_events=meta_events,
+            subsim_log=[s.to_dict() for s in subsim_log],
+            births=year_births,
+            infra_event=infra_event_dict,
+            rng=self.rng,
+        )
+
+        # Teach newborns the colony's myths and parent stories
+        for birth in year_births:
+            self.oral_tradition.teach_child(
+                birth["id"], birth.get("parents", []), self.rng)
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -586,6 +625,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            cultural_memory=culture_snap.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +658,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            cultural_memory=self.oral_tradition.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
