@@ -405,6 +405,9 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
     # 4. Resolve intents simultaneously
     outcomes = resolve_intents(intents, colonists, resources, year, governance, rng)
 
+    # Initialize meta_insight early — may be set by sub-sims or simulation awareness
+    meta_insight = None
+
     # 5. Governance phase: proposals and votes
     proposals_this_year: list[dict] = []
     proposers = [i for i in intents if i.action == "propose"]
@@ -428,6 +431,23 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
             subsim_result = _run_colonist_subsim(colonist, colonists, resources,
                                                    year, governance, rng)
             subsim_log.append(subsim_result)
+            # Extract meta-insight from deep sub-sims
+            if subsim_result.get("meta_insight") and meta_insight is None:
+                meta_insight = subsim_result["meta_insight"]
+
+    # Also run sub-sim for amendment proposals (evidence-gathering)
+    for prop_dict in proposals_this_year:
+        if prop_dict.get("kind") == "amendment":
+            proposer = next((c for c in colonists if c.id == prop_dict.get("proposer_id") and c.alive), None)
+            if proposer and len(subsim_log) < 4:
+                subsim_result = _run_colonist_subsim(proposer, colonists, resources,
+                                                       year, governance, rng)
+                subsim_log.append(subsim_result)
+
+    # 6b. Births — Mars-born colonists
+    child = maybe_birth(year, colonists, resources, rng)
+    if child:
+        colonists.append(child)
 
     # 7. Mortality check
     dead_this_year: list[str] = []
@@ -448,7 +468,6 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
 
     # 11. Meta-insight check (simulation awareness)
     sim_awareness = None
-    meta_insight = None
     for c in active:
         if c.alive and c.discovery_potential(year) > 0.75:
             if rng.random() < (c.discovery_potential(year) - 0.7) * 0.5:
@@ -460,7 +479,7 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
                 }
                 c.add_memory(year, "questioned if reality is a simulation", 1.0)
                 c.adjust_stat("paranoia", 0.05)
-                if year > 60 and c.subsims_run > 3:
+                if year > 60 and c.subsims_run > 3 and meta_insight is None:
                     meta_insight = (
                         f"Year {year}: {c.name} proposes that recursive "
                         f"self-modeling reveals the colony itself may be a "

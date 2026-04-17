@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: A Recursive Colony Experiment</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;color:#e0e0e0;font-family:'Courier New',monospace;overflow-x:hidden}
+.header{text-align:center;padding:2rem;background:linear-gradient(135deg,#1a0a0a,#0a1a2a);border-bottom:2px solid #ff4444}
+.header h1{font-size:2rem;color:#ff6644;text-shadow:0 0 20px rgba(255,100,50,0.5)}
+.header .subtitle{color:#888;margin-top:0.5rem;font-size:0.9rem}
+.dashboard{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:1rem;max-width:1400px;margin:0 auto}
+@media(max-width:900px){.dashboard{grid-template-columns:1fr}}
+.panel{background:#111;border:1px solid #333;border-radius:8px;padding:1rem}
+.panel h2{color:#ff8866;font-size:1rem;margin-bottom:0.5rem;border-bottom:1px solid #333;padding-bottom:0.3rem}
+.full-width{grid-column:1/-1}
+.stat{display:inline-block;margin:0.3rem 0.5rem;padding:0.3rem 0.6rem;background:#1a1a2a;border-radius:4px;font-size:0.8rem}
+.stat .label{color:#666}
+.stat .value{color:#4fc3f7;font-weight:bold}
+.colonist{display:flex;align-items:center;padding:0.4rem;margin:0.2rem 0;border-radius:4px;font-size:0.8rem;cursor:pointer;transition:background 0.2s}
+.colonist:hover{filter:brightness(1.3)}
+.colonist.alive{background:#0a1a0a;border-left:3px solid #4caf50}
+.colonist.dead{background:#1a0a0a;border-left:3px solid #f44336;opacity:0.6}
+.colonist .name{flex:1;font-weight:bold}
+.colonist .element{padding:0.1rem 0.4rem;border-radius:3px;font-size:0.7rem;margin:0 0.3rem}
+.fire{background:#441111;color:#ff6644}
+.water{background:#111144;color:#4488ff}
+.earth{background:#114411;color:#88cc44}
+.air{background:#333344;color:#aabbff}
+.health-bar{width:60px;height:8px;background:#333;border-radius:4px;overflow:hidden;display:inline-block}
+.health-fill{height:100%;border-radius:4px}
+.diary-entry{background:#0a0a1a;border-left:3px solid #ff8866;padding:0.5rem;margin:0.3rem 0;font-size:0.75rem;white-space:pre-wrap;max-height:120px;overflow-y:auto}
+.event-badge{display:inline-block;padding:0.2rem 0.5rem;border-radius:3px;font-size:0.7rem;margin:0.2rem}
+.gov-type{font-size:1.2rem;color:#ffcc44;text-align:center;padding:0.5rem}
+.subsim{background:#0a0a2a;border:1px solid #4444ff;border-radius:4px;padding:0.5rem;margin:0.3rem 0;font-size:0.75rem}
+.subsim .depth{color:#ff44ff;font-weight:bold}
+.lispy{font-family:'Courier New',monospace;color:#44ff88;background:#001100;padding:0.3rem;border-radius:3px;font-size:0.7rem;overflow-x:auto;white-space:nowrap;display:block;margin:0.2rem 0}
+.timeline{display:flex;gap:2px;align-items:flex-end;height:80px;overflow-x:auto}
+.year-bar{flex:0 0 auto;width:8px;background:#333;border-radius:2px 2px 0 0;cursor:pointer;transition:all 0.2s}
+.year-bar:hover{transform:scaleY(1.1);filter:brightness(1.3)}
+.year-bar.selected{outline:1px solid #fff}
+.amendment{background:#1a0a2a;border:1px solid #cc44ff;border-radius:4px;padding:0.5rem;margin:0.3rem 0}
+.amendment h3{color:#cc44ff;font-size:0.85rem}
+.controls{text-align:center;padding:1rem}
+.controls button{background:#333;color:#fff;border:1px solid #666;padding:0.5rem 1rem;border-radius:4px;cursor:pointer;margin:0 0.3rem;font-family:inherit}
+.controls button:hover{background:#555}
+.tag{display:inline-block;padding:0.1rem 0.4rem;border-radius:3px;font-size:0.65rem;margin:0.1rem}
+.colonist-detail{background:#0a0a1a;border:1px solid #444;border-radius:4px;padding:0.8rem;margin-top:0.5rem;font-size:0.75rem;display:none}
+.colonist-detail.visible{display:block}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🔴 Mars-100: A Recursive Colony Experiment</h1>
+  <div class="subtitle">10 colonists · 100 Martian years · Sub-sims up to depth 3 · Turtles All the Way Down</div>
+</div>
+
+<div class="controls">
+  <button onclick="togglePlayback()" id="btn-play">▶ Play</button>
+  <button onclick="stepToYear(selectedYear+1)">⏭ Next</button>
+  <button onclick="stepToYear(1)">⏮ Start</button>
+  <button onclick="stepToYear(timeline.length)">⏭ End</button>
+  <span id="year-display" style="color:#ff8866;margin-left:1rem">Loading...</span>
+</div>
+
+<div class="dashboard">
+  <div class="panel full-width">
+    <h2>Colony Overview</h2>
+    <div id="overview-stats"></div>
+    <div id="timeline" class="timeline"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Colonists</h2>
+    <div id="colonist-list"></div>
+    <div id="colonist-detail" class="colonist-detail"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Governance</h2>
+    <div id="gov-type" class="gov-type">—</div>
+    <div id="gov-details"></div>
+    <div id="gov-timeline" style="margin-top:0.5rem;font-size:0.7rem"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Year Events & Actions</h2>
+    <div id="year-events"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Sub-Simulations (Turtles 🐢)</h2>
+    <div id="subsim-list"></div>
+  </div>
+
+  <div class="panel full-width">
+    <h2>Diary Entries</h2>
+    <div id="diary-entries"></div>
+  </div>
+
+  <div class="panel full-width">
+    <h2>Proposed Constitutional Amendments</h2>
+    <div id="amendments"></div>
+  </div>
+
+  <div class="panel full-width">
+    <h2>Raw LisPy Kernel Output</h2>
+    <div id="lispy-output" style="max-height:200px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<script>
+let simData = null;
+let timeline = [];
+let yearCache = {};
+let selectedYear = 0;
+let playing = false;
+let playTimer = null;
+
+async function loadData() {
+  try {
+    const r = await fetch('data.json');
+    if (!r.ok) throw new Error('No data');
+    simData = await r.json();
+    timeline = simData.timeline || [];
+    if (timeline.length > 0) {
+      renderOverview();
+      stepToYear(timeline.length);
+    }
+  } catch (e) {
+    document.getElementById('year-display').textContent = 'No data. Run: python src/mars100_runner.py';
+  }
+}
+
+async function loadYear(year) {
+  if (yearCache[year]) return yearCache[year];
+  try {
+    const r = await fetch(`year-${String(year).padStart(3,'0')}.json`);
+    if (r.ok) { yearCache[year] = await r.json(); return yearCache[year]; }
+  } catch(e) {}
+  return null;
+}
+
+function renderOverview() {
+  if (!simData) return;
+  const s = simData.summary;
+  document.getElementById('overview-stats').innerHTML = [
+    `<span class="stat"><span class="label">Years</span> <span class="value">${s.years_completed}</span></span>`,
+    `<span class="stat"><span class="label">Survived</span> <span class="value">${simData._meta.colony_survived?'✓':'✗'}</span></span>`,
+    `<span class="stat"><span class="label">Alive</span> <span class="value">${s.alive_count}/10</span></span>`,
+    `<span class="stat"><span class="label">Governance</span> <span class="value">${(s.governance_type||'?').replace(/_/g,' ')}</span></span>`,
+    `<span class="stat"><span class="label">Sub-Sims</span> <span class="value">${s.total_sub_sims}</span></span>`,
+    `<span class="stat"><span class="label">Amendments</span> <span class="value">${s.amendments_proposed}</span></span>`,
+  ].join('');
+
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  for (const t of timeline) {
+    const h = Math.max(4, t.alive * 8);
+    const bar = document.createElement('div');
+    bar.className = 'year-bar';
+    bar.style.height = h + 'px';
+    bar.style.background = t.alive > 7 ? '#4caf50' : t.alive > 3 ? '#ff9800' : '#f44336';
+    bar.title = `Year ${t.year}: ${t.alive} alive, ${t.governance_type}`;
+    bar.dataset.year = t.year;
+    bar.onclick = () => stepToYear(t.year);
+    if (t.deaths && t.deaths.length) bar.style.borderTop = '2px solid #f44336';
+    if (t.sub_sim_count > 0) bar.style.borderBottom = '2px solid #4444ff';
+    tl.appendChild(bar);
+  }
+
+  // Governance transitions
+  let govHtml = '', lastGov = '';
+  for (const t of timeline) {
+    if (t.governance_type !== lastGov) {
+      govHtml += `<span class="tag" style="background:#1a1a0a;color:#ffcc44">Y${t.year}: ${(t.governance_type||'?').replace(/_/g,' ')}</span> `;
+      lastGov = t.governance_type;
+    }
+  }
+  document.getElementById('gov-timeline').innerHTML = govHtml;
+
+  // Amendments
+  const am = simData.amendments || [];
+  document.getElementById('amendments').innerHTML = am.length ?
+    am.map(a => `<div class="amendment">
+      <h3>Year ${a.year} — ${a.title || a.insight || 'Unnamed'}</h3>
+      <div style="color:#aaa;margin-top:4px">${a.rationale || a.insight || ''}</div>
+      <div style="color:#666;font-size:0.65rem">Source: ${a.source||'?'} | Proposer: ${a.proposer||'?'}</div>
+    </div>`).join('') : '<div style="color:#666">No amendments proposed.</div>';
+}
+
+async function stepToYear(year) {
+  year = Math.max(1, Math.min(year, timeline.length));
+  selectedYear = year;
+  document.getElementById('year-display').textContent = `Year: ${year} / ${timeline.length}`;
+  document.querySelectorAll('.year-bar').forEach(b =>
+    b.classList.toggle('selected', parseInt(b.dataset.year) === year));
+
+  const delta = await loadYear(year);
+  if (!delta) return;
+  const t = timeline[year - 1];
+
+  // Colonists
+  const cols = simData.colonists;
+  document.getElementById('colonist-list').innerHTML = Object.values(cols).map(c => {
+    const alive = c.alive !== false;
+    const hp = Math.max(0, c.health || 0);
+    const hcolor = hp > 60 ? '#4caf50' : hp > 30 ? '#ff9800' : '#f44336';
+    return `<div class="colonist ${alive?'alive':'dead'}" onclick="showColonist('${c.id}')">
+      <span class="name">${c.name}</span>
+      <span class="element ${c.element}">${c.element}</span>
+      <span style="color:#888;font-size:0.7rem">${c.archetype||''}</span>
+      <div class="health-bar"><div class="health-fill" style="width:${hp}%;background:${hcolor}"></div></div>
+      <span style="font-size:0.7rem;margin-left:4px">${hp.toFixed(0)}%</span>
+    </div>`;
+  }).join('');
+
+  // Governance
+  document.getElementById('gov-type').textContent =
+    (t.governance_type || '?').replace(/_/g, ' ').toUpperCase();
+
+  // Events
+  const ev = delta.event || {};
+  document.getElementById('year-events').innerHTML = `
+    <div style="font-weight:bold;margin-bottom:4px">${ev.id||'?'}</div>
+    <div style="font-size:0.8rem;color:#aaa">${ev.description||''}</div>
+    <div style="margin-top:0.5rem">${(delta.outcomes||[]).map(o =>
+      `<div><span style="color:#4fc3f7">${o.colonist||'?'}</span>: ${o.action||''} ${o.lispy_expr ? '<code class="lispy">'+o.lispy_expr+'</code>' : ''}</div>`
+    ).join('')}</div>`;
+
+  // Sub-sims
+  const subs = delta.subsim_log || [];
+  document.getElementById('subsim-list').innerHTML = subs.length ?
+    subs.map(s => `<div class="subsim">
+      <span class="depth">Depth ${s.depth||'?'}</span> — ${s.colonist||'?'}
+      <div style="color:#aaa;margin-top:2px">${s.scenario||''}</div>
+      <div style="color:#44ff88;margin-top:2px">${s.insight||''}</div>
+      <div style="color:#666;font-size:0.65rem">Confidence: ${((s.confidence||0)*100).toFixed(0)}%</div>
+    </div>`).join('') :
+    '<div style="color:#666">No sub-simulations this year.</div>';
+
+  // Diaries
+  const diaries = delta.colonist_diaries || [];
+  document.getElementById('diary-entries').innerHTML = diaries.length ?
+    diaries.slice(0,5).map(d => `<div class="diary-entry">${d.text||d.entry||JSON.stringify(d)}</div>`).join('') :
+    '<div style="color:#666">No diary entries.</div>';
+
+  // LisPy
+  const outcomes = delta.outcomes || [];
+  document.getElementById('lispy-output').innerHTML = outcomes
+    .filter(o => o.lispy_expr)
+    .map(o => `<span style="color:#888">; year ${year}, ${o.colonist||'?'}</span>\n<code class="lispy">${o.lispy_expr}</code>`)
+    .join('\n') || '<div style="color:#666">No LisPy expressions this year.</div>';
+}
+
+function showColonist(id) {
+  const c = simData.colonists[id];
+  if (!c) return;
+  const det = document.getElementById('colonist-detail');
+  det.className = 'colonist-detail visible';
+  det.innerHTML = `
+    <div style="font-weight:bold;color:#ff8866;margin-bottom:0.3rem">${c.name} <span class="element ${c.element}">${c.element}</span></div>
+    <div>Health: ${(c.health||0).toFixed(0)} | Age: ${c.age||'?'} | ${c.alive!==false?'🟢 Alive':'🔴 Dead'}</div>
+    <div style="margin-top:0.3rem"><strong>Stats:</strong></div>
+    ${Object.entries(c.stats||{}).map(([k,v])=>`<div style="display:flex;align-items:center;gap:4px">
+      <span style="width:90px;color:#888">${k}</span>
+      <div style="flex:1;height:6px;background:#222;border-radius:3px"><div style="width:${Math.min(100,v*100)}%;height:100%;background:#4fc3f7;border-radius:3px"></div></div>
+      <span style="width:30px;font-size:0.7rem">${typeof v==='number'?v.toFixed(2):v}</span>
+    </div>`).join('')}
+    <div style="margin-top:0.3rem"><strong>Skills:</strong></div>
+    ${Object.entries(c.skills||{}).map(([k,v])=>`<div style="display:flex;align-items:center;gap:4px">
+      <span style="width:90px;color:#888">${k}</span>
+      <div style="flex:1;height:6px;background:#222;border-radius:3px"><div style="width:${Math.min(100,v*100)}%;height:100%;background:#44ff88;border-radius:3px"></div></div>
+      <span style="width:30px;font-size:0.7rem">${typeof v==='number'?v.toFixed(2):v}</span>
+    </div>`).join('')}
+    <div style="margin-top:0.3rem"><strong>Relationships:</strong></div>
+    ${Object.entries(c.relationships||{}).map(([k,v])=>{
+      const color = v>0?'#4caf50':v<0?'#f44336':'#666';
+      return `<span class="tag" style="background:#1a1a2a;color:${color}">${k}: ${v.toFixed(2)}</span>`;
+    }).join(' ')}
+  `;
+}
+
+function togglePlayback() {
+  if (playing) { playing=false; clearInterval(playTimer); document.getElementById('btn-play').textContent='▶ Play'; }
+  else {
+    playing=true; document.getElementById('btn-play').textContent='⏸ Pause';
+    if (selectedYear>=timeline.length) selectedYear=0;
+    playTimer=setInterval(()=>{
+      if(selectedYear>=timeline.length){togglePlayback();return;}
+      stepToYear(selectedYear+1);
+    },150);
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if(e.key==='ArrowRight') stepToYear(selectedYear+1);
+  if(e.key==='ArrowLeft') stepToYear(selectedYear-1);
+  if(e.key===' '){e.preventDefault();togglePlayback();}
+});
+
+loadData();
+</script>
+</body>
+</html>
