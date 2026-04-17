@@ -26,6 +26,11 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, Faction, Alliance,
+    tick_diplomacy, faction_vote_bias, detect_factions,
+    reconcile_factions, check_schism, update_alliances,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +50,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "DiplomacyState", "Faction", "Alliance",
+    "tick_diplomacy", "faction_vote_bias", "detect_factions",
+    "reconcile_factions", "check_schism", "update_alliances",
 ]
