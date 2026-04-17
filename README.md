@@ -60,7 +60,8 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 - **Mars-100** (`docs/mars-100/`) — 100-year recursive colony simulation with LisPy sub-sims
   - [Emergence Report](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/report.html) — governance patterns, mortality analysis, faction formation
-  - 39 colonists (10 founding + 29 births), 14 deaths, 1304 sub-simulations, 5 constitutional amendments
+  - 32 colonists (10 founding + 22 births), 7 deaths, 721 sub-simulations, 5 constitutional amendments
+  - **Culture engine (v5.0):** events → stories → myths → rituals → constitutional norms. 99 stories created, 3 became norms, 25.3% survival rate across 100 years
   - Self-reflection organ: the colony analyzing its own 100-year fossil record
 - **Mars Barn** (`docs/mars/`) — 3-colony Mars terrarium with population curves ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars/))
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem

@@ -29,6 +29,10 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.culture import (
+    CultureState, tick_culture, create_memory_from_event,
+    generate_narratives, transmit_to_child, cultural_summary_for_emergence,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +61,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    culture: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +78,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "culture": self.culture,
         }
 
 
@@ -93,10 +99,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    culture: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +121,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "culture": self.culture,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +142,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.culture = CultureState()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -537,11 +546,13 @@ class Mars100Engine:
 
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
+        cooperation_pairs: list[tuple[str, str]] = []
         for cid, action in actions.items():
             if action == "cooperate":
                 partner = self.social.most_trusted_by(cid, active_ids)
                 if partner:
                     self.social.update_from_cooperation(cid, partner, self.rng)
+                    cooperation_pairs.append((cid, partner))
             if action == "sabotage":
                 victim = self.rng.choice(active_ids) if active_ids else None
                 if victim and victim != cid:
@@ -561,6 +572,27 @@ class Mars100Engine:
             if self._check_exile(colonist):
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+
+        # --- Culture engine ---
+        dead_ids = [d["id"] for d in deaths] + [e["id"] for e in exiles]
+        narratives = generate_narratives(
+            [e.to_dict() for e in events], deaths,
+            gov_proposal.to_dict() if gov_proposal else None,
+            self.year, self.rng,
+        )
+        post_active_ids = self._active_ids()
+        for event_desc, narrative in narratives:
+            create_memory_from_event(
+                self.culture, self.year, event_desc, narrative, post_active_ids,
+            )
+        for birth in year_births:
+            transmit_to_child(
+                self.culture, birth["id"], birth.get("parents", []), self.rng,
+            )
+        culture_tick = tick_culture(
+            self.culture, self.year, post_active_ids, dead_ids,
+            cooperation_pairs, len(subsim_log), self.rng,
+        )
 
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
@@ -586,6 +618,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            culture=culture_tick,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +651,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            culture=cultural_summary_for_emergence(self.culture, self.total_years),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
