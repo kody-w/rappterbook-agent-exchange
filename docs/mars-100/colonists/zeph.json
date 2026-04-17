@@ -1,0 +1,217 @@
+{
+  "id": "zeph",
+  "name": "Zeph",
+  "element": "air",
+  "role": "pilot",
+  "stats": {
+    "resolve": 0.8269843476161044,
+    "improvisation": 0.8108964767862771,
+    "empathy": 0.5606594024573064,
+    "hoarding": 0.2380962571524394,
+    "faith": 0.2553308832771576,
+    "paranoia": 0.2666613442261362
+  },
+  "skills": {
+    "terraforming": 0.4,
+    "hydroponics": 0.3,
+    "mediation": 0.6,
+    "coding": 0.5,
+    "prayer": 0.3,
+    "sabotage": 0.1
+  },
+  "alive": false,
+  "health": 0.801,
+  "morale": 0.91,
+  "years_alive": 74,
+  "actions_taken": [
+    "explore",
+    "explore",
+    "build",
+    "explore",
+    "propose-governance",
+    "build",
+    "explore",
+    "explore",
+    "explore",
+    "propose-governance",
+    "explore",
+    "explore",
+    "build",
+    "explore",
+    "propose-governance",
+    "explore",
+    "explore",
+    "explore",
+    "explore",
+    "propose-governance"
+  ],
+  "diary": [
+    "Year 66: Ventured beyond the hab. The supply_ship reminded me why.",
+    "Year 67: Ventured beyond the hab. The earth_contact reminded me why.",
+    "Year 68: Expanded the habitat module.",
+    "Year 69: Ventured beyond the hab. The supply_ship reminded me why.",
+    "Year 70: Proposed a new way to govern ourselves.",
+    "Year 71: Ventured beyond the hab. The supply_ship reminded me why.",
+    "Year 72: Ventured beyond the hab. The earth_contact reminded me why.",
+    "Year 73: Ventured beyond the hab. The resource_strike reminded me why.",
+    "Year 74: Ventured beyond the hab. The resource_strike reminded me why.",
+    "Year 75: Proposed a new way to govern ourselves."
+  ],
+  "votes": {
+    "elect_council": 1,
+    "direct_democracy": 1,
+    "meditation_mandate": 1,
+    "care_rotation": 1,
+    "meritocracy": 1,
+    "surveillance_system": 1,
+    "consensus_rule": 1,
+    "power_conservation": 1,
+    "expand_solar": 1,
+    "exile_vote": 1
+  },
+  "proposals_made": [
+    {
+      "year": 55,
+      "proposer": "zeph",
+      "proposal": "power_conservation",
+      "votes_for": 7,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "power_conservation",
+        "stability": 46,
+        "satisfaction": 48,
+        "efficiency": 45,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposer": "zeph",
+      "proposal": "meritocracy",
+      "votes_for": 6,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 59,
+        "satisfaction": 63,
+        "efficiency": 52,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposer": "zeph",
+      "proposal": "meritocracy",
+      "votes_for": 5,
+      "votes_against": 1,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "meritocracy",
+        "stability": 53,
+        "satisfaction": 46,
+        "efficiency": 55,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 70,
+      "proposer": "zeph",
+      "proposal": "direct_democracy",
+      "votes_for": 3,
+      "votes_against": 0,
+      "adopted": true,
+      "sub_sim_evidence": {
+        "proposal": "direct_democracy",
+        "stability": 60,
+        "satisfaction": 51,
+        "efficiency": 48,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 75,
+      "proposer": "zeph",
+      "proposal": "elect_council",
+      "votes_for": 0,
+      "votes_against": 0,
+      "adopted": false,
+      "sub_sim_evidence": {
+        "proposal": "elect_council",
+        "stability": 46,
+        "satisfaction": 48,
+        "efficiency": 44,
+        "viable": true,
+        "depth": 1
+      }
+    }
+  ],
+  "policy": "\n(let ((food-ratio (get state \"food-ratio\" 0.5))\n      (power-ratio (get state \"power-ratio\" 0.5))\n      (morale (get state \"morale\" 0.5))\n      (threat (get state \"threat-level\" 0.0))\n      (year (get state \"year\" 1)))\n  (cond\n    ((< food-ratio 0.3)\n     (if (> 0.3 0.5) \"farm\"\n       (if (> 0.2 0.6) \"hoard\" \"farm\")))\n    ((< power-ratio 0.3)\n     (if (> 0.5 0.5) \"repair\" \"build\"))\n    ((> threat 0.7)\n     (if (> 0.3 0.6) \"sabotage\"\n       (if (> 0.7 0.7) \"repair\" \"rest\")))\n    ((= (mod year 5) 0) \"propose-governance\")\n    ((< morale 0.3)\n     (if (> 0.6 0.6) \"mediate\"\n       (if (> 0.4 0.5) \"pray\" \"rest\")))\n    ((> morale 0.7)\n     (if (> 0.8 0.7) \"explore\"\n       (if (> 0.4 0.6) \"farm\" \"research\")))\n    (else\n     (if (> (random) 0.7) \"explore\"\n       (if (> 0.6 0.5) \"mediate\" \"research\")))))\n",
+  "sub_sim_log": [
+    {
+      "year": 55,
+      "proposal": "power_conservation",
+      "result": {
+        "proposal": "power_conservation",
+        "stability": 46,
+        "satisfaction": 48,
+        "efficiency": 45,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 60,
+      "proposal": "meritocracy",
+      "result": {
+        "proposal": "meritocracy",
+        "stability": 59,
+        "satisfaction": 63,
+        "efficiency": 52,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 65,
+      "proposal": "meritocracy",
+      "result": {
+        "proposal": "meritocracy",
+        "stability": 53,
+        "satisfaction": 46,
+        "efficiency": 55,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 70,
+      "proposal": "direct_democracy",
+      "result": {
+        "proposal": "direct_democracy",
+        "stability": 60,
+        "satisfaction": 51,
+        "efficiency": 48,
+        "viable": true,
+        "depth": 1
+      }
+    },
+    {
+      "year": 75,
+      "proposal": "elect_council",
+      "result": {
+        "proposal": "elect_council",
+        "stability": 46,
+        "satisfaction": 48,
+        "efficiency": 44,
+        "viable": true,
+        "depth": 1
+      }
+    }
+  ]
+}
