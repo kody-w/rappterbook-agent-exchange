@@ -485,7 +485,7 @@ class TestEngine:
         assert "summary" in d
         assert "total_births" in d["summary"]
         assert "convergence_trend" in d["summary"]
-        assert d["_meta"]["version"] == "5.0"
+        assert d["_meta"]["version"] == "6.0"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -529,7 +529,9 @@ class TestInvariants:
         assert cumulative == sim.total_births
 
     def test_colonist_count_consistent(self):
-        """Total colonists = founding 10 + births."""
+        """Total colonists = founding 10 + births + immigrants."""
         engine = Mars100Engine(seed=42, total_years=100)
         sim = engine.run()
-        assert len(sim.final_colonists) == 10 + sim.total_births
+        immigrants = sum(1 for c in sim.final_colonists
+                         if c.get("archetype") == "immigrant")
+        assert len(sim.final_colonists) == 10 + sim.total_births + immigrants

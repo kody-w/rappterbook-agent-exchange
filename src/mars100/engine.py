@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.mars100.colonist import (
-    Colonist, STAT_NAMES, SKILL_NAMES, create_founding_ten,
+    Colonist, ColonistStats, ColonistSkills,
+    STAT_NAMES, SKILL_NAMES, ELEMENTS, create_founding_ten,
     create_child, COLONIST_NAMES,
 )
 from src.mars100.colony import (
@@ -32,6 +33,10 @@ from src.mars100.infrastructure import (
 from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure,
+)
+from src.mars100.earth import (
+    EarthState, EarthSignal,
+    tick_earth, generate_signal, apply_signal_effects,
 )
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -62,6 +67,8 @@ class YearResult:
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
+    earth_signal: dict | None = None
+    earth_snapshot: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +86,8 @@ class YearResult:
             "births": self.births,
             "infrastructure": self.infrastructure,
             "culture": self.culture,
+            "earth_signal": self.earth_signal,
+            "earth_snapshot": self.earth_snapshot,
         }
 
 
@@ -100,10 +109,11 @@ class SimulationResult:
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
     final_culture: dict = field(default_factory=dict)
+    final_earth: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "5.0",
+            "_meta": {"engine": "mars-100", "version": "6.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -122,6 +132,7 @@ class SimulationResult:
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
+            "final_earth": self.final_earth,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -144,6 +155,9 @@ class Mars100Engine:
         self.infra = InfrastructureState()
         self.culture = CulturalMemory()
         self.culture_rng = random.Random(seed + 7919)
+        self.earth = EarthState()
+        self.earth_rng = random.Random(seed + 3571)
+        self.pending_earth_signal: EarthSignal | None = None
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -337,6 +351,34 @@ class Mars100Engine:
                 self.births.extend(births)
         return births
 
+    def _create_immigrant(self, year: int) -> Colonist | None:
+        """Create an immigrant colonist arriving from Earth.
+
+        Immigrants have random stats (no parent lineage) and join the
+        social graph.  Returns *None* if the colony has too few
+        resources to support a newcomer (average < 0.3).
+        """
+        if self.resources.average() < 0.3:
+            return None
+        cid = f"imm-{self.next_id}"
+        self.next_id += 1
+        rng = self.earth_rng
+        name = rng.choice(COLONIST_NAMES)
+        element = rng.choice(ELEMENTS)
+        stats = ColonistStats.from_dict(
+            {s: max(0.0, min(1.0, rng.gauss(0.5, 0.15))) for s in STAT_NAMES})
+        skills = ColonistSkills.from_dict(
+            {s: max(0.0, min(1.0, rng.gauss(0.3, 0.12))) for s in SKILL_NAMES})
+        immigrant = Colonist(
+            id=cid, name=name, element=element, archetype="immigrant",
+            stats=stats, skills=skills,
+            decision_expr="(+ resolve empathy)", birth_year=year,
+        )
+        self.colonists.append(immigrant)
+        active_ids = [c.id for c in self._active_colonists()]
+        self.social.add_colonist(immigrant.id, active_ids, self.rng)
+        return immigrant
+
     def _check_death(self, colonist: Colonist) -> str | None:
         rate = BASE_DEATH_RATE
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
@@ -518,6 +560,22 @@ class Mars100Engine:
                 if k in RESOURCE_NAMES:
                     event_effects[k] = event_effects.get(k, 0.0) + v
 
+        # --- Earth signal effects (apply pending signal from last year) ---
+        earth_deltas = apply_signal_effects(self.pending_earth_signal)
+        for k, v in earth_deltas.items():
+            event_effects[k] = event_effects.get(k, 0.0) + v
+        # Handle immigration from pending signal
+        if (self.pending_earth_signal is not None
+                and self.pending_earth_signal.signal_type == "immigration_offer"):
+            immigrant = self._create_immigrant(self.year)
+            if immigrant is not None:
+                year_immigrants = [{"id": immigrant.id, "name": immigrant.name,
+                                    "year": self.year}]
+            else:
+                year_immigrants = []
+        else:
+            year_immigrants = []
+
         # Infrastructure: compute resource modifiers from completed techs
         infra_mods = compute_resource_modifiers(self.infra.completed)
         event_damage_mult = infra_mods.pop("event_damage_mult", 1.0)
@@ -604,6 +662,15 @@ class Mars100Engine:
             colonists=[c.to_dict() for c in self._active_colonists()])
         evolve_culture(self.culture, culture_ctx, self.culture_rng)
 
+        # --- Earth contact evolution ---
+        colony_avg = self.resources.average()
+        colony_pop = len(self._active_colonists())
+        tick_earth(self.earth, self.year, colony_pop, colony_avg, self.earth_rng)
+        year_earth_signal = generate_signal(self.earth, self.year, colony_pop,
+                                            colony_avg, self.earth_rng)
+        self.pending_earth_signal = year_earth_signal
+        earth_snap = self.earth.to_dict()
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -629,6 +696,8 @@ class Mars100Engine:
             births=year_births,
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
+            earth_signal=year_earth_signal.to_dict() if year_earth_signal else None,
+            earth_snapshot=earth_snap,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -662,6 +731,7 @@ class Mars100Engine:
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
+            final_earth=self.earth.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
