@@ -36,6 +36,12 @@ from src.mars100.earth import (
     tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, EconomicTickResult, Wallet, TradeRecord,
+    compute_gini, tick_economics, compute_labor_value,
+    handle_death as econ_handle_death,
+    handle_exile as econ_handle_exile,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -56,7 +62,12 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "CulturalMemory", "CultureYearContext",
+    "evolve_culture", "compute_cultural_pressure", "transmit_to_child",
     "EarthState", "EarthMessage", "EarthTickResult", "SupplyShip",
     "tick_earth", "compute_maintenance_modifier",
     "check_independence_conditions", "declare_independence",
+    "EconomicState", "EconomicTickResult", "Wallet", "TradeRecord",
+    "compute_gini", "tick_economics", "compute_labor_value",
+    "econ_handle_death", "econ_handle_exile",
 ]
