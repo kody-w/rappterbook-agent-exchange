@@ -47,6 +47,16 @@ from src.mars100.psychology import (
     ColonistPsychContext, tick_psychology,
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
+    compute_psych_action_weights,
+)
+from src.mars100.beliefs import (
+    BeliefState, BeliefYearContext, BeliefTickResult,
+    MartyrdomEffect, Faction,
+    init_beliefs_from_stats, inherit_beliefs,
+    create_martyrdom_effect, tick_beliefs,
+    compute_belief_action_weights, compute_governance_vote_bias,
+    detect_factions, compute_polarization,
+    BELIEF_AXES,
 )
 
 __all__ = [
@@ -79,4 +89,12 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "compute_psych_action_weights",
+    "BeliefState", "BeliefYearContext", "BeliefTickResult",
+    "MartyrdomEffect", "Faction",
+    "init_beliefs_from_stats", "inherit_beliefs",
+    "create_martyrdom_effect", "tick_beliefs",
+    "compute_belief_action_weights", "compute_governance_vote_bias",
+    "detect_factions", "compute_polarization",
+    "BELIEF_AXES",
 ]

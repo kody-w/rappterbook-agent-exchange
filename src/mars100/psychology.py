@@ -1,17 +1,17 @@
 """
-Psychology organ for Mars-100 colony simulation (engine v8.0).
+Psychology organ for Mars-100 colony simulation (engine v9.0).
 
 Tracks per-colonist psychological state: stress, loneliness, purpose.
 Morale is a *derived* summary -- not an independent axis -- preventing
 double-counting.  Stable personality traits (resolve, paranoia, faith)
 modify recovery rates, not duplicate outcomes.
 
-Phase 1 scope:
+Capabilities:
   - PsychState per colonist (stress, loneliness, purpose -> morale)
   - tick_psychology(): update psych state from year context
   - Mental health crises with cooldown anti-spam
-  - ONE downstream hook: morale affects death-rate multiplier
-  - Defer: action-selection perturbation (v9+)
+  - Death-rate multiplier from morale
+  - Action-selection perturbation from psych state (v9.0)
 """
 from __future__ import annotations
 
@@ -314,3 +314,52 @@ def tick_psychology(
         colony_stress=colony_stress_avg,
         bottom_quartile_morale=bq_morale,
     )
+
+
+# -- action perturbation (v9.0) ---------------------------------------------
+
+PSYCH_ACTION_WEIGHT = 0.3  # max total action weight shift from psych
+
+
+def compute_psych_action_weights(psych: PsychState) -> dict[str, float]:
+    """Compute action-weight modifiers from psychological state.
+
+    High stress → prefer rest/pray, avoid explore/terraform.
+    Low morale → prefer hoard/sabotage, avoid cooperate/mediate.
+    High purpose → prefer research/terraform, avoid rest.
+
+    Returns a dict of action -> weight delta.
+    Total contribution is bounded by PSYCH_ACTION_WEIGHT.
+    """
+    w: dict[str, float] = {}
+
+    # Stress effects (kicks in above 0.5)
+    if psych.stress > 0.5:
+        stress_factor = (psych.stress - 0.5) * 2.0  # 0..1
+        w["rest"] = stress_factor * 0.15
+        w["pray"] = stress_factor * 0.10
+        w["explore"] = -stress_factor * 0.10
+        w["terraform"] = -stress_factor * 0.08
+
+    # Low morale effects (kicks in below 0.4)
+    if psych.morale < 0.4:
+        despair = (0.4 - psych.morale) * 2.5  # 0..1
+        w["hoard"] = w.get("hoard", 0.0) + despair * 0.10
+        w["sabotage"] = w.get("sabotage", 0.0) + despair * 0.08
+        w["cooperate"] = w.get("cooperate", 0.0) - despair * 0.10
+        w["mediate"] = w.get("mediate", 0.0) - despair * 0.08
+
+    # High purpose effects (kicks in above 0.7)
+    if psych.purpose > 0.7:
+        drive = (psych.purpose - 0.7) * 3.33  # 0..1
+        w["research"] = w.get("research", 0.0) + drive * 0.12
+        w["terraform"] = w.get("terraform", 0.0) + drive * 0.08
+        w["rest"] = w.get("rest", 0.0) - drive * 0.06
+
+    # Clamp total contribution
+    total_abs = sum(abs(v) for v in w.values())
+    if total_abs > PSYCH_ACTION_WEIGHT:
+        scale = PSYCH_ACTION_WEIGHT / total_abs
+        w = {k: v * scale for k, v in w.items()}
+
+    return w

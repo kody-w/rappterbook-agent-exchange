@@ -43,7 +43,14 @@ from src.mars100.economics import (
 )
 from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
-    death_rate_modifier,
+    death_rate_modifier, compute_psych_action_weights,
+)
+from src.mars100.beliefs import (
+    BeliefState, BeliefYearContext, BeliefTickResult,
+    MartyrdomEffect, Faction,
+    init_beliefs_from_stats, inherit_beliefs,
+    create_martyrdom_effect, tick_beliefs,
+    compute_belief_action_weights, compute_governance_vote_bias,
 )
 from src.mars100.colonist import create_immigrant
 
@@ -80,6 +87,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    beliefs: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +110,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "beliefs": self.beliefs,
         }
 
 
@@ -129,10 +138,13 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_beliefs: dict = field(default_factory=dict)
+    total_factions_formed: int = 0
+    peak_polarization: float = 0.0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +159,8 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_factions_formed": self.total_factions_formed,
+                "peak_polarization": round(self.peak_polarization, 4),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +171,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_beliefs": self.final_beliefs,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,9 +200,20 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.belief_map: dict[str, BeliefState] = {}
+        self.belief_rng = random.Random(seed + 10007)
+        self.martyrdom_effects: list[MartyrdomEffect] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
+        # Initialize beliefs for founding colonists
+        for c in self.colonists:
+            self.belief_map[c.id] = init_beliefs_from_stats(
+                resolve=c.stats.resolve, empathy=c.stats.empathy,
+                faith=c.stats.faith, paranoia=c.stats.paranoia,
+                improvisation=c.stats.improvisation, hoarding=c.stats.hoarding,
+                rng=self.belief_rng,
+            )
 
     def _active_colonists(self) -> list[Colonist]:
         return [c for c in self.colonists if c.is_active()]
@@ -260,6 +286,22 @@ class Mars100Engine:
         for act, delta in econ_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Psychology perturbation (v9.0)
+        psych = self.psych_map.get(colonist.id)
+        if psych is not None:
+            psych_weights = compute_psych_action_weights(psych)
+            for act, delta in psych_weights.items():
+                if act in weights:
+                    weights[act] = max(0.01, weights[act] + delta)
+
+        # Belief system pressure (v9.0)
+        beliefs = self.belief_map.get(colonist.id)
+        if beliefs is not None:
+            belief_weights = compute_belief_action_weights(beliefs)
+            for act, delta in belief_weights.items():
+                if act in weights:
+                    weights[act] = max(0.01, weights[act] + delta)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -377,6 +419,11 @@ class Mars100Engine:
                 self.colonists.append(child)
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
+                # Inherit beliefs from parents
+                parent_a_beliefs = self.belief_map.get(parent_a.id, BeliefState())
+                parent_b_beliefs = self.belief_map.get(parent_b.id, BeliefState())
+                self.belief_map[child.id] = inherit_beliefs(
+                    parent_a_beliefs, parent_b_beliefs, self.belief_rng)
                 births.append({
                     "id": child.id, "name": child.name, "year": self.year,
                     "parents": [parent_a.id, parent_b.id],
@@ -486,6 +533,10 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Belief-based governance bias (v9.0)
+        beliefs = self.belief_map.get(colonist.id)
+        if beliefs is not None:
+            score += compute_governance_vote_bias(beliefs, proposal.gov_type)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -710,6 +761,15 @@ class Mars100Engine:
                                 "cause": cause, "year": self.year})
                 if estate:
                     estates.append({"id": colonist.id, "type": "death", "estate": estate})
+                # Martyrdom: dead colonist's beliefs linger in connected peers
+                connected = [oid for oid in self._active_ids()
+                             if oid != colonist.id
+                             and self.social.get(oid, colonist.id).trust > 0.3]
+                martyr = create_martyrdom_effect(
+                    colonist.id, self.belief_map, connected)
+                if martyr is not None:
+                    martyr.year_of_death = self.year
+                    self.martyrdom_effects.append(martyr)
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
@@ -793,6 +853,16 @@ class Mars100Engine:
                 active_ids_now = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(immigrant.id, active_ids_now,
                                          self.earth_rng)
+                # Initialize beliefs for immigrant
+                self.belief_map[immigrant.id] = init_beliefs_from_stats(
+                    resolve=immigrant.stats.resolve,
+                    empathy=immigrant.stats.empathy,
+                    faith=immigrant.stats.faith,
+                    paranoia=immigrant.stats.paranoia,
+                    improvisation=immigrant.stats.improvisation,
+                    hoarding=immigrant.stats.hoarding,
+                    rng=self.belief_rng,
+                )
                 year_immigrants.append({
                     "id": immigrant.id, "name": immigrant.name,
                     "year": self.year, "archetype": immigrant.archetype,
@@ -804,6 +874,30 @@ class Mars100Engine:
             meta = self._check_meta_awareness(colonist)
             if meta:
                 meta_events.append(meta)
+
+        # --- Beliefs tick (v9.0) ---
+        gov_changed = (gov_proposal is not None and gov_proposal.passed)
+        belief_contexts: list[BeliefYearContext] = []
+        for c in self._active_colonists():
+            belief_contexts.append(BeliefYearContext(
+                colonist_id=c.id,
+                action=actions.get(c.id, "rest"),
+                event_type=events[0].name if events else "none",
+                event_severity=events[0].severity if events else 0.0,
+                resource_avg=self.resources.average(),
+                death_count=len(deaths),
+                gov_changed=gov_changed,
+            ))
+        trust_func = lambda a, b: self.social.get(a, b).trust
+        belief_result = tick_beliefs(
+            belief_map=self.belief_map,
+            contexts=belief_contexts,
+            trust_func=trust_func,
+            active_ids=self._active_ids(),
+            year=self.year,
+            martyrdom_effects=self.martyrdom_effects,
+            rng=self.belief_rng,
+        )
 
         # Final clamp — multiple subsystems may have nudged resources
         self.resources.clamp()
@@ -832,6 +926,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            beliefs=belief_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -839,6 +934,8 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_factions_formed = 0
+        peak_polarization = 0.0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -852,6 +949,13 @@ class Mars100Engine:
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
+            # Track belief metrics
+            belief_data = result.beliefs
+            if isinstance(belief_data, dict):
+                fc = belief_data.get("faction_count", 0)
+                total_factions_formed = max(total_factions_formed, fc)
+                pol = belief_data.get("colony_polarization", 0.0)
+                peak_polarization = max(peak_polarization, pol)
             if callback:
                 callback(result)
         return SimulationResult(
@@ -875,6 +979,9 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_beliefs={cid: b.to_dict() for cid, b in self.belief_map.items()},
+            total_factions_formed=total_factions_formed,
+            peak_polarization=peak_polarization,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
