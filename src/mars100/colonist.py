@@ -14,6 +14,13 @@ ELEMENTS = ("fire", "water", "earth", "air")
 STAT_NAMES = ("resolve", "improvisation", "empathy", "hoarding", "faith", "paranoia")
 SKILL_NAMES = ("terraforming", "hydroponics", "mediation", "coding", "prayer", "sabotage")
 
+COLONIST_NAMES = [
+    "Nova Sol", "Cinder Ash", "Ripple Tide", "Gale Frost", "Ember Clay",
+    "Moss Stone", "Spark Dune", "Echo Vale", "Drift Sand", "Bloom Peak",
+    "Fern Ridge", "Haze Cliff", "Reed Shore", "Slate Gorge", "Coral Mist",
+    "Jade Hollow", "Flint Mesa", "Willow Rift", "Cedar Bluff", "Opal Creek",
+]
+
 
 @dataclass
 class ColonistStats:
@@ -80,6 +87,7 @@ class Colonist:
     decision_expr: str
     alive: bool = True
     exiled: bool = False
+    birth_year: int = 0
     death_year: int | None = None
     death_cause: str | None = None
     exile_year: int | None = None
@@ -92,7 +100,7 @@ class Colonist:
             "id": self.id, "name": self.name, "element": self.element,
             "archetype": self.archetype, "stats": self.stats.to_dict(),
             "skills": self.skills.to_dict(), "decision_expr": self.decision_expr,
-            "alive": self.alive, "exiled": self.exiled,
+            "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
         }
@@ -111,6 +119,7 @@ class Colonist:
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
             decision_expr=d.get("decision_expr", "(+ resolve empathy)"),
             alive=d.get("alive", True), exiled=d.get("exiled", False),
+            birth_year=d.get("birth_year", 0),
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
@@ -223,3 +232,35 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
             setattr(c.stats, name, max(0.0, min(1.0, current + rng.gauss(0, 0.02))))
         colonists.append(c)
     return colonists
+
+
+def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
+                 birth_year: int, rng: random.Random) -> Colonist:
+    """Create a child colonist by blending two parents' stats/skills with mutation.
+
+    Stats are averaged from parents with gaussian noise.  Skills start near zero
+    (children must learn).  Element is randomly inherited from one parent.
+    """
+    name_pool = [n for n in COLONIST_NAMES]
+    name = rng.choice(name_pool) if name_pool else f"Child-{child_id}"
+
+    element = rng.choice([parent_a.element, parent_b.element])
+
+    stats_dict: dict[str, float] = {}
+    for sn in STAT_NAMES:
+        avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
+        stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
+
+    skills_dict: dict[str, float] = {}
+    for sk in SKILL_NAMES:
+        skills_dict[sk] = max(0.0, rng.gauss(0.05, 0.03))
+
+    expr_fragments = [parent_a.decision_expr, parent_b.decision_expr]
+    decision_expr = rng.choice(expr_fragments)
+
+    return Colonist(
+        id=child_id, name=name, element=element, archetype="child",
+        stats=ColonistStats.from_dict(stats_dict),
+        skills=ColonistSkills.from_dict(skills_dict),
+        decision_expr=decision_expr, birth_year=birth_year,
+    )
