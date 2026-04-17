@@ -17,6 +17,10 @@ from src.mars100.governance import (
     generate_proposal, resolve_vote, should_propose, apply_governance,
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult, Faction, Treaty,
+    tick_diplomacy, faction_vote_modifier, compute_treaty_effects,
+)
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
 from src.mars100.infrastructure import (
@@ -25,6 +29,15 @@ from src.mars100.infrastructure import (
     available_techs, can_afford, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
+)
+from src.mars100.genome import (
+    Gene, CulturalGenome, GENE_CATEGORIES,
+    extract_crisis_genes, extract_governance_genes,
+    extract_resource_genes, extract_social_genes,
+    extract_subsim_genes, extract_amendment_genes,
+    extract_genome, validate_gene, evaluate_gene,
+    mutate_gene, crossover_genes,
+    run_genome_extraction, load_year_files,
 )
 
 __all__ = [
@@ -45,4 +58,13 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "Gene", "CulturalGenome", "GENE_CATEGORIES",
+    "extract_crisis_genes", "extract_governance_genes",
+    "extract_resource_genes", "extract_social_genes",
+    "extract_subsim_genes", "extract_amendment_genes",
+    "extract_genome", "validate_gene", "evaluate_gene",
+    "mutate_gene", "crossover_genes",
+    "run_genome_extraction", "load_year_files",
+    "DiplomacyState", "DiplomacyTickResult", "Faction", "Treaty",
+    "tick_diplomacy", "faction_vote_modifier", "compute_treaty_effects",
 ]
