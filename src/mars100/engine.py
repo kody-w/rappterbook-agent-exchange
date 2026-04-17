@@ -29,12 +29,21 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.economy import EconomyState, tick_economy
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
+
+DEATH_HAZARDS = {
+    "air": ("asphyxiation", 0.15, 0.08),
+    "food": ("starvation", 0.10, 0.06),
+    "water": ("dehydration", 0.12, 0.07),
+    "materials": ("structural_collapse", 0.05, 0.03),
+    "energy": ("hypothermia", 0.08, 0.04),
+}
 
 
 @dataclass
@@ -57,6 +66,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +83,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "economy": self.economy,
         }
 
 
@@ -93,10 +104,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    final_economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +126,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "final_economy": self.final_economy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +147,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.economy = EconomyState()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -323,20 +337,25 @@ class Mars100Engine:
         return births
 
     def _check_death(self, colonist: Colonist) -> str | None:
-        rate = BASE_DEATH_RATE
+        """Check if colonist dies. Cause-specific hazards when resources are low."""
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
-        rate *= death_rate_mult
-        for name in RESOURCE_NAMES:
-            val = getattr(self.resources, name)
-            if val < 0.1:
-                rate += RESOURCE_DEATH_MULTIPLIER * (0.1 - val)
+        age_factor = max(0, self.year - colonist.birth_year - 30) * 0.001
+
+        for resource, (cause, threshold, hazard_rate) in DEATH_HAZARDS.items():
+            val = getattr(self.resources, resource, 1.0)
+            if val < threshold:
+                severity = (threshold - val) / threshold
+                rate = hazard_rate * severity * death_rate_mult
+                if self.rng.random() < rate:
+                    return cause
+
+        base_rate = (BASE_DEATH_RATE + age_factor) * death_rate_mult
         if colonist.stats.paranoia > 0.8:
-            rate += 0.005
-        if self.rng.random() < rate:
-            causes = ["equipment malfunction", "radiation exposure",
-                      "medical emergency", "habitat breach", "resource deprivation"]
+            base_rate += 0.005
+        if self.rng.random() < base_rate:
+            causes = ["equipment_malfunction", "radiation_exposure", "accident"]
             if colonist.stats.paranoia > 0.7:
-                causes.append("suspicious accident")
+                causes.append("suspicious_accident")
             return self.rng.choice(causes)
         return None
 
@@ -549,6 +568,12 @@ class Mars100Engine:
 
         year_births = self._check_births()
 
+        # Tick economy
+        alive_for_econ = [c for c in self.colonists if c.is_active()]
+        economy_summary = tick_economy(
+            self.economy, alive_for_econ, self.resources, actions, self.year,
+        )
+
         deaths: list[dict] = []
         exiles: list[dict] = []
         for colonist in list(active):
@@ -586,6 +611,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            economy=economy_summary,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +644,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            final_economy=self.economy.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

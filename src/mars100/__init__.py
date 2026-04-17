@@ -26,6 +26,10 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.economy import (
+    ColonistLedger, EconomyState,
+    compute_gini, scarcity_multiplier, tick_economy,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +49,6 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "ColonistLedger", "EconomyState",
+    "compute_gini", "scarcity_multiplier", "tick_economy",
 ]
