@@ -25,6 +25,7 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.prophecy import ProphecyEngine
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +53,8 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    prophecies_made: list[dict] = field(default_factory=list)
+    prophecies_resolved: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +70,8 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "prophecies_made": self.prophecies_made,
+            "prophecies_resolved": self.prophecies_resolved,
         }
 
 
@@ -86,10 +91,11 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    prophecy_summary: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "2.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,6 +107,7 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "prophecy_summary": self.prophecy_summary,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -126,6 +133,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self.prophecy_engine = ProphecyEngine()
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -186,6 +194,16 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Prophecy warnings boost crisis-relevant actions
+        warnings = self.prophecy_engine.warning_resources(self.year)
+        for resource_name in warnings:
+            if resource_name == "food" and "farm" in weights:
+                weights["farm"] += 1.5
+            elif resource_name == "water" and "terraform" in weights:
+                weights["terraform"] += 1.0
+            elif resource_name == "power" and "code" in weights:
+                weights["code"] += 0.8
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -387,6 +405,7 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        score += self.prophecy_engine.influence_modifier(proposal.proposer_id)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -528,6 +547,24 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # --- Prophecy phase (resolve + generate, after all state settles) ---
+        self.prophecy_engine.begin_year()
+        active_id_set = set(self._active_ids())
+        resource_snapshot = self.resources.to_dict()
+        prophecies_resolved = self.prophecy_engine.resolve(
+            self.year, resource_snapshot, active_id_set)
+        prophecies_made: list[dict] = []
+        subsim_authors = {s.colonist_id for s in subsim_log
+                          if hasattr(s, 'colonist_id')}
+        for colonist in self._active_colonists():
+            from_subsim = colonist.id in subsim_authors
+            p = self.prophecy_engine.make_prophecy(
+                colonist.id, colonist.stats.to_dict(),
+                colonist.skills.to_dict(), resource_snapshot,
+                self.year, from_subsim, self.rng)
+            if p is not None:
+                prophecies_made.append(p.to_dict())
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -541,6 +578,8 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            prophecies_made=prophecies_made,
+            prophecies_resolved=prophecies_resolved,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -572,6 +611,7 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            prophecy_summary=self.prophecy_engine.summary(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
