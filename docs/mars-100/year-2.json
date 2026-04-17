@@ -1,85 +1,704 @@
 {
   "year": 2,
-  "population": 11,
-  "event": {
-    "id": "solar_flare",
-    "desc": "Solar flare disrupts electronics",
-    "severity": 0.7
+  "events": [
+    {
+      "name": "phobos_transit",
+      "category": "cosmic",
+      "severity": 0.008044185189930098,
+      "description": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+      "effects": {
+        "morale": 0.025402209259496506,
+        "faith_boost": 0.015241325555697903
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "terraform",
+    "fen-marsh": "farm",
+    "rust-vega": "hoard",
+    "aura-kai": "pray",
+    "dax-iron": "farm",
+    "luna-tide": "explore",
+    "grove-ash": "mediate",
+    "zeph-wind": "research",
+    "ora-flame": "code",
+    "pax-stone": "research"
   },
-  "event_effects": [
-    "Solar flare: power -56"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 26.0)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 2,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.5971523233517042,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra hoards food"
+      "depth": 1,
+      "colonist_id": "pax-stone",
+      "year": 2,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 0.9940980049004928,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "pax-stone",
+          "year": 2,
+          "expression": "(let ((parent-result 0.9940980049004928)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.0935078053905423,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos hoards food"
-    },
-    {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 24.2)"
-    },
-    {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 26.9)"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene hoards food"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 25.4)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 27.3)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 24.7)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova hoards food"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 29.8)"
+      "depth": 2,
+      "colonist_id": "pax-stone",
+      "year": 2,
+      "expression": "(let ((parent-result 0.9940980049004928)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.0935078053905423,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": null,
+  "resources_before": {
+    "food": 0.851,
+    "water": 0.9054022349272036,
+    "power": 0.9,
+    "air": 0.9358866721116585,
+    "medicine": 0.68
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 0.8564
+  },
+  "resource_delta": {
+    "food": 0.14900000000000002,
+    "water": 0.09459776507279638,
+    "power": 0.09999999999999998,
+    "air": 0.06411332788834145,
+    "medicine": 0.1764
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.5292502997548132,
+  "governance_state": {
+    "gov_type": "anarchy",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": null,
+    "ai_program": null,
+    "constitution": [
+      "Year 8: governance changed to consensus",
+      "Year 27: governance changed to ai_governor",
+      "Year 38: governance changed to council",
+      "Year 39: governance changed to consensus",
+      "Year 46: governance changed to council",
+      "Year 56: governance changed to consensus",
+      "Year 59: governance changed to ai_governor",
+      "Year 62: governance changed to council",
+      "Year 63: governance changed to consensus",
+      "Year 75: governance changed to anarchy",
+      "Year 83: governance changed to lottery",
+      "Year 85: governance changed to consensus",
+      "Year 90: governance changed to lottery",
+      "Year 94: governance changed to anarchy",
+      "Year 97: governance changed to council"
+    ],
+    "history": [
+      {
+        "year": 8,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y8-consensus"
+      },
+      {
+        "year": 27,
+        "from": "consensus",
+        "to": "ai_governor",
+        "proposal_id": "prop-y27-ai_governor"
+      },
+      {
+        "year": 38,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y38-council"
+      },
+      {
+        "year": 39,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y39-consensus"
+      },
+      {
+        "year": 46,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y46-council"
+      },
+      {
+        "year": 56,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y56-consensus"
+      },
+      {
+        "year": 59,
+        "from": "consensus",
+        "to": "ai_governor",
+        "proposal_id": "prop-y59-ai_governor"
+      },
+      {
+        "year": 62,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y62-council"
+      },
+      {
+        "year": 63,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y63-consensus"
+      },
+      {
+        "year": 75,
+        "from": "consensus",
+        "to": "anarchy",
+        "proposal_id": "prop-y75-anarchy"
+      },
+      {
+        "year": 83,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y83-lottery"
+      },
+      {
+        "year": 85,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y85-consensus"
+      },
+      {
+        "year": 90,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y90-lottery"
+      },
+      {
+        "year": 94,
+        "from": "lottery",
+        "to": "anarchy",
+        "proposal_id": "prop-y94-anarchy"
+      },
+      {
+        "year": 97,
+        "from": "anarchy",
+        "to": "council",
+        "proposal_id": "prop-y97-council"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9595917926049418,
+        "improvisation": 0.3592296792541276,
+        "empathy": 0.502995434274598,
+        "hoarding": 0.31934327078132146,
+        "faith": 0.18078417070661107,
+        "paranoia": 0.4067432582621783
+      },
+      "skills": {
+        "terraforming": 0.716677092109571,
+        "hydroponics": 0.2,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.0,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.3944535782827704,
+        "improvisation": 0.5347895925243478,
+        "empathy": 0.9684961425135201,
+        "hoarding": 0.24970456565639396,
+        "faith": 0.7186530411942978,
+        "paranoia": 0.12245655250800327
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.8057306122397364,
+        "mediation": 0.7078995196335816,
+        "coding": 0.1,
+        "prayer": 0.5,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.6627373513462573,
+        "improvisation": 0.6511319405500677,
+        "empathy": 0.2793882597973636,
+        "hoarding": 0.6031088724921939,
+        "faith": 0.08653653158662913,
+        "paranoia": 0.6292193116408503
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.3,
+        "mediation": 0.1,
+        "coding": 0.8051813819966115,
+        "prayer": 0.0,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.25584578942261554,
+        "improvisation": 0.7871136440937664,
+        "empathy": 0.7401022005467152,
+        "hoarding": 0.11358668418314541,
+        "faith": 0.8415737283432596,
+        "paranoia": 0.21407227170658433
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.9,
+        "coding": 0.5,
+        "prayer": 0.8038888791276136,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.853376976858208,
+        "improvisation": 0.30676103840055413,
+        "empathy": 0.2259058062757336,
+        "hoarding": 0.6799400851159847,
+        "faith": 0.045212822322573766,
+        "paranoia": 0.7357733215734864
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.11243098667706272,
+        "mediation": 0.0,
+        "coding": 0.2,
+        "prayer": 0.0,
+        "sabotage": 0.7
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.49715232335170423,
+        "improvisation": 0.8531075196273787,
+        "empathy": 0.3949995181691803,
+        "hoarding": 0.31837664031969026,
+        "faith": 0.36329389552609404,
+        "paranoia": 0.32016243705543207
+      },
+      "skills": {
+        "terraforming": 0.6,
+        "hydroponics": 0.6,
+        "mediation": 0.3,
+        "coding": 0.9022829634772153,
+        "prayer": 0.1,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7914580454978211,
+        "improvisation": 0.3842791983560532,
+        "empathy": 0.6831162146192038,
+        "hoarding": 0.8124133051197321,
+        "faith": 0.4302414826266926,
+        "paranoia": 0.3279198969166181
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.9,
+        "mediation": 0.4154800741840374,
+        "coding": 0.10949680963215346,
+        "prayer": 0.2,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.3835581745437897,
+        "improvisation": 0.9011448225886894,
+        "empathy": 0.26773944055543814,
+        "hoarding": 0.495351821775907,
+        "faith": 0.28967913183293453,
+        "paranoia": 0.6915203620989433
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.6165323871185018,
+        "prayer": 0.1,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.6684039039661898,
+        "improvisation": 0.49563267481196915,
+        "empathy": 0.82084976215832,
+        "hoarding": 0.08191484338861721,
+        "faith": 0.984336140409114,
+        "paranoia": 0.6274848408468013
+      },
+      "skills": {
+        "terraforming": 0.2175451400798039,
+        "hydroponics": 0.3,
+        "mediation": 0.6,
+        "coding": 0.015971116995435342,
+        "prayer": 0.9,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.7469908891670246,
+        "improvisation": 0.2103343419899747,
+        "empathy": 0.6494729046342212,
+        "hoarding": 0.4017840627651152,
+        "faith": 0.48662454565586766,
+        "paranoia": 0.48090829327281237
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.3,
+        "mediation": 0.8,
+        "coding": 0.4118756841598684,
+        "prayer": 0.3,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.004022092594965049
+        }
+      ]
+    }
+  ],
+  "convergence": {
+    "resolve": 0.21770133668883934,
+    "improvisation": 0.22873173669669075,
+    "empathy": 0.24419587943836538,
+    "hoarding": 0.227419549590626,
+    "faith": 0.3023034420017666,
+    "paranoia": 0.200209090132384,
+    "convergence_score": 0.23676017242477873
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Selene",
-      "entry": "Population: 11. Solar flare disrupts electronics. I spent the year on prayer. Closest to Demeter."
+  "infrastructure": {
+    "completed": [],
+    "active_project": {
+      "tech_id": "shelter_reinforcement",
+      "progress": 1,
+      "stall_years": 0
     },
-    {
-      "colonist": "Iris",
-      "entry": "Another year. Solar flare disrupts electronics. The colony feels hopeful. My faith grows stronger."
-    },
-    {
-      "colonist": "Vulcan",
-      "entry": "Population: 11. Solar flare disrupts electronics. I spent the year on coding. Closest to Selene-1."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1147.0508267287562,
-    "water": 1458.0,
-    "power": 452.3141408906426,
-    "oxygen": 1005.9469086909222,
-    "materials": 616.1681452145533,
-    "morale": 75.04485104393693
+    "abandoned": [],
+    "history": [
+      {
+        "year": 1,
+        "event": "started",
+        "tech_id": "shelter_reinforcement"
+      }
+    ]
+  },
+  "diplomacy": {
+    "year": 2,
+    "factions": [
+      {
+        "name": "The Resolute",
+        "dominant_stat": "resolve",
+        "member_ids": [
+          "kira-sol",
+          "rust-vega",
+          "dax-iron",
+          "pax-stone"
+        ],
+        "formed_year": 1,
+        "stable_years": 2,
+        "solidified": true
+      },
+      {
+        "name": "The Inventors",
+        "dominant_stat": "improvisation",
+        "member_ids": [
+          "luna-tide",
+          "zeph-wind"
+        ],
+        "formed_year": 1,
+        "stable_years": 2,
+        "solidified": true
+      },
+      {
+        "name": "The Faithful",
+        "dominant_stat": "faith",
+        "member_ids": [
+          "aura-kai",
+          "ora-flame"
+        ],
+        "formed_year": 1,
+        "stable_years": 2,
+        "solidified": true
+      }
+    ],
+    "pacts": [
+      {
+        "faction_a": "The Resolute",
+        "faction_b": "The Inventors",
+        "kind": "alliance",
+        "start_year": 2,
+        "duration": 10,
+        "reason": "Shared values: resolve \u2194 improvisation"
+      },
+      {
+        "faction_a": "The Resolute",
+        "faction_b": "The Faithful",
+        "kind": "alliance",
+        "start_year": 2,
+        "duration": 10,
+        "reason": "Shared values: resolve \u2194 faith"
+      }
+    ],
+    "crisis_active": false,
+    "crisis_years": 0,
+    "num_factions": 3,
+    "num_solidified": 3,
+    "num_pacts": 2
+  },
+  "memetics": {
+    "total": 0,
+    "active": 0,
+    "extinct": 0,
+    "by_type": {},
+    "oldest_active_origin": 2,
+    "avg_carriers": 0.0
   }
 }

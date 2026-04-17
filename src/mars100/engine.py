@@ -29,12 +29,22 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.diplomacy import DiplomacyState, tick_diplomacy
+from src.mars100.memetics import MemePool, CRISIS_SEVERITY_THRESHOLD
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
+
+
+def _colonist_stats(colonists: list[Colonist], cid: str) -> Any:
+    """Return stats for a colonist by id, or None if not found/inactive."""
+    for c in colonists:
+        if c.id == cid and c.is_active():
+            return c.stats
+    return None
 
 
 @dataclass
@@ -57,6 +67,8 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
+    memetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +85,8 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
+            "memetics": self.memetics,
         }
 
 
@@ -93,10 +107,12 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
+    memetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +130,8 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
+            "memetics": self.memetics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +152,8 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.diplomacy_state = DiplomacyState()
+        self.memes = MemePool()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -144,8 +164,13 @@ class Mars100Engine:
     def _active_ids(self) -> list[str]:
         return [c.id for c in self._active_colonists()]
 
-    def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
-        """Choose an action for a colonist based on personality and events."""
+    def _choose_action(self, colonist: Colonist, events: list[Event],
+                       modifiers: dict[str, float] | None = None) -> str:
+        """Choose an action for a colonist based on personality and events.
+
+        If *modifiers* is provided (from the diplomacy engine), each
+        action weight is multiplied by its modifier before sampling.
+        """
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
@@ -197,6 +222,18 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Apply diplomacy modifiers
+        if modifiers:
+            for act, mult in modifiers.items():
+                if act in weights:
+                    weights[act] = max(0.01, weights[act] * mult)
+
+        # Apply memetic bias to action weights
+        meme_deltas = self.memes.action_weight_deltas(colonist.id)
+        for action, delta in meme_deltas.items():
+            if action in weights:
+                weights[action] = max(0.01, weights[action] + delta)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -314,6 +351,8 @@ class Mars100Engine:
                 self.colonists.append(child)
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
+                self.memes.inherit_memes(child.id, parent_a.id, parent_b.id,
+                                         self.year, self.rng)
                 births.append({
                     "id": child.id, "name": child.name, "year": self.year,
                     "parents": [parent_a.id, parent_b.id],
@@ -432,6 +471,11 @@ class Mars100Engine:
             if len(instances) >= 3:
                 amendment = self._draft_amendment(theme_key, instances)
                 self.promoted_insights.append(amendment)
+                # Create a memetic echo of the promoted insight
+                for ins in instances[:1]:
+                    self.memes.create_subsim_meme(
+                        self.year, ins["colonist_id"], theme_key[:80], self.rng,
+                    )
                 for ins in instances:
                     self.insight_queue.remove(ins)
                 return
@@ -465,11 +509,18 @@ class Mars100Engine:
                 valence = -ev.severity if ev.effects.get("morale", 0) < 0 else ev.severity * 0.5
                 colonist.add_memory(self.year, ev.description, valence)
 
+        # Diplomacy: detect factions, manage pacts, compute action modifiers
+        diplo_result = tick_diplomacy(
+            self.diplomacy_state, active, self.resources, self.year, self.rng,
+        )
+        diplo_mods = diplo_result.action_modifiers
+
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
         subsim_log: list[SubSimResult] = []
         for colonist in active:
-            action = self._choose_action(colonist, events)
+            action = self._choose_action(colonist, events,
+                                         modifiers=diplo_mods.get(colonist.id))
             actions[colonist.id] = action
             colonist.evolve_skills(action, self.rng)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
@@ -495,6 +546,10 @@ class Mars100Engine:
             gov_proposal.passed = resolve_vote(gov_proposal, len(active))
             if gov_proposal.passed:
                 apply_governance(gov_proposal, self.governance, active_ids, self.rng)
+                self.memes.create_governance_meme(
+                    self.year, gov_proposal.proposer_id,
+                    gov_proposal.gov_type, self.rng,
+                )
 
         skill_bonuses = self._compute_skill_bonuses(actions)
         event_effects: dict[str, float] = {}
@@ -547,6 +602,18 @@ class Mars100Engine:
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
+        # Memetics: create crisis memes and propagate
+        for ev in events:
+            if ev.severity >= CRISIS_SEVERITY_THRESHOLD:
+                survivors = self._active_ids()
+                self.memes.create_crisis_meme(self.year, survivors, ev.name, self.rng)
+        self.memes.propagate(
+            self.year, self._active_ids(),
+            lambda a, b: self.social.get(a, b),
+            lambda cid: _colonist_stats(self.colonists, cid),
+            self.rng,
+        )
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -555,11 +622,13 @@ class Mars100Engine:
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
+                self.memes.deactivate_carrier(colonist.id)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
+                self.memes.deactivate_carrier(colonist.id)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
         meta_events: list[dict] = []
@@ -586,6 +655,8 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplomacy_state.summary(self.year),
+            memetics=self.memes.summary(self.year),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +689,8 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplomacy_state.to_dict(),
+            memetics=self.memes.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
