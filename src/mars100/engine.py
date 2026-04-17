@@ -55,6 +55,13 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.genetics import (
+    Genome, GeneticsTickResult,
+    blend_child_stats, compute_diversity_index,
+    compute_skill_learning_modifier, compute_trait_death_modifier,
+    create_founding_genome, create_immigrant_genome,
+    determine_traits, inherit_genome, tick_genetics,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -92,6 +99,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -116,6 +124,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "genetics": self.genetics,
         }
 
 
@@ -145,10 +154,11 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -175,6 +185,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_genetics": self.final_genetics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,6 +218,14 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        # Genetics organ (v11.0)
+        self.genetics_rng = random.Random(seed + 13001)
+        self.genome_map: dict[str, Genome] = {}
+        for c in self.colonists:
+            stat_vals = {n: getattr(c.stats, n) for n in STAT_NAMES}
+            skill_vals = {n: getattr(c.skills, n) for n in SKILL_NAMES}
+            self.genome_map[c.id] = create_founding_genome(
+                stat_vals, skill_vals, self.genetics_rng)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -402,6 +421,31 @@ class Mars100Engine:
                 child_id = f"child-{self.next_id}"
                 self.next_id += 1
                 child = create_child(parent_a, parent_b, child_id, self.year, self.rng)
+                # Genetics: inherit genome from parents
+                pa_genome = self.genome_map.get(parent_a.id)
+                pb_genome = self.genome_map.get(parent_b.id)
+                if pa_genome and pb_genome:
+                    radiation = any(
+                        e.name == "radiation_storm"
+                        for e in generate_events(self.year, random.Random(self.seed + self.year))
+                        if hasattr(e, 'name'))
+                    child_genome, mutations = inherit_genome(
+                        pa_genome, pb_genome, parent_a.id, parent_b.id,
+                        self.genetics_rng, radiation)
+                    self.genome_map[child_id] = child_genome
+                    # Blend child stats: 60% genetic, 40% parent avg
+                    blended = blend_child_stats(
+                        child_genome.all_expressions(),
+                        {n: getattr(child.stats, n) for n in STAT_NAMES},
+                        self.genetics_rng)
+                    for stat_name, val in blended.items():
+                        if hasattr(child.stats, stat_name):
+                            setattr(child.stats, stat_name, val)
+                else:
+                    self.genome_map[child_id] = create_founding_genome(
+                        {n: getattr(child.stats, n) for n in STAT_NAMES},
+                        {n: getattr(child.skills, n) for n in SKILL_NAMES},
+                        self.genetics_rng)
                 self.colonists.append(child)
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
@@ -421,6 +465,10 @@ class Mars100Engine:
             rate *= death_rate_modifier(psych.morale)
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
         rate *= death_rate_mult
+        # Genetics: trait-based death modifier (resilient/fragile)
+        genome = self.genome_map.get(colonist.id)
+        if genome:
+            rate *= compute_trait_death_modifier(genome)
         critical_resources: list[str] = []
         for name in RESOURCE_NAMES:
             val = getattr(self.resources, name)
@@ -585,7 +633,17 @@ class Mars100Engine:
         for colonist in active:
             action = self._choose_action(colonist, events)
             actions[colonist.id] = action
-            colonist.evolve_skills(action, self.rng)
+            # Genetics: apply skill learning rate modifiers
+            genome = self.genome_map.get(colonist.id)
+            if genome:
+                skill_mods = compute_skill_learning_modifier(genome)
+                for skill_name, mod in skill_mods.items():
+                    if hasattr(colonist.skills, skill_name) and mod != 1.0:
+                        base = getattr(colonist.skills, skill_name)
+                        # Modulate the last skill delta by the genetic modifier
+                        delta = 0.02 * (mod - 1.0)  # Small genetic nudge
+                        setattr(colonist.skills, skill_name,
+                                max(0.0, min(1.0, base + delta)))
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
         gov_proposal: GovernanceProposal | None = None
@@ -791,6 +849,10 @@ class Mars100Engine:
             for ps in self.psych_map.values():
                 ps.stress = max(0.0, ps.stress - nature_reduction)
 
+        # --- genetics: tick genomes, traits, diversity ---
+        genetics_result = tick_genetics(
+            self.genome_map, active_ids, self.year, self.genetics_rng)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -884,6 +946,7 @@ class Mars100Engine:
                 self.next_id += 1
                 immigrant = create_immigrant(imm_id, self.year, self.earth_rng)
                 econ_endow_immigrant(immigrant)
+                self.genome_map[imm_id] = create_immigrant_genome(self.genetics_rng)
                 self.colonists.append(immigrant)
                 active_ids_now = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(immigrant.id, active_ids_now,
@@ -929,6 +992,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            genetics=genetics_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -971,6 +1035,7 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_genetics={cid: g.to_dict() for cid, g in self.genome_map.items()},
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
