@@ -85,6 +85,35 @@ class SocialGraph:
                         affection=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
                         respect=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))))
 
+    def add_colonist(self, new_id: str, existing_ids: list[str],
+                     parent_ids: list[str], rng: random.Random) -> None:
+        """Add a newborn colonist to the social graph with initial relationships."""
+        self.edges[new_id] = {}
+        for eid in existing_ids:
+            if eid == new_id:
+                continue
+            # Parents have high initial trust/affection for child
+            if eid in parent_ids:
+                trust = max(0.0, min(1.0, 0.8 + rng.gauss(0, 0.05)))
+                affection = max(0.0, min(1.0, 0.9 + rng.gauss(0, 0.03)))
+                respect = max(0.0, min(1.0, 0.6 + rng.gauss(0, 0.05)))
+            else:
+                trust = max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1)))
+                affection = max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1)))
+                respect = max(0.0, min(1.0, 0.3 + rng.gauss(0, 0.1)))
+            self.edges[new_id][eid] = Relationship(trust=trust, affection=affection, respect=respect)
+            if eid in self.edges:
+                # Mirror: existing colonist's view of the newborn
+                if eid in parent_ids:
+                    ptrust = max(0.0, min(1.0, 0.8 + rng.gauss(0, 0.05)))
+                    paff = max(0.0, min(1.0, 0.85 + rng.gauss(0, 0.03)))
+                    presp = max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.05)))
+                else:
+                    ptrust = max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1)))
+                    paff = max(0.0, min(1.0, 0.45 + rng.gauss(0, 0.1)))
+                    presp = max(0.0, min(1.0, 0.3 + rng.gauss(0, 0.1)))
+                self.edges[eid][new_id] = Relationship(trust=ptrust, affection=paff, respect=presp)
+
     def get(self, from_id: str, to_id: str) -> Relationship:
         return self.edges.get(from_id, {}).get(to_id, Relationship())
 

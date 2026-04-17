@@ -86,6 +86,13 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    birth_year: int = 0
+    generation: int = 0
+    parent_ids: list[str] = field(default_factory=list)
+
+    def age(self, current_year: int) -> int:
+        """Return colonist age in Martian years."""
+        return current_year - self.birth_year
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -95,6 +102,8 @@ class Colonist:
             "alive": self.alive, "exiled": self.exiled,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
+            "birth_year": self.birth_year, "generation": self.generation,
+            "parent_ids": self.parent_ids,
         }
         if self.death_year is not None:
             d["death_year"] = self.death_year
@@ -114,6 +123,8 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            birth_year=d.get("birth_year", 0), generation=d.get("generation", 0),
+            parent_ids=d.get("parent_ids", []),
         )
 
     def is_active(self) -> bool:

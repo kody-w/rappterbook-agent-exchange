@@ -16,6 +16,7 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
     actions = year_result.get("actions", {})
     deaths = year_result.get("deaths", [])
     exiles = year_result.get("exiles", [])
+    births = year_result.get("births", [])
     meta = year_result.get("meta_awareness", [])
     governance = year_result.get("governance")
     resources = year_result.get("resources_after", {})
@@ -59,6 +60,9 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
         lines.append(f"\n** DEATH: {d['name']} — {d['cause']} **")
     for e in exiles:
         lines.append(f"\n** EXILE: {e['name']} **")
+    for b in births:
+        parents = ", ".join(b.get("parents", []))
+        lines.append(f"\n** BIRTH: {b['name']} ({b['element']}/{b['archetype']}) — parents: {parents} **")
     for m in meta:
         lines.append(f"\n*META: {m['insight']}*")
     lines.append("\n---")
@@ -122,11 +126,21 @@ def generate_final_report(sim_result: dict) -> str:
              f"- **Duration:** {len(years_data)} Martian years",
              f"- **Deaths:** {summary.get('total_deaths', 0)}",
              f"- **Exiles:** {summary.get('total_exiles', 0)}",
+             f"- **Births:** {summary.get('total_births', 0)}",
              f"- **Sub-simulations:** {summary.get('total_subsims', 0)}",
              f"- **Governance changes:** {summary.get('governance_changes', 0)}",
              f"- **Meta-awareness events:** {summary.get('meta_awareness_events', 0)}",
              f"- **Final cohesion:** {summary.get('final_cohesion', 0):.0%}",
              f"- **Final governance:** {final_gov.get('gov_type', 'unknown')}", ""]
+
+    convergence = summary.get("convergence", {})
+    if convergence:
+        lines.extend(["## Value Convergence", "",
+                       f"- **Trend:** {convergence.get('trend', 'unknown')}",
+                       f"- **Initial dispersion:** {convergence.get('initial', 0):.4f}",
+                       f"- **Final dispersion:** {convergence.get('final', 0):.4f}",
+                       f"- **Founder initial:** {convergence.get('founder_initial', 0):.4f}",
+                       f"- **Founder final:** {convergence.get('founder_final', 0):.4f}", ""])
 
     history = final_gov.get("history", [])
     if history:

@@ -19,6 +19,8 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.lineage import maybe_birth
+from src.mars100.convergence import ConvergenceSnapshot, ConvergenceTracker
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -40,10 +42,12 @@ class YearResult:
     resource_delta: dict[str, float]
     deaths: list[dict]
     exiles: list[dict]
+    births: list[dict]
     meta_awareness: list[dict]
     social_cohesion: float
     governance_state: dict
     colonist_snapshots: list[dict]
+    convergence: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -53,10 +57,12 @@ class YearResult:
             "resources_after": self.resources_after,
             "resource_delta": self.resource_delta,
             "deaths": self.deaths, "exiles": self.exiles,
+            "births": self.births,
             "meta_awareness": self.meta_awareness,
             "social_cohesion": self.social_cohesion,
             "governance_state": self.governance_state,
             "colonist_snapshots": self.colonist_snapshots,
+            "convergence": self.convergence,
         }
 
 
@@ -69,26 +75,32 @@ class SimulationResult:
     final_governance: dict
     total_deaths: int
     total_exiles: int
+    total_births: int
     total_subsims: int
     governance_changes: int
     meta_events: int
     final_cohesion: float
+    convergence_summary: dict | None = None
+    convergence_curve: list[dict] | None = None
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "1.0",
+            "_meta": {"engine": "mars-100", "version": "1.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
                 "total_deaths": self.total_deaths, "total_exiles": self.total_exiles,
+                "total_births": self.total_births,
                 "total_subsims": self.total_subsims,
                 "governance_changes": self.governance_changes,
                 "meta_awareness_events": self.meta_events,
                 "final_cohesion": self.final_cohesion,
+                "convergence": self.convergence_summary,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
+            "convergence_curve": self.convergence_curve,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -107,6 +119,9 @@ class Mars100Engine:
         self.year = 0
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
+        self.convergence_tracker = ConvergenceTracker(
+            founder_ids={c.id for c in self.colonists}
+        )
 
     def _active_colonists(self) -> list[Colonist]:
         return [c for c in self.colonists if c.is_active()]
@@ -405,11 +420,28 @@ class Mars100Engine:
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
+        # Birth step: Mars-born colonists from year 15+
+        births: list[dict] = []
+        child = maybe_birth(self.colonists, self.year, self.resources, self.rng)
+        if child is not None:
+            self.colonists.append(child)
+            all_active_ids = [c.id for c in self._active_colonists()]
+            self.social.add_colonist(child.id, all_active_ids,
+                                     child.parent_ids, self.rng)
+            births.append({
+                "id": child.id, "name": child.name, "year": self.year,
+                "parents": child.parent_ids, "generation": child.generation,
+                "element": child.element, "archetype": child.archetype,
+            })
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
             if meta:
                 meta_events.append(meta)
+
+        # Track value convergence
+        conv_snap = self.convergence_tracker.record(self.colonists, self.year)
 
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
@@ -418,16 +450,19 @@ class Mars100Engine:
             resources_before=resources_before,
             resources_after=self.resources.to_dict(),
             resource_delta=resource_delta, deaths=deaths, exiles=exiles,
+            births=births,
             meta_awareness=meta_events,
             social_cohesion=self.social.colony_cohesion(self._active_ids()),
             governance_state=self.governance.to_dict(),
             colonist_snapshots=[c.to_dict() for c in self.colonists],
+            convergence=conv_snap.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
-        total_deaths = total_exiles = total_subsims = gov_changes = meta_count = 0
+        total_deaths = total_exiles = total_births = total_subsims = 0
+        gov_changes = meta_count = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -435,6 +470,7 @@ class Mars100Engine:
             years.append(result)
             total_deaths += len(result.deaths)
             total_exiles += len(result.exiles)
+            total_births += len(result.births)
             total_subsims += len(result.subsim_log)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
@@ -446,7 +482,10 @@ class Mars100Engine:
             final_resources=self.resources.to_dict(),
             final_governance=self.governance.to_dict(),
             total_deaths=total_deaths, total_exiles=total_exiles,
+            total_births=total_births,
             total_subsims=total_subsims, governance_changes=gov_changes,
             meta_events=meta_count,
             final_cohesion=self.social.colony_cohesion(self._active_ids()),
+            convergence_summary=self.convergence_tracker.summary(),
+            convergence_curve=self.convergence_tracker.to_curve(),
         )
