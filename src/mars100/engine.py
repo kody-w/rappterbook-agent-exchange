@@ -25,6 +25,9 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.culture import (
+    CulturalMemory, apply_study_boost, cultural_phase,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +55,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    cultural_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +71,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "cultural_events": self.cultural_events,
         }
 
 
@@ -86,10 +91,12 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    total_cultural_events: int = 0
+    cultural_memory: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +108,13 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_cultural_events": self.total_cultural_events,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "cultural_memory": self.cultural_memory,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -125,6 +134,7 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.culture = CulturalMemory()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -518,6 +528,28 @@ class Mars100Engine:
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
+        # Cultural phase: distill teachings from the dead, let the living study
+        dead_dicts = [next(c for c in self.colonists if c.id == d["id"]).to_dict()
+                      for d in deaths]
+        active_now = self._active_colonists()
+        active_dicts = [c.to_dict() for c in active_now]
+        cult_events = cultural_phase(
+            self.culture, dead_dicts, active_dicts,
+            self.social.to_dict(), self.year, self.rng,
+        )
+        # Apply skill boosts from studying
+        for ev in cult_events:
+            if ev["type"] == "teaching_studied":
+                colonist = next(
+                    (c for c in active_now if c.id == ev["colonist_id"]), None)
+                if colonist:
+                    skill_name = ev["skill_focus"]
+                    current = getattr(colonist.skills, skill_name, 0.0)
+                    boost = 0.015 * ev["potency"]
+                    headroom = 1.0 - current
+                    actual = min(boost, headroom * 0.5)
+                    setattr(colonist.skills, skill_name, min(1.0, current + actual))
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -541,12 +573,14 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            cultural_events=cult_events,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_cultural = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +590,7 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_cultural += len(result.cultural_events)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +607,8 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_cultural_events=total_cultural,
+            cultural_memory=self.culture.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
