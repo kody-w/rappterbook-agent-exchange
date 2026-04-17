@@ -29,6 +29,9 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.ancestors import (
+    AncestorVault, should_consult, choose_template, consult_ancestor,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +60,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    ancestor_consultations: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +77,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "ancestor_consultations": self.ancestor_consultations,
         }
 
 
@@ -93,10 +98,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    ancestors: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +120,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "ancestors": self.ancestors,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +141,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.ancestors = AncestorVault()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -557,6 +565,7 @@ class Mars100Engine:
                 colonist.die(self.year, cause)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
+                self.ancestors.add(colonist)
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
@@ -572,6 +581,29 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # Ancestor consultations: high-faith colonists may consult the dead
+        ancestor_consults: list[dict] = []
+        if self.ancestors.size() > 0:
+            crisis_severity = 1.0 - min(
+                getattr(self.resources, r) for r in RESOURCE_NAMES)
+            res_snap = self.resources.to_dict()
+            event_dicts = [e.to_dict() for e in events]
+            for colonist in self._active_colonists():
+                aid = should_consult(colonist, self.ancestors,
+                                     crisis_severity, self.rng)
+                if aid is None:
+                    continue
+                template = choose_template(res_snap, event_dicts)
+                result = consult_ancestor(
+                    self.ancestors, colonist, aid, template,
+                    year=self.year, budget=subsim_budget, log=subsim_log)
+                if result is not None:
+                    ancestor_consults.append({
+                        "caller": colonist.id, "ancestor": aid,
+                        "template": template, "succeeded": result.succeeded,
+                        "result": result.result,
+                    })
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -586,6 +618,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            ancestor_consultations=ancestor_consults,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +651,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            ancestors=self.ancestors.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

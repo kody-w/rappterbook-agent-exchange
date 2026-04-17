@@ -26,6 +26,11 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.ancestors import (
+    AncestorProfile, AncestorVault,
+    should_consult, choose_template, consult_ancestor,
+    CONSULT_TEMPLATES, DEATH_CAUSE_TAGS,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +50,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "AncestorProfile", "AncestorVault",
+    "should_consult", "choose_template", "consult_ancestor",
+    "CONSULT_TEMPLATES", "DEATH_CAUSE_TAGS",
 ]
