@@ -55,6 +55,10 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult,
+    tick_diplomacy, compute_diplomatic_modifiers, compute_faction_pressure,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,7 +90,8 @@ class YearResult:
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
     earth: dict = field(default_factory=dict)
-    diplomacy: list[dict] = field(default_factory=list)
+    earth_protocol: list[dict] = field(default_factory=list)
+    diplomacy_result: dict = field(default_factory=dict)
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
@@ -110,7 +115,8 @@ class YearResult:
             "infrastructure": self.infrastructure,
             "culture": self.culture,
             "earth": self.earth,
-            "diplomacy": self.diplomacy,
+            "earth_protocol": self.earth_protocol,
+            "diplomacy": self.diplomacy_result,
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
@@ -145,10 +151,11 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_diplomacy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -175,6 +182,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_diplomacy": self.final_diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,6 +215,8 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.diplo = DiplomacyState()
+        self.diplo_rng = random.Random(seed + 13331)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -271,9 +281,10 @@ class Mars100Engine:
                     w += 1.0
             weights[action] = max(0.01, w)
 
-        # External pressure: cultural + economic + behavioral (combined clamp)
+        # External pressure: cultural + economic + behavioral + diplomatic (combined clamp)
         cultural_pressure = compute_cultural_pressure(self.culture)
         econ_pressure = compute_economic_pressure(colonist)
+        diplo_pressure = compute_faction_pressure(colonist.id, self.diplo, self.year)
         psych = self.psych_map.get(colonist.id)
         profile = self.behavior_map.get(colonist.id, BehaviorProfile())
         behavior_pressure = compute_action_perturbation(
@@ -285,7 +296,8 @@ class Mars100Engine:
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
-                        + behavior_pressure.get(act, 0.0))
+                        + behavior_pressure.get(act, 0.0)
+                        + diplo_pressure.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -791,6 +803,34 @@ class Mars100Engine:
             for ps in self.psych_map.values():
                 ps.stress = max(0.0, ps.stress - nature_reduction)
 
+        # --- diplomacy: factions, treaties, subsim-enhanced negotiation ---
+        diplo_result = tick_diplomacy(
+            self.diplo, self.social, self.colonists, actions,
+            self.year, subsim_budget, subsim_log, self.diplo_rng)
+
+        # Apply diplomatic modifiers
+        diplo_mods = compute_diplomatic_modifiers(self.diplo, self.year)
+        # Cohesion bonus from alliances
+        if diplo_mods["cohesion_bonus"] > 0:
+            for a_id in active_ids:
+                for b_id in active_ids:
+                    if a_id != b_id:
+                        rel = self.social.get(a_id, b_id)
+                        rel.trust = min(1.0, rel.trust + diplo_mods["cohesion_bonus"] * 0.1)
+        # Paranoia from broken treaties
+        if diplo_mods["broken_treaty_paranoia"] > 0:
+            for c in active:
+                c.stats.paranoia = min(1.0, c.stats.paranoia + diplo_mods["broken_treaty_paranoia"])
+        # Paranoia reduction from non-aggression pacts
+        if diplo_mods["paranoia_reduction"] > 0:
+            for c in active:
+                c.stats.paranoia = max(0.0, c.stats.paranoia - diplo_mods["paranoia_reduction"])
+        # Resource bonuses from resource-sharing treaties
+        if diplo_mods["food_bonus"] > 0:
+            self.resources.food = min(1.0, self.resources.food + diplo_mods["food_bonus"])
+        if diplo_mods["water_bonus"] > 0:
+            self.resources.water = min(1.0, self.resources.water + diplo_mods["water_bonus"])
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -923,7 +963,8 @@ class Mars100Engine:
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
             earth=self.earth.to_dict(),
-            diplomacy=[earth_result.to_dict()],
+            earth_protocol=[earth_result.to_dict()],
+            diplomacy_result=diplo_result.to_dict(),
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
@@ -971,6 +1012,7 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_diplomacy=self.diplo.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),

@@ -352,9 +352,9 @@ class TestEngineIntegration:
         assert "earth" in d
         assert "opinion" in d["earth"]
         # maintenance_modifier is in the diplomacy (tick result), not state
-        assert "diplomacy" in d
-        assert len(d["diplomacy"]) > 0
-        assert "maintenance_modifier" in d["diplomacy"][0]
+        assert "earth_protocol" in d
+        assert len(d["earth_protocol"]) > 0
+        assert "maintenance_modifier" in d["earth_protocol"][0]
 
     def test_sim_result_has_earth(self):
         from src.mars100.engine import Mars100Engine
@@ -368,7 +368,7 @@ class TestEngineIntegration:
         from src.mars100.engine import Mars100Engine
         engine = Mars100Engine(seed=42, total_years=5)
         sim = engine.run()
-        assert sim.to_dict()["_meta"]["version"] == "10.0"
+        assert sim.to_dict()["_meta"]["version"] == "11.0"
 
     def test_earth_contact_events_filtered(self):
         """Earth organ should filter random earth_contact events."""
