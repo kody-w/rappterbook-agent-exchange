@@ -29,6 +29,7 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.ecology import Biosphere, tick_biosphere
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +58,8 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    biosphere: dict = field(default_factory=dict)
+    ecology_delta: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +76,8 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "biosphere": self.biosphere,
+            "ecology_delta": self.ecology_delta,
         }
 
 
@@ -93,10 +98,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    final_biosphere: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +120,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "final_biosphere": self.final_biosphere,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +141,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.biosphere = Biosphere()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -509,6 +517,27 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # Ecology: tick biosphere -> fold air/food deltas into event_effects
+        farmer_count = sum(1 for a in actions.values() if a == "farm")
+        farming_skills = [c.skills.hydroponics for c in active
+                          if actions.get(c.id) == "farm"]
+        avg_hydro = sum(farming_skills) / max(1, len(farming_skills))
+        has_greenhouse = "greenhouse_dome" in self.infra.completed
+        has_research_lab = "research_lab" in self.infra.completed
+        eco_delta = tick_biosphere(
+            self.biosphere,
+            water_level=self.resources.water,
+            power_level=self.resources.power,
+            farmer_count=farmer_count,
+            active_count=len(active),
+            avg_hydroponics=avg_hydro,
+            has_greenhouse=has_greenhouse,
+            has_research_lab=has_research_lab,
+            rng=self.rng,
+        )
+        event_effects["air"] = event_effects.get("air", 0.0) + eco_delta.air_delta
+        event_effects["food"] = event_effects.get("food", 0.0) + eco_delta.food_delta
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
                                         infra_modifiers=infra_mods)
@@ -586,6 +615,8 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            biosphere=self.biosphere.to_dict(),
+            ecology_delta=eco_delta.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +649,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            final_biosphere=self.biosphere.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
