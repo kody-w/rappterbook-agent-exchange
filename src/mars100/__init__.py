@@ -61,6 +61,18 @@ from src.mars100.ecology import (
     outdoor_habitable, has_greenhouse_tech,
     BIOME_NAMES,
 )
+from src.mars100.diplomacy import (
+    Faction, Treaty, DiplomacyState, DiplomacyTickResult,
+    stat_vector, stat_similarity, trust_density,
+    detect_clusters, match_faction, determine_ideology,
+    elect_leader, compute_faction_cohesion,
+    propose_treaty, resolve_incidents,
+    compute_bloc_vote_influence, compute_diplomacy_pressure,
+    compute_exile_modifier, compute_loneliness_reduction,
+    compute_trade_pact_bonus, compute_fragmentation,
+    tick_diplomacy,
+    MIN_FACTION_SIZE, MAX_FACTIONS, TREATY_TYPES,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -101,4 +113,14 @@ __all__ = [
     "compute_nature_stress_reduction", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
+    "Faction", "Treaty", "DiplomacyState", "DiplomacyTickResult",
+    "stat_vector", "stat_similarity", "trust_density",
+    "detect_clusters", "match_faction", "determine_ideology",
+    "elect_leader", "compute_faction_cohesion",
+    "propose_treaty", "resolve_incidents",
+    "compute_bloc_vote_influence", "compute_diplomacy_pressure",
+    "compute_exile_modifier", "compute_loneliness_reduction",
+    "compute_trade_pact_bonus", "compute_fragmentation",
+    "tick_diplomacy",
+    "MIN_FACTION_SIZE", "MAX_FACTIONS", "TREATY_TYPES",
 ]

@@ -55,6 +55,13 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult,
+    tick_diplomacy, compute_diplomacy_pressure,
+    compute_bloc_vote_influence, compute_exile_modifier,
+    compute_loneliness_reduction, compute_trade_pact_bonus,
+    compute_fragmentation,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -92,6 +99,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    internal_diplomacy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -116,6 +124,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "internal_diplomacy": self.internal_diplomacy,
         }
 
 
@@ -145,10 +154,13 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_diplomacy: dict = field(default_factory=dict)
+    total_factions: int = 0
+    total_treaties: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -163,6 +175,8 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_factions": self.total_factions,
+                "total_treaties": self.total_treaties,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -175,6 +189,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_diplomacy": self.final_diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,6 +222,8 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.diplo = DiplomacyState()
+        self.diplo_rng = random.Random(seed + 12553)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -282,10 +299,13 @@ class Mars100Engine:
             psych.purpose if psych else 0.5,
             profile, ACTIONS,
         ) if psych else {}
+        diplo_pressure = compute_diplomacy_pressure(
+            self.diplo, colonist.id, ACTIONS)
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
-                        + behavior_pressure.get(act, 0.0))
+                        + behavior_pressure.get(act, 0.0)
+                        + diplo_pressure.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -469,7 +489,11 @@ class Mars100Engine:
                 count += 1
         if count > 0:
             avg_trust /= count
-        return avg_trust < 0.15 and colonist.skills.sabotage > 0.5
+        if not (avg_trust < 0.15 and colonist.skills.sabotage > 0.5):
+            return False
+        # Diplomacy: faction treaties reduce exile willingness
+        exile_mod = compute_exile_modifier(self.diplo, colonist.id, "")
+        return self.rng.random() < exile_mod
 
     def _check_meta_awareness(self, colonist: Colonist) -> dict | None:
         prob = (META_AWARENESS_BASE * self.year +
@@ -488,6 +512,27 @@ class Mars100Engine:
             return {"colonist_id": colonist.id, "year": self.year,
                     "insight": self.rng.choice(insights)}
         return None
+
+    def _compute_leader_vote_score(self, leader_id: str,
+                                   proposal: GovernanceProposal) -> float:
+        """Compute how the faction leader would vote (as a float score)."""
+        leader = next((c for c in self.colonists if c.id == leader_id), None)
+        if leader is None:
+            return 0.0
+        score = 0.0
+        if proposal.gov_type == "council":
+            score += leader.stats.empathy * 0.5 + leader.stats.resolve * 0.3
+        elif proposal.gov_type == "dictator":
+            score += leader.stats.resolve * 0.4 - leader.stats.empathy * 0.2
+        elif proposal.gov_type == "lottery":
+            score += leader.stats.faith * 0.4
+        elif proposal.gov_type == "consensus":
+            score += leader.stats.empathy * 0.4 + leader.stats.faith * 0.3
+        elif proposal.gov_type == "ai_governor":
+            score += leader.skills.coding * 0.5
+        elif proposal.gov_type == "anarchy":
+            score += leader.stats.paranoia * 0.3
+        return score - 0.5  # Center around 0
 
     def _vote_on_proposal(self, colonist: Colonist,
                           proposal: GovernanceProposal) -> bool:
@@ -514,6 +559,14 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Faction bloc vote influence
+        faction = self.diplo.faction_of(colonist.id)
+        if faction and faction.leader_id:
+            leader_score = self._compute_leader_vote_score(
+                faction.leader_id, proposal)
+            bloc_influence = compute_bloc_vote_influence(
+                colonist.id, proposal.gov_type, faction, leader_score)
+            score += bloc_influence
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -587,6 +640,19 @@ class Mars100Engine:
             actions[colonist.id] = action
             colonist.evolve_skills(action, self.rng)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
+
+        # --- diplomacy: factions, treaties, incidents ---
+        diplo_result = tick_diplomacy(
+            self.diplo, self.colonists, self.social.edges,
+            [e.to_dict() for e in events], actions, self.year,
+            self.diplo_rng)
+
+        # Apply trade pact resource bonuses
+        trade_bonuses = compute_trade_pact_bonus(self.diplo)
+        for res_name, bonus in trade_bonuses.items():
+            if res_name in RESOURCE_NAMES:
+                current = getattr(self.resources, res_name, 0.0)
+                setattr(self.resources, res_name, current + bonus)
 
         gov_proposal: GovernanceProposal | None = None
         if should_propose(self.year, self.governance, self.rng) and active:
@@ -785,6 +851,13 @@ class Mars100Engine:
         # Stage ecology modifiers for NEXT year (one-year lag)
         self.pending_ecology_mods = compute_ecology_modifiers(self.ecology)
 
+        # Diplomacy -> psychology: faction membership reduces loneliness
+        for cid in active_ids:
+            ps = self.psych_map.get(cid)
+            if ps is not None:
+                lone_reduction = compute_loneliness_reduction(self.diplo, cid)
+                ps.loneliness = max(0.0, ps.loneliness - lone_reduction)
+
         # Ecology -> psychology: nature exposure reduces stress
         nature_reduction = ecology_result.nature_stress_reduction
         if nature_reduction > 0:
@@ -929,6 +1002,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            internal_diplomacy=diplo_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -936,6 +1010,8 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_factions = 0
+        total_treaties = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -949,6 +1025,8 @@ class Mars100Engine:
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
+            total_factions += len(result.internal_diplomacy.get("factions_formed", []))
+            total_treaties += len(result.internal_diplomacy.get("treaties_proposed", []))
             if callback:
                 callback(result)
         return SimulationResult(
@@ -971,6 +1049,9 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_diplomacy=self.diplo.to_dict(),
+            total_factions=total_factions,
+            total_treaties=total_treaties,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
