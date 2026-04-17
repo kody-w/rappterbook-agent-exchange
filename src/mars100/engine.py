@@ -37,6 +37,9 @@ from src.mars100.earth import (
     EarthState, tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, tick_economy,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -70,6 +73,7 @@ class YearResult:
     earth: dict = field(default_factory=dict)
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
+    economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +94,7 @@ class YearResult:
             "earth": self.earth,
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
+            "economy": self.economy,
         }
 
 
@@ -114,10 +119,12 @@ class SimulationResult:
     final_earth: dict = field(default_factory=dict)
     total_immigrants: int = 0
     total_ships: int = 0
+    final_economy: dict = field(default_factory=dict)
+    total_trades: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "6.0",
+            "_meta": {"engine": "mars-100", "version": "7.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -130,6 +137,7 @@ class SimulationResult:
                 "total_births": self.total_births,
                 "total_immigrants": self.total_immigrants,
                 "total_ships": self.total_ships,
+                "total_trades": self.total_trades,
                 "promoted_insights": len(self.promoted_insights),
             },
             "final_colonists": self.final_colonists,
@@ -139,6 +147,7 @@ class SimulationResult:
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
             "final_earth": self.final_earth,
+            "final_economy": self.final_economy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -163,6 +172,8 @@ class Mars100Engine:
         self.culture_rng = random.Random(seed + 7919)
         self.earth = EarthState()
         self.earth_rng = random.Random(seed + 6151)
+        self.economy = EconomicState()
+        self.econ_rng = random.Random(seed + 8731)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -550,6 +561,19 @@ class Mars100Engine:
                 apply_governance(gov_proposal, self.governance, active_ids, self.rng)
 
         skill_bonuses = self._compute_skill_bonuses(actions)
+
+        # --- economics organ ---
+        econ_result = tick_economy(
+            self.economy, self.year, actions, active_ids,
+            social_get=self.social.get,
+            gov_type=self.governance.gov_type,
+            rng=self.econ_rng)
+        # Apply efficiency bonus to positive skill bonuses only
+        if econ_result.efficiency_bonus != 0.0:
+            for res_name in list(skill_bonuses):
+                if skill_bonuses[res_name] > 0:
+                    skill_bonuses[res_name] *= (1.0 + econ_result.efficiency_bonus)
+
         event_effects: dict[str, float] = {}
         for ev in events:
             for k, v in ev.effects.items():
@@ -721,6 +745,7 @@ class Mars100Engine:
             earth=self.earth.to_dict(),
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
+            economy=econ_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -759,6 +784,8 @@ class Mars100Engine:
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
             final_earth=self.earth.to_dict(),
+            final_economy=self.economy.summary(),
+            total_trades=self.economy.total_trades,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
