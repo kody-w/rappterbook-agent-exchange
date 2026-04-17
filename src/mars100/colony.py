@@ -149,6 +149,14 @@ class SocialGraph:
                     count += 1
         return total / max(1, count)
 
+    def apply_global_trust_delta(self, active_ids: list[str], delta: float) -> None:
+        """Apply a trust delta to all pairwise relationships among active colonists."""
+        for a in active_ids:
+            for b in active_ids:
+                if a != b and a in self.edges and b in self.edges.get(a, {}):
+                    self.edges[a][b].trust = max(0.0, min(1.0,
+                        self.edges[a][b].trust + delta))
+
     def to_dict(self) -> dict:
         return {a: {b: r.to_dict() for b, r in rels.items()} for a, rels in self.edges.items()}
 

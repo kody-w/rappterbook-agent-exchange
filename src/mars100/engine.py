@@ -37,6 +37,12 @@ from src.mars100.earth import (
     EarthState, tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, tick_economics, compute_wealth_effects,
+    inequality_trust_erosion,
+    handle_birth as econ_handle_birth,
+    handle_death as econ_handle_death,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -70,6 +76,7 @@ class YearResult:
     earth: dict = field(default_factory=dict)
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
+    economics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +97,7 @@ class YearResult:
             "earth": self.earth,
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
+            "economics": self.economics,
         }
 
 
@@ -114,10 +122,11 @@ class SimulationResult:
     final_earth: dict = field(default_factory=dict)
     total_immigrants: int = 0
     total_ships: int = 0
+    final_economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "6.0",
+            "_meta": {"engine": "mars-100", "version": "7.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -139,6 +148,7 @@ class SimulationResult:
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
             "final_earth": self.final_earth,
+            "final_economy": self.final_economy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -163,6 +173,8 @@ class Mars100Engine:
         self.culture_rng = random.Random(seed + 7919)
         self.earth = EarthState()
         self.earth_rng = random.Random(seed + 6151)
+        self.economy = EconomicState()
+        self.economy_rng = random.Random(seed + 8311)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -232,6 +244,12 @@ class Mars100Engine:
         for act, delta in cultural_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+        # Economic pressure from personal wealth
+        wealth = self.economy.wealth.get(colonist.id, 0.0)
+        wealth_effects = compute_wealth_effects(wealth)
+        for act, delta in wealth_effects.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
         total = sum(weights.values())
         r = self.rng.random() * total
         cumulative = 0.0
@@ -258,7 +276,7 @@ class Mars100Engine:
                 bonuses["power"] -= colonist.skills.sabotage * 0.03
                 bonuses["food"] -= colonist.skills.sabotage * 0.02
             elif action == "hoard":
-                bonuses["food"] -= 0.01
+                pass  # economics organ handles hoarding effects
         return bonuses
 
     def _maybe_spawn_subsim(self, colonist: Colonist, events: list[Event],
@@ -600,7 +618,29 @@ class Mars100Engine:
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
+        # --- Economics tick ---
+        colonist_data = [
+            {"id": c.id,
+             "stats": {s: getattr(c.stats, s) for s in STAT_NAMES},
+             "skills": {s: getattr(c.skills, s) for s in SKILL_NAMES}}
+            for c in active
+        ]
+        econ_result = tick_economics(
+            econ=self.economy,
+            actions=actions,
+            colonist_data=colonist_data,
+            resource_avg=self.resources.average(),
+            gov_type=self.governance.gov_type,
+            rng=self.economy_rng,
+        )
+        # Trust erosion from inequality
+        trust_delta = inequality_trust_erosion(self.economy.gini)
+        if trust_delta < 0:
+            self.social.apply_global_trust_delta(active_ids, trust_delta)
+
         year_births = self._check_births()
+        for birth in year_births:
+            econ_handle_birth(self.economy, birth["id"], is_immigrant=False)
 
         deaths: list[dict] = []
         exiles: list[dict] = []
@@ -610,10 +650,12 @@ class Mars100Engine:
                 colonist.die(self.year, cause)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
+                econ_handle_death(self.economy, colonist.id, self._active_ids())
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+                econ_handle_death(self.economy, colonist.id, self._active_ids())
 
         # --- cultural memory evolution ---
         death_records = [
@@ -692,6 +734,7 @@ class Mars100Engine:
                     "year": self.year, "archetype": immigrant.archetype,
                     "element": immigrant.element,
                 })
+                econ_handle_birth(self.economy, immigrant.id, is_immigrant=True)
 
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
@@ -721,6 +764,7 @@ class Mars100Engine:
             earth=self.earth.to_dict(),
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
+            economics=econ_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -759,6 +803,7 @@ class Mars100Engine:
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
             final_earth=self.earth.to_dict(),
+            final_economy=self.economy.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

@@ -36,6 +36,13 @@ from src.mars100.earth import (
     tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, EconomicTickResult,
+    tick_economics, compute_gini, compute_labor,
+    compute_wealth_effects, inequality_trust_erosion,
+    initialize_wealth, handle_birth as econ_handle_birth,
+    handle_death as econ_handle_death,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -59,4 +66,8 @@ __all__ = [
     "EarthState", "EarthMessage", "EarthTickResult", "SupplyShip",
     "tick_earth", "compute_maintenance_modifier",
     "check_independence_conditions", "declare_independence",
+    "EconomicState", "EconomicTickResult",
+    "tick_economics", "compute_gini", "compute_labor",
+    "compute_wealth_effects", "inequality_trust_erosion",
+    "initialize_wealth", "econ_handle_birth", "econ_handle_death",
 ]
