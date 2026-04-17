@@ -55,6 +55,12 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.genetics import (
+    GeneticsState, GeneticsYearContext, GeneticsTickResult,
+    create_earth_genome, create_child_genome,
+    express_phenotype, compute_o2_survival_bonus, compute_skill_multiplier,
+    tick_genetics,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -92,6 +98,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -116,6 +123,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "genetics": self.genetics,
         }
 
 
@@ -145,10 +153,11 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -175,6 +184,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_genetics": self.final_genetics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,9 +217,14 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.genetics = GeneticsState()
+        self.genetics_rng = random.Random(seed + 12553)
+        self.genetics_phenotypes: dict[str, dict[str, float]] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
+        for c in self.colonists:
+            self.genetics.register_founder(c.id, create_earth_genome(self.genetics_rng))
 
     def _active_colonists(self) -> list[Colonist]:
         return [c for c in self.colonists if c.is_active()]
@@ -405,6 +420,12 @@ class Mars100Engine:
                 self.colonists.append(child)
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
+                # Genetics: create child genome from parents
+                pa_genome = self.genetics.genomes.get(parent_a.id)
+                pb_genome = self.genetics.genomes.get(parent_b.id)
+                if pa_genome and pb_genome:
+                    child_genome = create_child_genome(pa_genome, pb_genome, self.genetics_rng)
+                    self.genetics.register_birth(child.id, parent_a.id, parent_b.id, child_genome)
                 births.append({
                     "id": child.id, "name": child.name, "year": self.year,
                     "parents": [parent_a.id, parent_b.id],
@@ -429,6 +450,12 @@ class Mars100Engine:
                 critical_resources.append(name)
         if colonist.stats.paranoia > 0.8:
             rate += 0.005
+        # Genetics: O2 tolerance can soften marginal asphyxiation
+        o2_pheno = self.genetics_phenotypes.get(colonist.id, {}).get("o2_tolerance")
+        if o2_pheno is not None:
+            survival_bonus = compute_o2_survival_bonus(o2_pheno, getattr(self.resources, "air", 0.0))
+            rate = max(0.0, rate - survival_bonus)
+
         if self.rng.random() < rate:
             resource_causes = {
                 "air": "asphyxiation", "food": "starvation",
@@ -573,6 +600,13 @@ class Mars100Engine:
         events = generate_events(self.year, self.rng)
         resources_before = self.resources.to_dict()
 
+        # --- genetics: compute phenotypes at start of year ---
+        self.genetics_phenotypes = {}
+        for c in active:
+            genome = self.genetics.genomes.get(c.id)
+            if genome:
+                self.genetics_phenotypes[c.id] = express_phenotype(genome)
+
         for colonist in active:
             colonist.evolve_stats(events[0].name if events else "calm", self.rng)
             for ev in events:
@@ -585,7 +619,11 @@ class Mars100Engine:
         for colonist in active:
             action = self._choose_action(colonist, events)
             actions[colonist.id] = action
-            colonist.evolve_skills(action, self.rng)
+            cog_mult = 1.0
+            cog_pheno = self.genetics_phenotypes.get(colonist.id, {}).get("cognitive_plasticity")
+            if cog_pheno is not None:
+                cog_mult = compute_skill_multiplier(cog_pheno)
+            colonist.evolve_skills(action, self.rng, skill_multiplier=cog_mult)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
         gov_proposal: GovernanceProposal | None = None
@@ -888,6 +926,9 @@ class Mars100Engine:
                 active_ids_now = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(immigrant.id, active_ids_now,
                                          self.earth_rng)
+                # Genetics: register immigrant with Earth-baseline genome
+                imm_genome = create_earth_genome(self.genetics_rng)
+                self.genetics.register_immigrant(immigrant.id, imm_genome)
                 year_immigrants.append({
                     "id": immigrant.id, "name": immigrant.name,
                     "year": self.year, "archetype": immigrant.archetype,
@@ -899,6 +940,11 @@ class Mars100Engine:
             meta = self._check_meta_awareness(colonist)
             if meta:
                 meta_events.append(meta)
+
+        # --- genetics: end-of-year bookkeeping ---
+        genetics_ctx = GeneticsYearContext(
+            year=self.year, active_ids=self._active_ids())
+        genetics_result = tick_genetics(self.genetics, genetics_ctx, self.genetics_rng)
 
         # Final clamp — multiple subsystems may have nudged resources
         self.resources.clamp()
@@ -929,6 +975,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            genetics=genetics_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -971,6 +1018,7 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_genetics=self.genetics.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
