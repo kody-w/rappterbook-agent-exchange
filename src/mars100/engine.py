@@ -25,6 +25,7 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.collective import CollectiveMemory
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -86,10 +87,11 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    collective_memory: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,6 +103,7 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "collective_memory": self.collective_memory,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -125,6 +128,7 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.collective = CollectiveMemory()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -135,7 +139,8 @@ class Mars100Engine:
     def _active_ids(self) -> list[str]:
         return [c.id for c in self._active_colonists()]
 
-    def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
+    def _choose_action(self, colonist: Colonist, events: list[Event],
+                       archive_bias: dict[str, float] | None = None) -> str:
         """Choose an action for a colonist based on personality and events."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
@@ -186,6 +191,12 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Apply collective memory bias (capped) and ensure exploration floor
+        if archive_bias:
+            for action, delta in archive_bias.items():
+                if action in weights:
+                    weights[action] = max(0.01, weights[action] + delta)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -443,6 +454,9 @@ class Mars100Engine:
         active = self._active_colonists()
         active_ids = [c.id for c in active]
 
+        # Freeze collective memory for reads this tick (snapshot semantics)
+        self.collective.snapshot()
+
         events = generate_events(self.year, self.rng)
         resources_before = self.resources.to_dict()
 
@@ -455,8 +469,9 @@ class Mars100Engine:
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
         subsim_log: list[SubSimResult] = []
+        archive_bias = self.collective.action_bias("resources", self.year)
         for colonist in active:
-            action = self._choose_action(colonist, events)
+            action = self._choose_action(colonist, events, archive_bias)
             actions[colonist.id] = action
             colonist.evolve_skills(action, self.rng)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
@@ -528,6 +543,18 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # Collective memory: extract knowledge from sub-sims
+        resource_snapshot = self.resources.to_dict()
+        for ss in subsim_log:
+            self.collective.extract_from_subsim(ss.to_dict(), self.year, resource_snapshot)
+
+        # Collective memory: update traditions from action distribution
+        action_counts: dict[str, int] = {}
+        for a in actions.values():
+            action_counts[a] = action_counts.get(a, 0) + 1
+        tradition_events = self.collective.update_traditions(
+            self.year, action_counts, len(self._active_colonists()))
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -572,6 +599,7 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            collective_memory=self.collective.archive_stats(self.year),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
