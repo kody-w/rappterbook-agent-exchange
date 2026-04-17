@@ -1,135 +1,216 @@
 {
   "year": 19,
-  "population": 14,
+  "population": 11,
   "event": {
-    "id": "cave_system",
-    "desc": "Underground cave system located",
-    "severity": 0.2
+    "id": "solar_flare",
+    "desc": "Electronics damaged by electromagnetic pulse from solar event."
   },
   "event_effects": [
-    "Cave system: materials +80"
+    "power: -0.12",
+    "medicine: -0.12",
+    "morale: -0.18"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Ares",
-      "action": "Ares explores (materials +35)"
+      "action": "fen-marsh: sabotage"
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra explores (materials +21)"
+      "action": "rust-vega: mediate"
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "action": "aura-kai: hoard"
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 27.8)"
+      "action": "dax-iron: mediate"
     },
     {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
+      "action": "luna-tide: rest"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
+      "action": "grove-ash: code"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan explores (materials +31)"
+      "action": "zeph-wind: code"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
+      "action": "ora-flame: explore"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
+      "action": "pax-stone: cooperate"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing leadership_election but one is already pending"
+      "action": "child-10: rest"
     }
   ],
   "sub_sims": [
     {
-      "colonist": "Vulcan",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[8, 5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "fen-marsh",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.27788451879508214",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 19
     },
     {
-      "colonist": "Iris",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 8]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "rust-vega",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "-0.4538753143090856",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 19
     },
     {
-      "colonist": "Nova",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 8]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "aura-kai",
+      "proposal": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) ",
+      "result": "1.1",
+      "s_expr": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "year": 19
     },
     {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "depth": 2,
+      "colonist": "aura-kai",
+      "proposal": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* pare",
+      "result": "1.2100000000000002",
+      "s_expr": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 19
     },
     {
-      "colonist": "Ares-18",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 13]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "dax-iron",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "-0.6454689641392408",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 19
+    },
+    {
+      "depth": 1,
+      "colonist": "luna-tide",
+      "proposal": "(let ((risk (* paranoia 0.71))) (if (> risk 0.5) (- resolve ",
+      "result": "0.8605859972486457",
+      "s_expr": "(let ((risk (* paranoia 0.71))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "year": 19
+    },
+    {
+      "depth": 2,
+      "colonist": "luna-tide",
+      "proposal": "(let ((parent-result 0.8605859972486457)) (if (> parent-resu",
+      "result": "0.9466445969735103",
+      "s_expr": "(let ((parent-result 0.8605859972486457)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 19
+    },
+    {
+      "depth": 1,
+      "colonist": "grove-ash",
+      "proposal": "(let ((risk (* paranoia 0.71))) (if (> risk 0.5) (- resolve ",
+      "result": "0.3211592650612842",
+      "s_expr": "(let ((risk (* paranoia 0.71))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "year": 19
     }
   ],
-  "governance_results": [
-    "Leadership election: Selene elected (ratio 83%)"
+  "governance_results": [],
+  "births": [
+    "Willow Rift born"
   ],
   "resource_effects": [],
-  "births": [],
   "diary_entries": [
     {
-      "colonist": "Cosmo",
-      "entry": "The cave_system changed everything. I feel optimistic about our future here."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 19, 'event': 'Electronics damaged by electromagnetic pulse from solar event.', 'valence': -0.710503501748291}"
     },
     {
-      "colonist": "Astra-14",
-      "entry": "Population: 14. Underground cave system located. I spent the year on mediation. Closest to Titan."
-    },
-    {
-      "colonist": "Orion-12",
-      "entry": "Another year. Underground cave system located. The colony feels hopeful. My resolve grows stronger."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 19, 'event': 'Electronics damaged by electromagnetic pulse from solar event.', 'valence': -0.710503501748291}"
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1200.4330505971914,
-    "water": 2371.7805711676547,
-    "power": 419.60813208187227,
-    "oxygen": 977.4274312441455,
-    "materials": 1683.1727064448962,
-    "morale": 100
+  "meta_awareness": "",
+  "tradition": {
+    "teachings": [
+      {
+        "year": 19,
+        "teacher_id": "luna-tide",
+        "student_id": "dax-iron",
+        "skill": "coding",
+        "amount": 0.0384
+      },
+      {
+        "year": 19,
+        "teacher_id": "rust-vega",
+        "student_id": "zeph-wind",
+        "skill": "terraforming",
+        "amount": 0.0353
+      },
+      {
+        "year": 19,
+        "teacher_id": "ora-flame",
+        "student_id": "grove-ash",
+        "skill": "prayer",
+        "amount": 0.0347
+      },
+      {
+        "year": 19,
+        "teacher_id": "luna-tide",
+        "student_id": "child-10",
+        "skill": "coding",
+        "amount": 0.0337
+      },
+      {
+        "year": 19,
+        "teacher_id": "ora-flame",
+        "student_id": "child-11",
+        "skill": "prayer",
+        "amount": 0.0335
+      },
+      {
+        "year": 19,
+        "teacher_id": "dax-iron",
+        "student_id": "ora-flame",
+        "skill": "sabotage",
+        "amount": 0.0327
+      },
+      {
+        "year": 19,
+        "teacher_id": "fen-marsh",
+        "student_id": "rust-vega",
+        "skill": "mediation",
+        "amount": 0.0311
+      },
+      {
+        "year": 19,
+        "teacher_id": "rust-vega",
+        "student_id": "fen-marsh",
+        "skill": "coding",
+        "amount": 0.0299
+      },
+      {
+        "year": 19,
+        "teacher_id": "zeph-wind",
+        "student_id": "luna-tide",
+        "skill": "sabotage",
+        "amount": 0.0279
+      },
+      {
+        "year": 19,
+        "teacher_id": "dax-iron",
+        "student_id": "pax-stone",
+        "skill": "sabotage",
+        "amount": 0.0276
+      },
+      {
+        "year": 19,
+        "teacher_id": "zeph-wind",
+        "student_id": "aura-kai",
+        "skill": "sabotage",
+        "amount": 0.0268
+      }
+    ],
+    "legacies": [],
+    "crises": []
   }
 }

@@ -485,7 +485,10 @@ class TestEngine:
         assert "summary" in d
         assert "total_births" in d["summary"]
         assert "convergence_trend" in d["summary"]
-        assert d["_meta"]["version"] == "2.0"
+        assert d["_meta"]["version"] == "3.0"
+        assert "total_teachings" in d["summary"]
+        assert "total_legacies" in d["summary"]
+        assert "total_crises" in d["summary"]
 
 
 # ──────────────────────────────────────────────────────────────

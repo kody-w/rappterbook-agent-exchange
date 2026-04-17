@@ -1,85 +1,199 @@
 {
   "year": 3,
-  "population": 11,
+  "population": 10,
   "event": {
-    "id": "dust_devil",
-    "desc": "Dust devil disrupts solar panels",
-    "severity": 0.3
+    "id": "phobos_transit",
+    "desc": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon."
   },
   "event_effects": [
-    "Dust devil: power -20"
+    "morale: +0.03",
+    "faith_boost: +0.02",
+    "power: -0.12",
+    "medicine: -0.12",
+    "morale: -0.18"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 30.8)"
+      "action": "kira-sol: sabotage"
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 23.2)"
+      "action": "fen-marsh: mediate"
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 19.2)"
+      "action": "rust-vega: code"
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 24.8)"
+      "action": "aura-kai: sabotage"
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 22.8)"
+      "action": "dax-iron: rest"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 28.5)"
+      "action": "luna-tide: sabotage"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 20.3)"
+      "action": "grove-ash: terraform"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 27.0)"
+      "action": "zeph-wind: rest"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 32.8)"
+      "action": "ora-flame: explore"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 22.8)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 25.8)"
+      "action": "pax-stone: pray"
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "sub_sims": [
+    {
+      "depth": 1,
+      "colonist": "fen-marsh",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.44111332267515446",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 3
+    },
+    {
+      "depth": 1,
+      "colonist": "rust-vega",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "-0.302075584896379",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 3
+    },
+    {
+      "depth": 1,
+      "colonist": "luna-tide",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "-0.09381799210093028",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 3
+    },
+    {
+      "depth": 1,
+      "colonist": "zeph-wind",
+      "proposal": "(let ((risk (* paranoia 0.73))) (if (> risk 0.5) (- resolve ",
+      "result": "0.9639828196429436",
+      "s_expr": "(let ((risk (* paranoia 0.73))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "year": 3
+    },
+    {
+      "depth": 2,
+      "colonist": "zeph-wind",
+      "proposal": "(let ((parent-result 0.9639828196429436)) (if (> parent-resu",
+      "result": "1.060381101607238",
+      "s_expr": "(let ((parent-result 0.9639828196429436)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 3
+    },
+    {
+      "depth": 1,
+      "colonist": "ora-flame",
+      "proposal": "(let ((change-score (+ empathy resolve faith))) (if (> chang",
+      "result": "1",
+      "s_expr": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "year": 3
+    }
+  ],
+  "governance_results": [
+    "{'id': 'prop-y3-dictator', 'year': 3, 'proposer_id': 'ora-flame', 'gov_type': 'dictator', 'parameters': {'term_years': 10}, 'rationale': 'Appoint a strong leader to guide us through crisis.', 'subsim_result': {'depth': 1, 'colonist_id': 'ora-flame', 'year': 3, 'expression': '(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))', 'result': 1, 'steps_used': 0}, 'votes_for': ['ora-flame'], 'votes_against': ['kira-sol', 'fen-marsh', 'rust-vega', 'aura-kai', 'dax-iron', 'luna-tide', 'grove-ash', 'zeph-wind', 'pax-stone'], 'passed': False}"
+  ],
   "births": [],
+  "resource_effects": [],
   "diary_entries": [
     {
-      "colonist": "Selene-1",
-      "entry": "Another year. Dust devil disrupts solar panels. The colony feels hopeful. My resolve grows stronger."
+      "colonist": "Kira Sol",
+      "entry": "{'year': 3, 'event': 'Coronal mass ejection detected \u2014 48 hours to shelter.', 'valence': -0.7260027099543761}"
     },
     {
-      "colonist": "Demeter",
-      "entry": "The dust_devil changed everything. I feel pragmatic about our future here."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 3, 'event': 'Coronal mass ejection detected \u2014 48 hours to shelter.', 'valence': -0.7260027099543761}"
     },
     {
-      "colonist": "Cosmo",
-      "entry": "Population: 11. Dust devil disrupts solar panels. I spent the year on hydroponics. Closest to Phobos."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 3, 'event': 'Coronal mass ejection detected \u2014 48 hours to shelter.', 'valence': -0.7260027099543761}"
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1157.8971004234052,
-    "water": 1436.0,
-    "power": 434.89812152739734,
-    "oxygen": 1010.3456777774182,
-    "materials": 625.4074066664509,
-    "morale": 79.54931845246658
+  "meta_awareness": "",
+  "tradition": {
+    "teachings": [
+      {
+        "year": 3,
+        "teacher_id": "aura-kai",
+        "student_id": "zeph-wind",
+        "skill": "prayer",
+        "amount": 0.042
+      },
+      {
+        "year": 3,
+        "teacher_id": "pax-stone",
+        "student_id": "dax-iron",
+        "skill": "mediation",
+        "amount": 0.039
+      },
+      {
+        "year": 3,
+        "teacher_id": "zeph-wind",
+        "student_id": "grove-ash",
+        "skill": "sabotage",
+        "amount": 0.0357
+      },
+      {
+        "year": 3,
+        "teacher_id": "luna-tide",
+        "student_id": "ora-flame",
+        "skill": "coding",
+        "amount": 0.0349
+      },
+      {
+        "year": 3,
+        "teacher_id": "aura-kai",
+        "student_id": "rust-vega",
+        "skill": "prayer",
+        "amount": 0.0331
+      },
+      {
+        "year": 3,
+        "teacher_id": "zeph-wind",
+        "student_id": "fen-marsh",
+        "skill": "sabotage",
+        "amount": 0.0328
+      },
+      {
+        "year": 3,
+        "teacher_id": "ora-flame",
+        "student_id": "luna-tide",
+        "skill": "prayer",
+        "amount": 0.0317
+      },
+      {
+        "year": 3,
+        "teacher_id": "dax-iron",
+        "student_id": "pax-stone",
+        "skill": "sabotage",
+        "amount": 0.0299
+      },
+      {
+        "year": 3,
+        "teacher_id": "rust-vega",
+        "student_id": "aura-kai",
+        "skill": "terraforming",
+        "amount": 0.0295
+      },
+      {
+        "year": 3,
+        "teacher_id": "grove-ash",
+        "student_id": "kira-sol",
+        "skill": "hydroponics",
+        "amount": 0.0292
+      }
+    ],
+    "legacies": [],
+    "crises": []
   }
 }

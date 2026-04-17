@@ -1,242 +1,218 @@
 {
   "year": 100,
-  "population": 25,
+  "population": 13,
   "event": {
-    "id": "equipment_failure",
-    "desc": "Critical equipment malfunction",
-    "severity": 0.5
+    "id": "solar_flare",
+    "desc": "Electronics damaged by electromagnetic pulse from solar event."
   },
   "event_effects": [
-    "Oxygen reduced by 15"
+    "power: -0.14",
+    "medicine: -0.14",
+    "morale: -0.21",
+    "food: +0.10",
+    "morale: +0.07",
+    "power: +0.03",
+    "morale: -0.22",
+    "food: -0.03"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 20.5)"
+      "action": "fen-marsh: farm"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene considers proposing constitutional_amendment but it already exists"
+      "action": "rust-vega: rest"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
+      "action": "luna-tide: mediate"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 29.0)"
+      "action": "ora-flame: mediate"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 29.4)"
+      "action": "child-12: explore"
     },
     {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 23.8)"
+      "action": "child-13: sabotage"
     },
     {
-      "colonist": "Orion-12",
-      "action": "Orion-12 proposes leadership_election: we need new leadership"
+      "action": "child-14: mediate"
     },
     {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
+      "action": "child-18: hoard"
     },
     {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing constitutional_amendment but it already exists"
+      "action": "child-19: code"
     },
     {
-      "colonist": "Vulcan-23",
-      "action": "Vulcan-23 works on terraforming (output: 26.5)"
+      "action": "child-20: sabotage"
     },
     {
-      "colonist": "Juno-28",
-      "action": "Juno-28 works on mediation (output: 27.0)"
+      "action": "child-21: rest"
     },
     {
-      "colonist": "Juno-33",
-      "action": "Juno-33 works on coding (output: 31.4)"
+      "action": "child-22: hoard"
     },
     {
-      "colonist": "Ares-35",
-      "action": "Ares-35 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova-38",
-      "action": "Nova-38 works on mediation (output: 31.3)"
-    },
-    {
-      "colonist": "Nova-40",
-      "action": "Nova-40 works on hydroponics (output: 29.3)"
-    },
-    {
-      "colonist": "Iris-45",
-      "action": "Iris-45 works on sabotage (output: 28.8)"
-    },
-    {
-      "colonist": "Cosmo-47",
-      "action": "Cosmo-47 works on terraforming (output: 27.2)"
-    },
-    {
-      "colonist": "Ceres-62",
-      "action": "Ceres-62 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Sol-72",
-      "action": "Sol-72 works on prayer (output: 27.6)"
-    },
-    {
-      "colonist": "Demeter-75",
-      "action": "Demeter-75 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Lyra-77",
-      "action": "Lyra-77 works on prayer (output: 26.6)"
-    },
-    {
-      "colonist": "Orion-78",
-      "action": "Orion-78 works on prayer (output: 24.0)"
-    },
-    {
-      "colonist": "Iris-79",
-      "action": "Iris-79 works on hydroponics (output: 23.4)"
-    },
-    {
-      "colonist": "Iris-94",
-      "action": "Iris-94 works on coding (output: 21.5)"
-    },
-    {
-      "colonist": "Atlas-96",
-      "action": "Atlas-96 considers proposing constitutional_amendment but it already exists"
+      "action": "child-23: mediate"
     }
   ],
   "sub_sims": [
     {
-      "colonist": "Astra-14",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 24]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "luna-tide",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "0.07641431999845694",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 100
     },
     {
-      "colonist": "Ares-18",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 34]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "ora-flame",
+      "proposal": "(let ((surplus (- food (* 13 0.06)))) (if (> surplus 0) (+ r",
+      "result": "1.0555766034550058",
+      "s_expr": "(let ((surplus (- food (* 13 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 100
     },
     {
-      "colonist": "Vulcan-23",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[1, 28]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "depth": 2,
+      "colonist": "ora-flame",
+      "proposal": "(let ((parent-result 1.0555766034550058)) (if (> parent-resu",
+      "result": "1.1611342638005064",
+      "s_expr": "(let ((parent-result 1.0555766034550058)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 100
     },
     {
-      "colonist": "Juno-28",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 28]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "child-12",
+      "proposal": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) ",
+      "result": "1.1",
+      "s_expr": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "year": 100
     },
     {
-      "colonist": "Juno-33",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 29]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "depth": 2,
+      "colonist": "child-12",
+      "proposal": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* pare",
+      "result": "1.2100000000000002",
+      "s_expr": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 100
     },
     {
-      "colonist": "Ares-35",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[3, 29]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "child-13",
+      "proposal": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) ",
+      "result": "1.1",
+      "s_expr": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "year": 100
     },
     {
-      "colonist": "Nova-38",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 29]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "depth": 2,
+      "colonist": "child-13",
+      "proposal": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* pare",
+      "result": "1.2100000000000002",
+      "s_expr": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 100
     },
     {
-      "colonist": "Nova-40",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 34]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Cosmo-47",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 29]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ceres-62",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 29]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Lyra-77",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 28]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Orion-78",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 31]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Iris-94",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[4, 25]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Atlas-96",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[4, 24]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "child-14",
+      "proposal": "(let ((surplus (- food (* 13 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.7108424265541987",
+      "s_expr": "(let ((surplus (- food (* 13 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 100
     }
   ],
-  "governance_results": [
-    "Leadership election: Orion-12 elected (ratio 92%)"
-  ],
-  "resource_effects": [],
+  "governance_results": [],
   "births": [],
+  "resource_effects": [],
   "diary_entries": [
     {
-      "colonist": "Lyra-77",
-      "entry": "The equipment_failure changed everything. I feel optimistic about our future here."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 100, 'event': 'A bitter dispute over food rationing escalates to shouting.', 'valence': -0.5776922157021347}"
     },
     {
-      "colonist": "Nova",
-      "entry": "Another year. Critical equipment malfunction. The colony feels hopeful. My empathy grows stronger."
-    },
-    {
-      "colonist": "Iris-45",
-      "entry": "Another year. Critical equipment malfunction. The colony feels hopeful. My paranoia grows stronger."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 100, 'event': 'A bitter dispute over food rationing escalates to shouting.', 'valence': -0.5776922157021347}"
     }
   ],
-  "meta_awareness": "Ares-35 (year 100): 'Our constitution is just code. Our resources are just numbers. What if everything outside this dome is also just numbers?'",
-  "resources_snapshot": {
-    "food": 132.2827617926428,
-    "water": 1602.123826039589,
-    "power": 0,
-    "oxygen": 1.8429643381104768,
-    "materials": 6920.214742412619,
-    "morale": 100
+  "meta_awareness": {
+    "colonist_id": "child-12",
+    "year": 100,
+    "insight": "Spark Dune whispers: 'What if we are variables in someone else's expression?'"
+  },
+  "tradition": {
+    "teachings": [
+      {
+        "year": 100,
+        "teacher_id": "luna-tide",
+        "student_id": "child-18",
+        "skill": "terraforming",
+        "amount": 0.0479
+      },
+      {
+        "year": 100,
+        "teacher_id": "fen-marsh",
+        "student_id": "child-21",
+        "skill": "mediation",
+        "amount": 0.045
+      },
+      {
+        "year": 100,
+        "teacher_id": "luna-tide",
+        "student_id": "child-19",
+        "skill": "hydroponics",
+        "amount": 0.0428
+      },
+      {
+        "year": 100,
+        "teacher_id": "fen-marsh",
+        "student_id": "child-23",
+        "skill": "mediation",
+        "amount": 0.042
+      },
+      {
+        "year": 100,
+        "teacher_id": "ora-flame",
+        "student_id": "child-20",
+        "skill": "prayer",
+        "amount": 0.0405
+      },
+      {
+        "year": 100,
+        "teacher_id": "rust-vega",
+        "student_id": "child-22",
+        "skill": "terraforming",
+        "amount": 0.0382
+      },
+      {
+        "year": 100,
+        "teacher_id": "ora-flame",
+        "student_id": "child-13",
+        "skill": "prayer",
+        "amount": 0.0323
+      },
+      {
+        "year": 100,
+        "teacher_id": "rust-vega",
+        "student_id": "child-14",
+        "skill": "terraforming",
+        "amount": 0.0244
+      },
+      {
+        "year": 100,
+        "teacher_id": "child-14",
+        "student_id": "child-12",
+        "skill": "hydroponics",
+        "amount": 0.0098
+      }
+    ],
+    "legacies": [],
+    "crises": []
   }
 }

@@ -52,6 +52,10 @@ canvas{width:100%;height:200px}
   <div class="card"><h2>👥 Colonists</h2><div id="colonists" class="colonist-grid"></div></div>
   <div class="card"><h2>🐢 Sub-Simulations</h2><div id="subsims"></div><p id="subsim-count" style="color:var(--muted);font-size:0.85em;margin-top:8px"></p></div>
 </div>
+<div class="grid">
+  <div class="card"><h2>📚 Oral Tradition</h2><div id="tradition"></div><h3>Knowledge Transfer</h3><canvas id="teachChart"></canvas></div>
+  <div class="card"><h2>🪦 Legacy & Crisis</h2><div id="legacy"></div><h3>Expert Coverage</h3><canvas id="expertChart"></canvas></div>
+</div>
 <div class="card"><h2>📜 Timeline</h2><div id="timeline" class="timeline"></div></div>
 <div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
 <div class="card"><h2>💀 Memorial</h2><div id="memorial"></div></div>
@@ -82,7 +86,10 @@ document.getElementById('vitals').innerHTML=`
 <div class="stat-row"><span class="stat-label">Deaths</span><span class="dead">${s.total_deaths}</span></div>
 <div class="stat-row"><span class="stat-label">Sub-sims</span><span style="color:var(--purple)">${s.total_sub_simulations}</span></div>
 <div class="stat-row"><span class="stat-label">Proposals</span><span>${s.total_proposals}</span></div>
-<div class="stat-row"><span class="stat-label">Governance</span><span>${data.colony.governance.system}</span></div>`;
+<div class="stat-row"><span class="stat-label">Governance</span><span>${data.colony.governance.system}</span></div>
+<div class="stat-row"><span class="stat-label">Teachings</span><span style="color:var(--gold)">${s.total_teachings||0}</span></div>
+<div class="stat-row"><span class="stat-label">Legacies</span><span style="color:var(--purple)">${s.total_legacies||0}</span></div>
+<div class="stat-row"><span class="stat-label">Crises</span><span class="${(s.total_crises||0)>0?'dead':'alive'}">${s.total_crises||0}</span></div>`;
 const years=s.population_curve.map((_,i)=>'Y'+(i+1));
 drawChart(document.getElementById('popChart'),[{data:s.population_curve,color:'#44ff88',label:'Population'}],years);
 drawChart(document.getElementById('resourceChart'),[
@@ -113,13 +120,45 @@ ${d.colonist_actions.length>5?'<div style="color:var(--muted)">...+'+(d.colonist
 ${d.sub_sims.map(s=>'<span class="tag tag-subsim">sub-sim: '+s.colonist+'</span>').join('')}
 ${d.resource_effects.filter(e=>e.toLowerCase().includes('dies')).map(e=>'<span class="tag tag-death">'+e+'</span>').join('')}
 ${d.births.map(b=>'<span class="tag tag-birth">'+b+'</span>').join('')}
+${(d.tradition&&d.tradition.teachings||[]).length>0?'<span class="tag" style="background:#2a2a1a;color:var(--gold)">📚 '+(d.tradition.teachings.length)+' teachings</span>':''}
+${(d.tradition&&d.tradition.legacies||[]).length>0?'<span class="tag" style="background:#2a1a2a;color:var(--purple)">🪦 '+(d.tradition.legacies.length)+' legacies</span>':''}
+${(d.tradition&&d.tradition.crises||[]).length>0?'<span class="tag tag-death">⚠ crisis</span>':''}
 ${d.diary_entries.slice(0,2).map(e=>'<div style="font-style:italic;color:var(--muted);margin:4px 0">"'+e.entry.substring(0,150)+'"</div>').join('')}</div>`).join('');
 const govE=deltas.filter(d=>d.governance_results.length>0);
 document.getElementById('governance').innerHTML=govE.length===0?'<p style="color:var(--muted)">No governance proposals resolved.</p>':
 govE.map(d=>`<div class="year-entry"><span class="year-label">Year ${d.year}</span>${d.governance_results.map(g=>'<div><span class="tag tag-proposal">'+g+'</span></div>').join('')}</div>`).join('');
 const dead=data.colony.dead_souls||[];
 document.getElementById('memorial').innerHTML=dead.length===0?'<p style="color:var(--muted)">No casualties. The colony endures.</p>':
-dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('')}
+dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('');
+// Tradition panels
+const teachPerYear=deltas.map(d=>{const t=d.tradition||{};return(t.teachings||[]).length});
+const legacyPerYear=deltas.map(d=>{const t=d.tradition||{};return(t.legacies||[]).length});
+drawChart(document.getElementById('teachChart'),[{data:teachPerYear,color:'#ffaa44',label:'Teachings'},{data:legacyPerYear,color:'#aa44ff',label:'Legacies'}],years);
+const allTeach=deltas.flatMap(d=>(d.tradition&&d.tradition.teachings||[]).map(t=>({...t,year:d.year})));
+const allLeg=deltas.flatMap(d=>(d.tradition&&d.tradition.legacies||[]).map(l=>({...l,year:d.year})));
+const allCrisis=deltas.flatMap(d=>(d.tradition&&d.tradition.crises||[]).map(c=>({...c,year:d.year})));
+document.getElementById('tradition').innerHTML=`
+<div class="stat-row"><span class="stat-label">Total teachings</span><span style="color:var(--gold)">${allTeach.length}</span></div>
+<div class="stat-row"><span class="stat-label">Avg per year</span><span>${(allTeach.length/100).toFixed(1)}</span></div>
+<div class="stat-row"><span class="stat-label">Peak year</span><span>Y${teachPerYear.indexOf(Math.max(...teachPerYear))+1} (${Math.max(...teachPerYear)})</span></div>
+<h3>Recent Teachings</h3>
+${allTeach.slice(-10).reverse().map(t=>`<div style="font-size:0.8em;padding:3px 0;border-bottom:1px solid var(--border)">Y${t.year}: <span style="color:var(--gold)">${t.teacher_id||'?'}</span> → ${t.student_id||'?'} · ${t.skill||'?'} (+${(t.amount||0).toFixed(3)})</div>`).join('')}`;
+document.getElementById('legacy').innerHTML=`
+<div class="stat-row"><span class="stat-label">Legacies passed</span><span style="color:var(--purple)">${allLeg.length}</span></div>
+<div class="stat-row"><span class="stat-label">Knowledge crises</span><span class="${allCrisis.length>0?'dead':'alive'}">${allCrisis.length}</span></div>
+${allLeg.length>0?'<h3>Legacy Records</h3>'+allLeg.map(l=>`<div style="font-size:0.8em;padding:3px 0;border-bottom:1px solid var(--border)">Y${l.year}: 💀 <span style="color:var(--red)">${l.donor_id||'?'}</span> → ${(l.heir_ids||[]).join(', ')} · ${l.skill||'?'} (${(l.amount||0).toFixed(3)} split)</div>`).join(''):''}
+${allCrisis.length>0?'<h3 style="color:var(--red)">⚠ Crises</h3>'+allCrisis.map(c=>`<div style="font-size:0.8em;padding:3px 0;border-bottom:1px solid var(--border);color:var(--red)">Y${c.year}: ${c.skill||'?'} — only ${c.expert_count||0} expert(s)</div>`).join(''):''}`;
+// Expert coverage chart (count teachings per skill)
+const skillTeachCounts={};allTeach.forEach(t=>{const sk=t.skill||'?';skillTeachCounts[sk]=(skillTeachCounts[sk]||0)+1});
+const skillNames=Object.keys(skillTeachCounts).sort((a,b)=>skillTeachCounts[b]-skillTeachCounts[a]).slice(0,6);
+const expertData=skillNames.map(sk=>skillTeachCounts[sk]);
+if(expertData.length>0){const ec=document.getElementById('expertChart'),ectx=ec.getContext('2d'),dpr=window.devicePixelRatio||1,rect=ec.getBoundingClientRect();
+ec.width=rect.width*dpr;ec.height=rect.height*dpr;ectx.scale(dpr,dpr);
+const W=rect.width,H=rect.height,barW=W/skillNames.length,maxV=Math.max(...expertData);
+ectx.fillStyle='#0a0a12';ectx.fillRect(0,0,W,H);
+skillNames.forEach((sk,i)=>{const h=(expertData[i]/maxV)*(H-30);ectx.fillStyle='#aa44ff';ectx.fillRect(i*barW+4,H-h-20,barW-8,h);
+ectx.fillStyle='#888';ectx.font='9px monospace';ectx.textAlign='center';ectx.fillText(sk.substring(0,8),i*barW+barW/2,H-6);
+ectx.fillStyle='#e0e0f0';ectx.fillText(expertData[i],i*barW+barW/2,H-h-24)})}}
 fetch('data.json').then(r=>r.json()).then(render).catch(err=>{
 document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p><p style="color:var(--muted)">Run: python3 src/mars100_engine.py --years 100</p>'})
 </script>

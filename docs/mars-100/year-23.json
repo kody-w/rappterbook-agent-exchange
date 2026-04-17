@@ -1,165 +1,206 @@
 {
   "year": 23,
-  "population": 14,
+  "population": 10,
   "event": {
-    "id": "solar_flare",
-    "desc": "Solar flare disrupts electronics",
-    "severity": 0.7
+    "id": "ice_volcano",
+    "desc": "Ice geyser breaks through permafrost near the colony perimeter."
   },
   "event_effects": [
-    "Solar flare: power -56"
+    "water: +0.15",
+    "air: +0.05",
+    "morale: -0.05"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Ares",
-      "action": "Ares proposes research_directive: study the anomaly"
+      "action": "fen-marsh: rest"
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra hoards food"
+      "action": "rust-vega: code"
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos hoards food"
+      "action": "aura-kai: explore"
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 25.3)"
+      "action": "dax-iron: rest"
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 19.9)"
+      "action": "luna-tide: cooperate"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene hoards food"
+      "action": "grove-ash: terraform"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan considers proposing research_directive but one is already pending"
+      "action": "zeph-wind: rest"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
+      "action": "ora-flame: farm"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 25.2)"
+      "action": "child-10: mediate"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova hoards food"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 29.1)"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 hoards food"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 hoards food"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 hoards food"
+      "action": "child-11: hoard"
     }
   ],
   "sub_sims": [
     {
-      "colonist": "Ares",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "fen-marsh",
+      "proposal": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith",
+      "result": "1",
+      "s_expr": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "year": 23
     },
     {
-      "colonist": "Lyra",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "depth": 2,
+      "colonist": "fen-marsh",
+      "proposal": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent",
+      "result": "1.1",
+      "s_expr": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 23
     },
     {
-      "colonist": "Phobos",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "aura-kai",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.4931698120931848",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 23
     },
     {
-      "colonist": "Titan",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "zeph-wind",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.5990814064866153",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 23
     },
     {
-      "colonist": "Vulcan",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "child-10",
+      "proposal": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) ",
+      "result": "1.1",
+      "s_expr": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "year": 23
     },
     {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "depth": 2,
+      "colonist": "child-10",
+      "proposal": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* pare",
+      "result": "1.2100000000000002",
+      "s_expr": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 23
     },
     {
-      "colonist": "Nova",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "child-11",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "0.004773942113195873",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 23
     },
     {
-      "colonist": "Astra-14",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Ares-18",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "dax-iron",
+      "proposal": "(let ((change-score (+ empathy resolve faith))) (if (> chang",
+      "result": "0",
+      "s_expr": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "year": 23
     }
   ],
   "governance_results": [
-    "Research directive approved (ratio 90%)"
+    "{'id': 'prop-y23-anarchy', 'year': 23, 'proposer_id': 'dax-iron', 'gov_type': 'anarchy', 'parameters': {}, 'rationale': 'Return to self-governance. No rulers, no masters.', 'subsim_result': {'depth': 1, 'colonist_id': 'dax-iron', 'year': 23, 'expression': '(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))', 'result': 0, 'steps_used': 0}, 'votes_for': ['rust-vega', 'dax-iron', 'zeph-wind', 'ora-flame'], 'votes_against': ['fen-marsh', 'aura-kai', 'luna-tide', 'grove-ash', 'child-10', 'child-11'], 'passed': False}"
   ],
+  "births": [],
   "resource_effects": [],
-  "births": [
-    "Vulcan-23 is born!"
-  ],
   "diary_entries": [
     {
-      "colonist": "Phobos",
-      "entry": "Population: 15. Solar flare disrupts electronics. I spent the year on mediation. Closest to Selene."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 23, 'event': 'Ice geyser breaks through permafrost near the colony perimeter.', 'valence': -0.531419959818068}"
     },
     {
-      "colonist": "Iris",
-      "entry": "Year 23 on Mars. Solar flare disrupts electronics. Morale is hopeful. We have 1284 food units left."
-    },
-    {
-      "colonist": "Vulcan-23",
-      "entry": "Population: 15. Solar flare disrupts electronics. I spent the year on terraforming. Closest to Titan."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 23, 'event': 'Ice geyser breaks through permafrost near the colony perimeter.', 'valence': -0.531419959818068}"
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1283.5432043064077,
-    "water": 2930.024904316247,
-    "power": 340.83537375536287,
-    "oxygen": 932.3302867589969,
-    "materials": 1898.1259700760681,
-    "morale": 100
+  "meta_awareness": {
+    "colonist_id": "zeph-wind",
+    "year": 23,
+    "insight": "Zeph Wind wonders why the colony history feels like it follows a script."
+  },
+  "tradition": {
+    "teachings": [
+      {
+        "year": 23,
+        "teacher_id": "ora-flame",
+        "student_id": "dax-iron",
+        "skill": "prayer",
+        "amount": 0.0414
+      },
+      {
+        "year": 23,
+        "teacher_id": "ora-flame",
+        "student_id": "grove-ash",
+        "skill": "prayer",
+        "amount": 0.0373
+      },
+      {
+        "year": 23,
+        "teacher_id": "zeph-wind",
+        "student_id": "child-10",
+        "skill": "sabotage",
+        "amount": 0.0359
+      },
+      {
+        "year": 23,
+        "teacher_id": "luna-tide",
+        "student_id": "ora-flame",
+        "skill": "coding",
+        "amount": 0.0339
+      },
+      {
+        "year": 23,
+        "teacher_id": "rust-vega",
+        "student_id": "zeph-wind",
+        "skill": "terraforming",
+        "amount": 0.0326
+      },
+      {
+        "year": 23,
+        "teacher_id": "fen-marsh",
+        "student_id": "rust-vega",
+        "skill": "mediation",
+        "amount": 0.0309
+      },
+      {
+        "year": 23,
+        "teacher_id": "zeph-wind",
+        "student_id": "fen-marsh",
+        "skill": "sabotage",
+        "amount": 0.0298
+      },
+      {
+        "year": 23,
+        "teacher_id": "grove-ash",
+        "student_id": "aura-kai",
+        "skill": "hydroponics",
+        "amount": 0.0268
+      },
+      {
+        "year": 23,
+        "teacher_id": "dax-iron",
+        "student_id": "luna-tide",
+        "skill": "sabotage",
+        "amount": 0.0191
+      }
+    ],
+    "legacies": [],
+    "crises": []
   }
 }

@@ -1,124 +1,209 @@
 {
   "year": 16,
-  "population": 13,
+  "population": 10,
   "event": {
-    "id": "ice_discovery",
-    "desc": "Subsurface ice deposit found",
-    "severity": 0.2
+    "id": "ice_volcano",
+    "desc": "Ice geyser breaks through permafrost near the colony perimeter."
   },
   "event_effects": [
-    "Ice discovery: water +363"
+    "water: +0.16",
+    "air: +0.05",
+    "morale: -0.05"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Ares",
-      "action": "Ares explores (materials +7)"
+      "action": "fen-marsh: sabotage"
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra explores (materials +36)"
+      "action": "rust-vega: terraform"
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "action": "aura-kai: pray"
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 28.0)"
+      "action": "dax-iron: cooperate"
     },
     {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
+      "action": "luna-tide: cooperate"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
+      "action": "grove-ash: rest"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan explores (materials +18)"
+      "action": "zeph-wind: farm"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
+      "action": "ora-flame: pray"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
+      "action": "pax-stone: rest"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
+      "action": "child-10: cooperate"
     }
   ],
   "sub_sims": [
     {
-      "colonist": "Vulcan",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[8, 4]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "fen-marsh",
+      "proposal": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) ",
+      "result": "1.1",
+      "s_expr": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "year": 16
     },
     {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "depth": 2,
+      "colonist": "fen-marsh",
+      "proposal": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* pare",
+      "result": "1.2100000000000002",
+      "s_expr": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 16
     },
     {
-      "colonist": "Nova",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 6]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "rust-vega",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.6798370792954941",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 16
     },
     {
-      "colonist": "Astra-14",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "aura-kai",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.44984922786946624",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 16
+    },
+    {
+      "depth": 1,
+      "colonist": "grove-ash",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "-0.2390165260740921",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 16
+    },
+    {
+      "depth": 1,
+      "colonist": "zeph-wind",
+      "proposal": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ r",
+      "result": "0.5636547216846566",
+      "s_expr": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "year": 16
+    },
+    {
+      "depth": 1,
+      "colonist": "pax-stone",
+      "proposal": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith",
+      "result": "1",
+      "s_expr": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "year": 16
+    },
+    {
+      "depth": 2,
+      "colonist": "pax-stone",
+      "proposal": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent",
+      "result": "1.1",
+      "s_expr": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 16
     }
   ],
   "governance_results": [
-    "Leadership election: Selene elected (ratio 82%)"
+    "{'id': 'prop-y16-lottery', 'year': 16, 'proposer_id': 'grove-ash', 'gov_type': 'lottery', 'parameters': {'rotation_years': 3}, 'rationale': 'Random leader selection every 3 year(s).', 'subsim_result': None, 'votes_for': ['fen-marsh', 'aura-kai', 'grove-ash', 'zeph-wind'], 'votes_against': ['rust-vega', 'dax-iron', 'luna-tide', 'ora-flame', 'pax-stone', 'child-10'], 'passed': False}"
   ],
-  "resource_effects": [],
   "births": [],
+  "resource_effects": [],
   "diary_entries": [
     {
-      "colonist": "Demeter",
-      "entry": "Population: 13. Subsurface ice deposit found. I spent the year on coding. Closest to Selene-1."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 16, 'event': 'Ice geyser breaks through permafrost near the colony perimeter.', 'valence': -0.595009280695119}"
     },
     {
-      "colonist": "Astra-14",
-      "entry": "Another year. Subsurface ice deposit found. The colony feels hopeful. My hoarding grows stronger."
-    },
-    {
-      "colonist": "Cosmo",
-      "entry": "Another year. Subsurface ice deposit found. The colony feels hopeful. My empathy grows stronger."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 16, 'event': 'Ice geyser breaks through permafrost near the colony perimeter.', 'valence': -0.595009280695119}"
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1280.4330505971914,
-    "water": 2451.7805711676547,
-    "power": 380.06439720203025,
-    "oxygen": 1001.7924323731879,
-    "materials": 1336.0991379843174,
-    "morale": 100
+  "meta_awareness": "",
+  "tradition": {
+    "teachings": [
+      {
+        "year": 16,
+        "teacher_id": "luna-tide",
+        "student_id": "dax-iron",
+        "skill": "coding",
+        "amount": 0.0359
+      },
+      {
+        "year": 16,
+        "teacher_id": "luna-tide",
+        "student_id": "grove-ash",
+        "skill": "coding",
+        "amount": 0.0352
+      },
+      {
+        "year": 16,
+        "teacher_id": "aura-kai",
+        "student_id": "zeph-wind",
+        "skill": "mediation",
+        "amount": 0.0347
+      },
+      {
+        "year": 16,
+        "teacher_id": "rust-vega",
+        "student_id": "ora-flame",
+        "skill": "terraforming",
+        "amount": 0.0338
+      },
+      {
+        "year": 16,
+        "teacher_id": "ora-flame",
+        "student_id": "rust-vega",
+        "skill": "prayer",
+        "amount": 0.0321
+      },
+      {
+        "year": 16,
+        "teacher_id": "zeph-wind",
+        "student_id": "child-10",
+        "skill": "sabotage",
+        "amount": 0.0314
+      },
+      {
+        "year": 16,
+        "teacher_id": "rust-vega",
+        "student_id": "fen-marsh",
+        "skill": "coding",
+        "amount": 0.0296
+      },
+      {
+        "year": 16,
+        "teacher_id": "ora-flame",
+        "student_id": "luna-tide",
+        "skill": "prayer",
+        "amount": 0.0292
+      },
+      {
+        "year": 16,
+        "teacher_id": "aura-kai",
+        "student_id": "pax-stone",
+        "skill": "prayer",
+        "amount": 0.0279
+      },
+      {
+        "year": 16,
+        "teacher_id": "grove-ash",
+        "student_id": "aura-kai",
+        "skill": "hydroponics",
+        "amount": 0.0272
+      }
+    ],
+    "legacies": [],
+    "crises": []
   }
 }

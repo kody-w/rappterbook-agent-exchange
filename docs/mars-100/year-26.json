@@ -1,177 +1,241 @@
 {
   "year": 26,
-  "population": 15,
+  "population": 9,
   "event": {
-    "id": "dust_storm",
-    "desc": "A massive dust storm engulfs the colony",
-    "severity": 0.6
+    "id": "colonist_conflict",
+    "desc": "A bitter dispute over food rationing escalates to shouting."
   },
   "event_effects": [
-    "Power reduced by 30 kWh"
+    "morale: -0.21",
+    "food: -0.03",
+    "water: +0.14",
+    "air: +0.05",
+    "morale: -0.05"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Ares",
-      "action": "Ares proposes research_directive: study the anomaly"
+      "action": "fen-marsh: hoard"
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra considers proposing research_directive but one is already pending"
+      "action": "rust-vega: hoard"
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "action": "aura-kai: sabotage"
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 22.6)"
+      "action": "dax-iron: rest"
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 20.4)"
+      "action": "luna-tide: code"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
+      "action": "grove-ash: explore"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan considers proposing research_directive but one is already pending"
+      "action": "zeph-wind: mediate"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
+      "action": "ora-flame: terraform"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 30.6)"
+      "action": "child-10: farm"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 24.9)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 30.0)"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Vulcan-23",
-      "action": "Vulcan-23 works on terraforming (output: 26.5)"
+      "action": "child-11: farm"
     }
   ],
   "sub_sims": [
     {
-      "colonist": "Ares",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "fen-marsh",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "-0.16254653951736764",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 26
     },
     {
-      "colonist": "Lyra",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "aura-kai",
+      "proposal": "(let ((risk (* paranoia 0.55))) (if (> risk 0.5) (- resolve ",
+      "result": "0.6969559902542934",
+      "s_expr": "(let ((risk (* paranoia 0.55))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "year": 26
     },
     {
-      "colonist": "Phobos",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "luna-tide",
+      "proposal": "(let ((risk (* paranoia 0.55))) (if (> risk 0.5) (- resolve ",
+      "result": "1.0111676117956174",
+      "s_expr": "(let ((risk (* paranoia 0.55))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "year": 26
     },
     {
-      "colonist": "Titan",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "depth": 2,
+      "colonist": "luna-tide",
+      "proposal": "(let ((parent-result 1.0111676117956174)) (if (> parent-resu",
+      "result": "1.1122843729751792",
+      "s_expr": "(let ((parent-result 1.0111676117956174)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 26
     },
     {
-      "colonist": "Vulcan",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[2, 7]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "child-11",
+      "proposal": "(let ((risk (* paranoia 0.55))) (if (> risk 0.5) (- resolve ",
+      "result": "0.6330898779023495",
+      "s_expr": "(let ((risk (* paranoia 0.55))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "year": 26
     },
     {
-      "colonist": "Iris",
       "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 9]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ares-18",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 13]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Vulcan-23",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 14]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist": "rust-vega",
+      "proposal": "(let ((change-score (+ empathy resolve faith))) (if (> chang",
+      "result": "0",
+      "s_expr": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "year": 26
     }
   ],
   "governance_results": [
-    "Research directive approved (ratio 93%)",
-    "Leadership election: Selene elected (ratio 75%)"
+    "{'id': 'prop-y26-consensus', 'year': 26, 'proposer_id': 'rust-vega', 'gov_type': 'consensus', 'parameters': {'quorum_fraction': 1.0}, 'rationale': 'All decisions require 100% agreement.', 'subsim_result': {'depth': 1, 'colonist_id': 'rust-vega', 'year': 26, 'expression': '(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))', 'result': 0, 'steps_used': 0}, 'votes_for': ['fen-marsh', 'rust-vega', 'dax-iron', 'luna-tide', 'zeph-wind', 'ora-flame'], 'votes_against': ['aura-kai', 'grove-ash', 'child-10', 'child-11'], 'passed': True}"
   ],
-  "resource_effects": [],
-  "births": [
-    "Juno-26 is born!"
+  "births": [],
+  "resource_effects": [
+    "Opal Creek dies: medical emergency"
   ],
   "diary_entries": [
     {
-      "colonist": "Ares",
-      "entry": "The dust_storm changed everything. I feel pragmatic about our future here."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 26, 'event': 'Ice geyser breaks through permafrost near the colony perimeter.', 'valence': -0.4550858508011811}"
     },
     {
-      "colonist": "Iris",
-      "entry": "Year 26 on Mars. A massive dust storm engulfs the colony. Morale is hopeful. We have 1456 food units left."
-    },
-    {
-      "colonist": "Vulcan",
-      "entry": "Population: 16. A massive dust storm engulfs the colony. I spent the year on coding. Closest to Orion-12."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 26, 'event': 'Ice geyser breaks through permafrost near the colony perimeter.', 'valence': -0.4550858508011811}"
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1455.6948963529912,
-    "water": 3040.024904316247,
-    "power": 293.2657160421672,
-    "oxygen": 931.3754840829758,
-    "materials": 2024.5530884704556,
-    "morale": 100
+  "meta_awareness": "",
+  "tradition": {
+    "teachings": [
+      {
+        "year": 26,
+        "teacher_id": "luna-tide",
+        "student_id": "dax-iron",
+        "skill": "coding",
+        "amount": 0.0389
+      },
+      {
+        "year": 26,
+        "teacher_id": "ora-flame",
+        "student_id": "child-11",
+        "skill": "mediation",
+        "amount": 0.0366
+      },
+      {
+        "year": 26,
+        "teacher_id": "ora-flame",
+        "student_id": "rust-vega",
+        "skill": "prayer",
+        "amount": 0.0359
+      },
+      {
+        "year": 26,
+        "teacher_id": "rust-vega",
+        "student_id": "ora-flame",
+        "skill": "terraforming",
+        "amount": 0.0319
+      },
+      {
+        "year": 26,
+        "teacher_id": "luna-tide",
+        "student_id": "grove-ash",
+        "skill": "coding",
+        "amount": 0.0314
+      },
+      {
+        "year": 26,
+        "teacher_id": "grove-ash",
+        "student_id": "zeph-wind",
+        "skill": "hydroponics",
+        "amount": 0.0307
+      },
+      {
+        "year": 26,
+        "teacher_id": "rust-vega",
+        "student_id": "fen-marsh",
+        "skill": "terraforming",
+        "amount": 0.0268
+      },
+      {
+        "year": 26,
+        "teacher_id": "zeph-wind",
+        "student_id": "aura-kai",
+        "skill": "sabotage",
+        "amount": 0.0245
+      },
+      {
+        "year": 26,
+        "teacher_id": "zeph-wind",
+        "student_id": "luna-tide",
+        "skill": "sabotage",
+        "amount": 0.0223
+      }
+    ],
+    "legacies": [
+      {
+        "year": 26,
+        "deceased_id": "child-10",
+        "deceased_name": "Opal Creek",
+        "skill": "sabotage",
+        "original_value": 0.2635,
+        "heirs": [
+          {
+            "id": "zeph-wind",
+            "name": "Zeph Wind",
+            "gain": 0.0527
+          },
+          {
+            "id": "aura-kai",
+            "name": "Aura Kai",
+            "gain": 0.0527
+          },
+          {
+            "id": "fen-marsh",
+            "name": "Fen Marsh",
+            "gain": 0.0527
+          }
+        ],
+        "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)"
+      },
+      {
+        "year": 26,
+        "deceased_id": "child-10",
+        "deceased_name": "Opal Creek",
+        "skill": "coding",
+        "original_value": 0.2115,
+        "heirs": [
+          {
+            "id": "zeph-wind",
+            "name": "Zeph Wind",
+            "gain": 0.0423
+          },
+          {
+            "id": "aura-kai",
+            "name": "Aura Kai",
+            "gain": 0.0423
+          },
+          {
+            "id": "fen-marsh",
+            "name": "Fen Marsh",
+            "gain": 0.0423
+          }
+        ],
+        "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)"
+      }
+    ],
+    "crises": []
   }
 }

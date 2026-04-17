@@ -25,6 +25,7 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.tradition import run_tradition_phase, TraditionResult
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +53,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    tradition: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +69,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "tradition": self.tradition,
         }
 
 
@@ -86,10 +89,13 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    total_teachings: int = 0
+    total_legacies: int = 0
+    total_crises: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,6 +107,9 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_teachings": self.total_teachings,
+                "total_legacies": self.total_legacies,
+                "total_crises": self.total_crises,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -507,16 +516,24 @@ class Mars100Engine:
 
         deaths: list[dict] = []
         exiles: list[dict] = []
+        dead_this_year: list[Colonist] = []
         for colonist in list(active):
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
+                dead_this_year.append(colonist)
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+
+        tradition = run_tradition_phase(
+            year=self.year, all_colonists=self.colonists,
+            dead_this_year=dead_this_year,
+            social_get=self.social.get, rng=self.rng,
+        )
 
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
@@ -541,12 +558,14 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            tradition=tradition.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_teachings = total_legacies = total_crises = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +575,9 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_teachings += len(result.tradition.get("teachings", []))
+            total_legacies += len(result.tradition.get("legacies", []))
+            total_crises += len(result.tradition.get("crises", []))
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +594,9 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_teachings=total_teachings,
+            total_legacies=total_legacies,
+            total_crises=total_crises,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

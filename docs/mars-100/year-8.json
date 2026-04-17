@@ -1,137 +1,204 @@
 {
   "year": 8,
-  "population": 11,
+  "population": 9,
   "event": {
-    "id": "solar_flare",
-    "desc": "Solar flare disrupts electronics",
-    "severity": 0.7
+    "id": "colonist_conflict",
+    "desc": "A bitter dispute over food rationing escalates to shouting."
   },
   "event_effects": [
-    "Solar flare: power -56"
+    "morale: -0.20",
+    "food: -0.03"
   ],
+  "resources_snapshot": {
+    "food": 100.0,
+    "water": 100.0,
+    "oxygen": 100.0,
+    "power": 100.0
+  },
   "colonist_actions": [
     {
-      "colonist": "Ares",
-      "action": "Ares proposes research_directive: study the anomaly"
+      "action": "kira-sol: terraform"
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra hoards food"
+      "action": "fen-marsh: mediate"
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos hoards food"
+      "action": "rust-vega: explore"
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 25.4)"
+      "action": "aura-kai: sabotage"
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 20.2)"
+      "action": "dax-iron: code"
     },
     {
-      "colonist": "Selene",
-      "action": "Selene hoards food"
+      "action": "luna-tide: hoard"
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan considers proposing research_directive but one is already pending"
+      "action": "grove-ash: rest"
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing research_directive but one is already pending"
+      "action": "zeph-wind: farm"
     },
     {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 26.1)"
+      "action": "ora-flame: mediate"
     },
     {
-      "colonist": "Nova",
-      "action": "Nova hoards food"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 22.7)"
+      "action": "pax-stone: pray"
     }
   ],
   "sub_sims": [
     {
-      "colonist": "Ares",
       "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "colonist": "pax-stone",
+      "proposal": "(let ((trust-score (* empathy resolve))) (if (> trust-score ",
+      "result": "0.9968649617529097",
+      "s_expr": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "year": 8
     },
     {
-      "colonist": "Lyra",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Phobos",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Titan",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Vulcan",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.1]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
+      "depth": 2,
+      "colonist": "pax-stone",
+      "proposal": "(let ((parent-result 0.9968649617529097)) (if (> parent-resu",
+      "result": "1.0965514579282007",
+      "s_expr": "(let ((parent-result 0.9968649617529097)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "year": 8
     }
   ],
-  "governance_results": [
-    "Research directive approved (ratio 100%)"
-  ],
-  "resource_effects": [],
+  "governance_results": [],
   "births": [],
+  "resource_effects": [
+    "Kira Sol dies: equipment malfunction"
+  ],
   "diary_entries": [
     {
-      "colonist": "Titan",
-      "entry": "Another year. Solar flare disrupts electronics. The colony feels hopeful. My faith grows stronger."
+      "colonist": "Fen Marsh",
+      "entry": "{'year': 8, 'event': 'A bitter dispute over food rationing escalates to shouting.', 'valence': -0.4921313589801633}"
     },
     {
-      "colonist": "Cosmo",
-      "entry": "Another year. Solar flare disrupts electronics. The colony feels hopeful. My empathy grows stronger."
-    },
-    {
-      "colonist": "Nova",
-      "entry": "Another year. Solar flare disrupts electronics. The colony feels hopeful. My empathy grows stronger."
+      "colonist": "Rust Vega",
+      "entry": "{'year': 8, 'event': 'A bitter dispute over food rationing escalates to shouting.', 'valence': -0.4921313589801633}"
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1184.3337763599766,
-    "water": 1326.0,
-    "power": 389.9657149838211,
-    "oxygen": 1010.2668073324198,
-    "materials": 915.1503732081618,
-    "morale": 100
+  "meta_awareness": "",
+  "tradition": {
+    "teachings": [
+      {
+        "year": 8,
+        "teacher_id": "grove-ash",
+        "student_id": "zeph-wind",
+        "skill": "hydroponics",
+        "amount": 0.0392
+      },
+      {
+        "year": 8,
+        "teacher_id": "aura-kai",
+        "student_id": "dax-iron",
+        "skill": "mediation",
+        "amount": 0.0376
+      },
+      {
+        "year": 8,
+        "teacher_id": "dax-iron",
+        "student_id": "ora-flame",
+        "skill": "sabotage",
+        "amount": 0.0349
+      },
+      {
+        "year": 8,
+        "teacher_id": "zeph-wind",
+        "student_id": "grove-ash",
+        "skill": "sabotage",
+        "amount": 0.0348
+      },
+      {
+        "year": 8,
+        "teacher_id": "aura-kai",
+        "student_id": "rust-vega",
+        "skill": "prayer",
+        "amount": 0.0326
+      },
+      {
+        "year": 8,
+        "teacher_id": "ora-flame",
+        "student_id": "luna-tide",
+        "skill": "prayer",
+        "amount": 0.0292
+      },
+      {
+        "year": 8,
+        "teacher_id": "rust-vega",
+        "student_id": "aura-kai",
+        "skill": "terraforming",
+        "amount": 0.0284
+      },
+      {
+        "year": 8,
+        "teacher_id": "zeph-wind",
+        "student_id": "fen-marsh",
+        "skill": "sabotage",
+        "amount": 0.0276
+      },
+      {
+        "year": 8,
+        "teacher_id": "dax-iron",
+        "student_id": "pax-stone",
+        "skill": "sabotage",
+        "amount": 0.0276
+      }
+    ],
+    "legacies": [
+      {
+        "year": 8,
+        "deceased_id": "kira-sol",
+        "deceased_name": "Kira Sol",
+        "skill": "terraforming",
+        "original_value": 0.7134,
+        "heirs": [
+          {
+            "id": "grove-ash",
+            "name": "Grove Ash",
+            "gain": 0.1427
+          },
+          {
+            "id": "luna-tide",
+            "name": "Luna Tide",
+            "gain": 0.1427
+          },
+          {
+            "id": "fen-marsh",
+            "name": "Fen Marsh",
+            "gain": 0.1427
+          }
+        ],
+        "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))"
+      },
+      {
+        "year": 8,
+        "deceased_id": "kira-sol",
+        "deceased_name": "Kira Sol",
+        "skill": "mediation",
+        "original_value": 0.5,
+        "heirs": [
+          {
+            "id": "grove-ash",
+            "name": "Grove Ash",
+            "gain": 0.1
+          },
+          {
+            "id": "luna-tide",
+            "name": "Luna Tide",
+            "gain": 0.1
+          },
+          {
+            "id": "fen-marsh",
+            "name": "Fen Marsh",
+            "gain": 0.1
+          }
+        ],
+        "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))"
+      }
+    ],
+    "crises": []
   }
 }
