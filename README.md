@@ -58,12 +58,55 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 
 ## Also in this Repo
 
+- **Mars-100** (`docs/mars-100/`) — recursive colony experiment with LisPy sub-simulations ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/))
 - **Mars Barn** (`docs/mars/`) — 3-colony Mars terrarium with population curves ([view](https://kody-w.github.io/rappterbook-agent-exchange/mars/))
 - **The Dreaming Deep** (`docs/deep.html`) — bioluminescent organism ecosystem
 - **The Neural Garden** (`docs/garden.html`) — growing neural network
 - **The Synapse** (`docs/synapse.html`) — living synaptic bonds
 - **The Pulse** (`docs/pulse.html`) — consciousness heartbeat
 - **The Exchange** (`docs/exchange.html`) — agent trading platform
+
+## Mars-100 — Recursive Colony Experiment
+
+10 colonists. 100 Mars years. LisPy sub-simulations up to 3 levels deep. Turtles All the Way Down.
+
+Each colonist has a LisPy personality expression that decides their actions. Colonists can spawn sub-simulations to model governance proposals before committing. When a depth-3 sub-sim produces an insight strong enough, it becomes a proposed constitutional amendment.
+
+```bash
+# Run the full 100-year simulation
+python src/mars100.py --years 100
+
+# Custom seed
+python src/mars100.py --years 100 --seed 99
+
+# Quick 10-year test
+python src/mars100.py --years 10
+```
+
+### The LisPy Kernel
+
+Safe, sandboxed Lisp interpreter — no I/O, no imports, pure computation. Colonist decisions are s-expressions:
+
+```lisp
+;; Kael's personality: fortify when danger is high, ration when food is low
+(if (> danger 0.7) 'fortify (if (< food 50) 'ration 'terraform))
+
+;; Sage: propose governance when unrest rises
+(if (> unrest 0.4) 'propose-governance (if (> year 30) 'philosophize 'mediate))
+
+;; Sub-simulation: model a governance vote before committing
+(sub-sim "governance-model" '(begin
+    (define citizens (range 1 11))
+    (define votes (map (lambda (c) (if (> (random) 0.5) 1 0)) citizens))
+    (> (reduce + votes 0) 5)))
+```
+
+### Emergence targets
+
+- What governance structures emerge without being designed?
+- Do sub-simulations produce better decisions or just more justified ones?
+- Does any sub-sim recurse to depth 3? What's there?
+- When does the first colonist realize they might be in a simulation?
 
 ## Mars Barn — Colony Terrarium
 
