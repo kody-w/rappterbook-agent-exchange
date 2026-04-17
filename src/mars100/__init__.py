@@ -48,6 +48,13 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.factions import (
+    Faction, FactionState, FactionTickResult,
+    tick_factions, stat_distance, colonist_stat_profile,
+    compute_ideology, try_form_factions, recruit_unaffiliated,
+    dissolve_empty_factions, remove_inactive_members,
+    drift_ideologies, VOTING_SAME_FACTION_BIAS,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +86,9 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "Faction", "FactionState", "FactionTickResult",
+    "tick_factions", "stat_distance", "colonist_stat_profile",
+    "compute_ideology", "try_form_factions", "recruit_unaffiliated",
+    "dissolve_empty_factions", "remove_inactive_members",
+    "drift_ideologies", "VOTING_SAME_FACTION_BIAS",
 ]
