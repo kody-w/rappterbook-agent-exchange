@@ -55,6 +55,12 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.genetics import (
+    GeneticsState, GeneticsYearContext, GeneticsTickResult,
+    tick_genetics, compute_genetic_death_modifier,
+    compute_genetic_birth_modifier, compute_bottleneck_penalty,
+    Genome, create_genome_deterministic,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -92,6 +98,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -115,7 +122,7 @@ class YearResult:
             "economics": self.economics,
             "psychology": self.psychology,
             "behavior": self.behavior,
-            "ecology": self.ecology,
+            "ecology": self.ecology, "genetics": self.genetics,
         }
 
 
@@ -145,10 +152,11 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -174,7 +182,7 @@ class SimulationResult:
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
-            "final_ecology": self.final_ecology,
+            "final_ecology": self.final_ecology, "final_genetics": self.final_genetics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,6 +215,8 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.genetics = GeneticsState()
+        self.genetics_rng = random.Random(seed + 12553)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -398,6 +408,19 @@ class Mars100Engine:
         birth_prob = 0.15
         births: list[dict] = []
         for parent_a, parent_b, _ in pairs[:1]:
+            # Genetics: apply birth modifiers for both parents
+            for parent in (parent_a, parent_b):
+                genome = getattr(parent, 'genome', None)
+                if genome is not None:
+                    if isinstance(genome, dict):
+                        genome = Genome.from_dict(genome)
+                    age = self.year - parent.birth_year
+                    g_mod = compute_genetic_birth_modifier(
+                        genome.all_phenotypes(), age)
+                    if g_mod == 0.0:
+                        birth_prob = 0.0
+                        break
+                    birth_prob *= g_mod
             if self.rng.random() < birth_prob:
                 child_id = f"child-{self.next_id}"
                 self.next_id += 1
@@ -419,6 +442,12 @@ class Mars100Engine:
         psych = self.psych_map.get(colonist.id)
         if psych:
             rate *= death_rate_modifier(psych.morale)
+        # Genetics: phenotype modifies death rate
+        genome = getattr(colonist, 'genome', None)
+        if genome is not None:
+            if isinstance(genome, dict):
+                genome = Genome.from_dict(genome)
+            rate *= compute_genetic_death_modifier(genome.all_phenotypes())
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
         rate *= death_rate_mult
         critical_resources: list[str] = []
@@ -793,6 +822,22 @@ class Mars100Engine:
 
         year_births = self._check_births()
 
+        # --- genetics: tick population genetics (dedicated RNG stream) ---
+        genetics_ctx = GeneticsYearContext(
+            year=self.year,
+            active_colonists=self._active_colonists(),
+            births_this_year=year_births,
+            deaths_this_year=[],  # deaths haven't happened yet; updated post-loop
+        )
+        genetics_result = tick_genetics(
+            self.genetics, genetics_ctx, self.genetics_rng)
+
+        # Genetics -> psychology: bottleneck stress
+        bottleneck_stress = genetics_result.bottleneck_penalty
+        if bottleneck_stress > 0:
+            for ps in self.psych_map.values():
+                ps.stress = min(1.0, ps.stress + bottleneck_stress)
+
         deaths: list[dict] = []
         exiles: list[dict] = []
         estates: list[dict] = []
@@ -929,6 +974,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            genetics=genetics_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -971,6 +1017,7 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_genetics=self.genetics.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
