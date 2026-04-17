@@ -29,9 +29,14 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.covenant import (
+    CovenantRegistry, draft_covenant, vote_covenant, tick_covenants,
+    RESOURCE_NAMES as COV_RESOURCE_NAMES,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
-           "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
+           "sabotage", "cooperate", "hoard", "explore", "rest",
+           "research", "legislate"]
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
@@ -57,6 +62,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    covenants: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +79,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "covenants": self.covenants,
         }
 
 
@@ -93,10 +100,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    covenants: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -108,12 +116,14 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_covenants": len(self.covenants.get("covenants", [])),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "covenants": self.covenants,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +144,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.covenant_registry = CovenantRegistry()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -182,6 +193,10 @@ class Mars100Engine:
                 w += 0.3
             elif action == "research":
                 w += colonist.skills.coding * 0.6 + colonist.stats.improvisation * 0.3
+            elif action == "legislate":
+                w += colonist.stats.empathy * 0.3 + colonist.skills.coding * 0.2
+                if self.covenant_registry.can_enact() and self.covenant_registry.can_draft(self.year):
+                    w += 0.5
             if critical:
                 if action == "farm" and "food" in critical:
                     w += 2.0
@@ -535,6 +550,53 @@ class Mars100Engine:
         avg_skill = sum(research_skills) / max(1, len(research_skills))
         infra_event = tick_infrastructure(self.infra, researchers, avg_skill, self.year)
 
+        # Covenants: draft new covenants from legislating colonists
+        legislators = [cid for cid, a in actions.items() if a == "legislate"]
+        covenant_draft: dict | None = None
+        for cid in legislators:
+            colonist = next((c for c in active if c.id == cid), None)
+            if colonist is None:
+                continue
+            drafted = draft_covenant(
+                colonist.id, colonist.stats.dominant(),
+                self.year, self.covenant_registry, self.rng,
+            )
+            if drafted is not None:
+                trust_scores = {}
+                for other in active:
+                    if other.id != colonist.id:
+                        rel = self.social.get(other.id, colonist.id)
+                        trust_scores[other.id] = rel.trust
+                passed = vote_covenant(
+                    drafted, active_ids, self.governance.gov_type,
+                    self.governance.leader_id, self.governance.council_ids,
+                    trust_scores, self.rng,
+                )
+                if passed:
+                    self.covenant_registry.enact(drafted)
+                    self.covenant_registry.last_draft_year = self.year
+                    covenant_draft = drafted.to_dict()
+                break  # at most one draft per year
+
+        # Covenants: execute all active covenants
+        covenant_result = tick_covenants(
+            self.covenant_registry, self.resources.to_dict(),
+            len(active), self.year, self.governance.gov_type,
+        )
+        # Apply aggregate resource deltas from covenants
+        for res_name, delta in covenant_result["aggregate_deltas"].items():
+            if res_name in RESOURCE_NAMES:
+                current = getattr(self.resources, res_name)
+                setattr(self.resources, res_name, max(0.0, min(1.0, current + delta)))
+
+        covenant_year_data = {
+            "registry": self.covenant_registry.to_dict(),
+            "executions": covenant_result["executions"],
+            "expired": covenant_result["expired"],
+            "drafted": covenant_draft,
+            "aggregate_deltas": covenant_result["aggregate_deltas"],
+        }
+
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
         for cid, action in actions.items():
@@ -586,6 +648,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            covenants=covenant_year_data,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +681,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            covenants=self.covenant_registry.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

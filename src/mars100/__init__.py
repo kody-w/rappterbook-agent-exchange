@@ -26,6 +26,10 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.covenant import (
+    Covenant, CovenantRegistry, COVENANT_TEMPLATES,
+    execute_covenant, tick_covenants, draft_covenant, vote_covenant,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +49,6 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "Covenant", "CovenantRegistry", "COVENANT_TEMPLATES",
+    "execute_covenant", "tick_covenants", "draft_covenant", "vote_covenant",
 ]
