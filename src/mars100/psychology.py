@@ -144,16 +144,19 @@ def compute_stress_delta(
     event_severity: float,
     resource_avg: float,
     resolve: float,
+    nature_exposure: float = 0.0,
 ) -> float:
     """Compute stress change for one colonist-year.
 
     Resolve modifies recovery: high-resolve colonists shed stress faster.
+    Nature exposure (from ecology organ) provides additional stress relief.
     """
     action_effect = ACTION_STRESS.get(action, 0.0)
     event_effect = event_severity * 0.15
     resource_effect = max(0.0, 0.3 - resource_avg) * 0.2
+    nature_relief = -nature_exposure
     natural_decay = -STRESS_DECAY * (0.5 + resolve * 0.5)
-    raw = action_effect + event_effect + resource_effect + natural_decay
+    raw = action_effect + event_effect + resource_effect + nature_relief + natural_decay
     return _cap_delta(raw, STRESS_CAP_DELTA)
 
 
@@ -257,6 +260,7 @@ class ColonistPsychContext:
     empathy: float
     faith: float
     paranoia: float
+    nature_exposure: float = 0.0
 
 
 def tick_psychology(
@@ -277,7 +281,8 @@ def tick_psychology(
             psych_map[cid] = psych
 
         stress_d = compute_stress_delta(
-            ctx.action, ctx.event_severity, ctx.resource_avg, ctx.resolve)
+            ctx.action, ctx.event_severity, ctx.resource_avg, ctx.resolve,
+            ctx.nature_exposure)
         loneliness_d = compute_loneliness_delta(
             ctx.social_connections, ctx.avg_trust, ctx.earth_contact, ctx.empathy)
         purpose_d = compute_purpose_delta(

@@ -53,6 +53,11 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences, compute_risk_tolerance,
 )
+from src.mars100.ecology import (
+    Biosphere, Atmosphere, Soil, WaterCycle, Flora, Fauna,
+    EcologyTickResult, tick_ecology,
+    compute_resource_bonuses, compute_nature_stress_reduction,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -87,4 +92,7 @@ __all__ = [
     "BehaviorProfile", "BehaviorTickResult", "ContagionDelta",
     "compute_action_perturbation", "compute_social_contagion",
     "update_learned_preferences", "compute_risk_tolerance",
+    "Biosphere", "Atmosphere", "Soil", "WaterCycle", "Flora", "Fauna",
+    "EcologyTickResult", "tick_ecology",
+    "compute_resource_bonuses", "compute_nature_stress_reduction",
 ]
