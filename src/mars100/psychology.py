@@ -182,18 +182,21 @@ def compute_purpose_delta(
     gov_participated: bool,
     subsim_ran: bool,
     faith: float,
+    ecology_beauty: float = 0.0,
 ) -> float:
     """Compute purpose change for one colonist-year.
 
     Faith modifies: faithful colonists maintain purpose in adversity.
+    Ecology beauty: seeing living biosphere boosts sense of purpose.
     """
     action_effect = ACTION_PURPOSE.get(action, 0.0)
     infra_bonus = 0.06 if infra_completed else 0.0
     gov_bonus = 0.03 if gov_participated else 0.0
     subsim_bonus = 0.04 if subsim_ran else 0.0
     faith_floor = faith * 0.02
+    ecology_bonus = ecology_beauty * 0.5
     natural_decay = -PURPOSE_DECAY
-    raw = action_effect + infra_bonus + gov_bonus + subsim_bonus + faith_floor + natural_decay
+    raw = action_effect + infra_bonus + gov_bonus + subsim_bonus + faith_floor + ecology_bonus + natural_decay
     return _cap_delta(raw, PURPOSE_CAP_DELTA)
 
 
@@ -257,6 +260,7 @@ class ColonistPsychContext:
     empathy: float
     faith: float
     paranoia: float
+    ecology_beauty: float = 0.0
 
 
 def tick_psychology(
@@ -282,7 +286,7 @@ def tick_psychology(
             ctx.social_connections, ctx.avg_trust, ctx.earth_contact, ctx.empathy)
         purpose_d = compute_purpose_delta(
             ctx.action, ctx.infra_completed, ctx.gov_participated,
-            ctx.subsim_ran, ctx.faith)
+            ctx.subsim_ran, ctx.faith, ctx.ecology_beauty)
 
         if stress_d > 0:
             stress_d *= (1.0 + ctx.paranoia * 0.3)
