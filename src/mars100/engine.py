@@ -25,6 +25,11 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.crisis import (
+    CrisisEvent, CrisisPattern, ProposedAmendment,
+    detect_crises, backfill_deaths, learn_from_crises,
+    deep_deliberation, extract_rappterbook_amendment,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +57,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    crisis_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +73,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "crisis_events": self.crisis_events,
         }
 
 
@@ -86,10 +93,13 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    crisis_log: list[dict] = field(default_factory=list)
+    crisis_patterns: list[dict] = field(default_factory=list)
+    proposed_amendment: dict | None = None
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +111,16 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_crises": len(self.crisis_log),
+                "crisis_patterns_found": len(self.crisis_patterns),
+                "amendment_proposed": self.proposed_amendment is not None,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "crisis_patterns": self.crisis_patterns,
+            "proposed_amendment": self.proposed_amendment,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -125,6 +140,8 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.crisis_log: list[CrisisEvent] = []
+        self.crisis_patterns: list[CrisisPattern] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -227,8 +244,31 @@ class Mars100Engine:
         for ev in events:
             if ev.severity > 0.5:
                 subsim_chance += 0.15
+        if self.crisis_patterns:
+            subsim_chance += 0.2
         if self.rng.random() > subsim_chance:
             return None
+
+        # Deep deliberation when crisis patterns known
+        if self.crisis_patterns:
+            pattern = self.rng.choice(self.crisis_patterns)
+            result = deep_deliberation(
+                colonist_id=colonist.id,
+                colonist_bindings=colonist.lispy_bindings(),
+                resources=self.resources.to_dict(),
+                crisis_pattern=pattern,
+                governance_type=self.governance.gov_type,
+                active_count=len(self._active_colonists()),
+                year=self.year,
+                budget=budget,
+                log=log,
+                rng=self.rng,
+            )
+            if result:
+                colonist.subsim_count += 1
+            return result
+
+        # Fallback: shallow sub-sim (no crisis context)
         expr = self._generate_subsim_expression(colonist, events)
         bindings = colonist.lispy_bindings()
         bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
@@ -524,6 +564,24 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        # --- Crisis memory: detect, backfill, learn ---
+        action_histogram: dict[str, int] = {}
+        for a in actions.values():
+            action_histogram[a] = action_histogram.get(a, 0) + 1
+        new_crises = detect_crises(
+            resources_after=self.resources.to_dict(),
+            resources_before=resources_before,
+            event_names=[ev.name for ev in events],
+            action_histogram=action_histogram,
+            governance_type=self.governance.gov_type,
+            year=self.year,
+            deaths=len(deaths),
+        )
+        self.crisis_log.extend(new_crises)
+        backfill_deaths(self.crisis_log, self.year, len(deaths))
+        if self.year % 10 == 0 or new_crises:
+            self.crisis_patterns = learn_from_crises(self.crisis_log)
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
@@ -541,6 +599,7 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            crisis_events=[c.to_dict() for c in new_crises],
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -561,6 +620,12 @@ class Mars100Engine:
             meta_count += len(result.meta_awareness)
             if callback:
                 callback(result)
+
+        # Extract amendment from crisis patterns and insights
+        amendment_result = extract_rappterbook_amendment(
+            self.promoted_insights, self.crisis_patterns, self.crisis_log
+        )
+
         return SimulationResult(
             years=years, final_colonists=[c.to_dict() for c in self.colonists],
             final_resources=self.resources.to_dict(),
@@ -572,6 +637,9 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            crisis_log=[c.to_dict() for c in self.crisis_log],
+            crisis_patterns=[p.to_dict() for p in self.crisis_patterns],
+            proposed_amendment=amendment_result.to_dict() if amendment_result else None,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
