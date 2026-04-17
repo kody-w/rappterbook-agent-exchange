@@ -44,19 +44,31 @@ class GovernanceState:
     ai_program: str | None = None
     constitution: list[str] = field(default_factory=list)
     history: list[dict] = field(default_factory=list)
+    active_laws: list[dict] = field(default_factory=list)
+    satisfaction_history: list[float] = field(default_factory=list)
+    last_gov_change_year: int = 0
+    last_crisis_year: int = -999
 
     def to_dict(self) -> dict:
         return {"gov_type": self.gov_type, "leader_id": self.leader_id,
                 "council_ids": self.council_ids, "term_end_year": self.term_end_year,
                 "ai_program": self.ai_program, "constitution": self.constitution,
-                "history": self.history}
+                "history": self.history,
+                "active_laws": self.active_laws,
+                "satisfaction_history": [round(s, 4) for s in self.satisfaction_history[-20:]],
+                "last_gov_change_year": self.last_gov_change_year,
+                "last_crisis_year": self.last_crisis_year}
 
     @classmethod
     def from_dict(cls, d: dict) -> GovernanceState:
         return cls(gov_type=d.get("gov_type", "anarchy"), leader_id=d.get("leader_id"),
                    council_ids=d.get("council_ids", []), term_end_year=d.get("term_end_year"),
                    ai_program=d.get("ai_program"), constitution=d.get("constitution", []),
-                   history=d.get("history", []))
+                   history=d.get("history", []),
+                   active_laws=d.get("active_laws", []),
+                   satisfaction_history=d.get("satisfaction_history", []),
+                   last_gov_change_year=d.get("last_gov_change_year", 0),
+                   last_crisis_year=d.get("last_crisis_year", -999))
 
 
 def should_propose(year: int, gov_state: GovernanceState, rng: random.Random) -> bool:

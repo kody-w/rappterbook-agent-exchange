@@ -45,6 +45,9 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.ecology import (
+    Biosphere, tick_ecology, compute_ecology_modifiers,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +83,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +106,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "ecology": self.ecology,
         }
 
 
@@ -129,10 +134,12 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_ecology: dict = field(default_factory=dict)
+    max_biome_level: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +154,7 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "max_biome_level": self.max_biome_level,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +165,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_ecology": self.final_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +194,8 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.ecology = Biosphere()
+        self.ecology_rng = random.Random(seed + 10007)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -595,6 +606,32 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # --- Ecology: tick biosphere, compute modifiers (before resources) ---
+        terraform_count = sum(1 for a in actions.values() if a == "terraform")
+        research_count = sum(1 for a in actions.values() if a == "research")
+        ecology_result = tick_ecology(
+            bio=self.ecology,
+            terraform_count=terraform_count,
+            research_count=research_count,
+            population=len(active),
+            infra_completed=self.infra.completed,
+            year=self.year,
+            rng=self.ecology_rng,
+        )
+        eco_mods = compute_ecology_modifiers(self.ecology)
+
+        # Apply ecology modifiers to skill bonuses (food, medicine)
+        if "food" in skill_bonuses:
+            skill_bonuses["food"] *= eco_mods.get("food_production_mult", 1.0)
+        if "medicine" in skill_bonuses:
+            skill_bonuses["medicine"] *= eco_mods.get("medicine_production_mult", 1.0)
+
+        # Merge ecology air_maintenance_mult into infra mods
+        eco_air = eco_mods.get("air_maintenance_mult", 1.0)
+        if eco_air != 1.0:
+            infra_mods["air_maintenance_mult"] = (
+                infra_mods.get("air_maintenance_mult", 1.0) * eco_air)
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
                                         infra_modifiers=infra_mods)
@@ -692,6 +729,7 @@ class Mars100Engine:
                 subsim_ran=ran_subsim,
                 resolve=c.stats.resolve, empathy=c.stats.empathy,
                 faith=c.stats.faith, paranoia=c.stats.paranoia,
+                ecology_beauty=eco_mods.get("morale_ecology_bonus", 0.0),
             ))
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
@@ -832,6 +870,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            ecology=ecology_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -875,6 +914,11 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_ecology=self.ecology.to_dict(),
+            max_biome_level=max(
+                (y.ecology.get("biome_level", 0)
+                 for y in years if isinstance(y.ecology, dict)),
+                default=0),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
