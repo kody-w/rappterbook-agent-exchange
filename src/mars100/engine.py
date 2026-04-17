@@ -41,6 +41,7 @@ from src.mars100.economics import (
     EconomicState, tick_economics, compute_economic_pressure,
     liquidate_estate, endow_immigrant as econ_endow_immigrant,
 )
+from src.mars100.psychology import tick_psychology, compute_psych_pressure
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -75,6 +76,7 @@ class YearResult:
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
+    psychology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +98,7 @@ class YearResult:
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
             "economics": self.economics,
+            "psychology": self.psychology,
         }
 
 
@@ -121,10 +124,13 @@ class SimulationResult:
     total_immigrants: int = 0
     total_ships: int = 0
     final_economics: dict = field(default_factory=dict)
+    total_breakdowns: int = 0
+    final_avg_stress: float = 0.0
+    final_avg_morale: float = 0.0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "7.0",
+            "_meta": {"engine": "mars-100", "version": "8.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -138,6 +144,9 @@ class SimulationResult:
                 "total_immigrants": self.total_immigrants,
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
+                "total_breakdowns": self.total_breakdowns,
+                "final_avg_stress": round(self.final_avg_stress, 4),
+                "final_avg_morale": round(self.final_avg_morale, 4),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -147,6 +156,9 @@ class SimulationResult:
             "final_culture": self.final_culture,
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
+            "total_breakdowns": self.total_breakdowns,
+            "final_avg_stress": round(self.final_avg_stress, 4),
+            "final_avg_morale": round(self.final_avg_morale, 4),
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -173,6 +185,7 @@ class Mars100Engine:
         self.earth_rng = random.Random(seed + 6151)
         self.economics = EconomicState()
         self.econ_rng = random.Random(seed + 8191)
+        self.psych_rng = random.Random(seed + 8461)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -194,6 +207,12 @@ class Mars100Engine:
                 score = 0.5
         except (LispyError, Exception):
             score = 0.5
+
+        # Breakdown recovery: forced rest for 1 year after breakdown
+        if (colonist.breakdown_year is not None
+                and colonist.breakdown_year >= self.year - 1):
+            colonist.breakdown_year = None
+            return "rest"
 
         critical = self.resources.critical()
         weights: dict[str, float] = {}
@@ -248,6 +267,16 @@ class Mars100Engine:
         for act, delta in econ_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Psychological pressure from colony mental state
+        active = self._active_colonists()
+        if active:
+            avg_stress = sum(c.stress for c in active) / len(active)
+            avg_morale = sum(c.morale for c in active) / len(active)
+            psych_mods = compute_psych_pressure(avg_stress, avg_morale)
+            for act, delta in psych_mods.items():
+                if act in weights:
+                    weights[act] = max(0.01, weights[act] + delta)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -355,7 +384,9 @@ class Mars100Engine:
         if not pairs:
             return []
         pairs.sort(key=lambda x: x[2], reverse=True)
-        birth_prob = 0.15
+        # Morale modifier: average colony morale scales birth probability
+        avg_morale = sum(c.morale for c in active) / len(active) if active else 0.7
+        birth_prob = 0.15 * (0.5 + avg_morale)
         births: list[dict] = []
         for parent_a, parent_b, _ in pairs[:1]:
             if self.rng.random() < birth_prob:
@@ -747,6 +778,21 @@ class Mars100Engine:
                     "element": immigrant.element,
                 })
 
+        # --- Psychology: stress, morale, bonds, breakdowns ---
+        dead_ids = {d["id"] for d in deaths} if deaths else set()
+        exiled_ids = {e["id"] for e in exiles} if exiles else set()
+        departed_ids = dead_ids | exiled_ids
+        psych_result = tick_psychology(
+            colonists=self._active_colonists(),
+            social=self.social,
+            resources=self.resources,
+            events=events,
+            year=self.year,
+            culture=self.culture,
+            departed_ids=departed_ids,
+            rng=self.psych_rng,
+        )
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -779,6 +825,7 @@ class Mars100Engine:
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
+            psychology=psych_result,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -786,6 +833,7 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_breakdowns = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -796,11 +844,17 @@ class Mars100Engine:
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
             total_immigrants += len(result.immigrants)
+            total_breakdowns += result.psychology.get("breakdowns", 0)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
             if callback:
                 callback(result)
+        active_final = self._active_colonists()
+        final_avg_stress = (sum(c.stress for c in active_final) / len(active_final)
+                            if active_final else 0.0)
+        final_avg_morale = (sum(c.morale for c in active_final) / len(active_final)
+                            if active_final else 0.0)
         return SimulationResult(
             years=years, final_colonists=[c.to_dict() for c in self.colonists],
             final_resources=self.resources.to_dict(),
@@ -818,6 +872,9 @@ class Mars100Engine:
             final_culture=self.culture.to_dict(),
             final_earth=self.earth.to_dict(),
             final_economics=self.economics.to_dict(),
+            total_breakdowns=total_breakdowns,
+            final_avg_stress=final_avg_stress,
+            final_avg_morale=final_avg_morale,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

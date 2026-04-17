@@ -147,6 +147,10 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    stress: float = 0.0
+    morale: float = 0.7
+    bonds: list[str] = field(default_factory=list)
+    breakdown_year: int | None = None
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -157,7 +161,12 @@ class Colonist:
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
             "wallet": self.wallet.to_dict(),
+            "stress": round(self.stress, 4),
+            "morale": round(self.morale, 4),
+            "bonds": list(self.bonds),
         }
+        if self.breakdown_year is not None:
+            d["breakdown_year"] = self.breakdown_year
         if self.death_year is not None:
             d["death_year"] = self.death_year
             d["death_cause"] = self.death_cause
@@ -179,6 +188,10 @@ class Colonist:
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
             wallet=wallet,
+            stress=d.get("stress", 0.0),
+            morale=d.get("morale", 0.7),
+            bonds=list(d.get("bonds", [])),
+            breakdown_year=d.get("breakdown_year"),
         )
 
     def is_active(self) -> bool:

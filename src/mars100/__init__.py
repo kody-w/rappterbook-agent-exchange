@@ -36,6 +36,11 @@ from src.mars100.earth import (
     tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.psychology import (
+    PsychTickResult, tick_psychology, compute_psych_pressure,
+    accumulate_stress, update_morale, check_breakdown,
+    form_bonds, process_grief,
+)
 from src.mars100.economics import (
     EconomicState, EconomicTickResult, TradeRecord,
     allocate_labor_income, find_trades, apply_taxation,
@@ -65,6 +70,9 @@ __all__ = [
     "EarthState", "EarthMessage", "EarthTickResult", "SupplyShip",
     "tick_earth", "compute_maintenance_modifier",
     "check_independence_conditions", "declare_independence",
+    "PsychTickResult", "tick_psychology", "compute_psych_pressure",
+    "accumulate_stress", "update_morale", "check_breakdown",
+    "form_bonds", "process_grief",
     "EconomicState", "EconomicTickResult", "TradeRecord",
     "allocate_labor_income", "find_trades", "apply_taxation",
     "compute_gini", "compute_economic_pressure", "liquidate_estate",
