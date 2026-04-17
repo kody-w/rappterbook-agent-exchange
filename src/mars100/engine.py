@@ -56,6 +56,13 @@ from src.mars100.ecology import (
     compute_nature_stress_reduction,
 )
 from src.mars100.colonist import create_immigrant
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult,
+    tick_diplomacy, maintain_factions,
+    compute_diplomatic_pressure as compute_diplo_pressure,
+    compute_resource_modifiers as compute_diplo_resource_modifiers,
+    compute_bloc_vote_bias,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -92,6 +99,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    diplomacy_result: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -116,6 +124,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "diplomacy_result": self.diplomacy_result,
         }
 
 
@@ -145,10 +154,11 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_diplomacy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -175,6 +185,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_diplomacy": self.final_diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,6 +218,10 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.diplo_state = DiplomacyState()
+        self.diplo_rng = random.Random(seed + 12553)
+        self.pending_diplo_pressure: dict[str, float] = {}
+        self.pending_diplo_resource_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -285,7 +300,8 @@ class Mars100Engine:
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
-                        + behavior_pressure.get(act, 0.0))
+                        + behavior_pressure.get(act, 0.0)
+                        + self.pending_diplo_pressure.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -514,6 +530,9 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Diplomacy: faction bloc voting bias
+        score += compute_bloc_vote_bias(
+            colonist.id, proposal.proposer_id, self.diplo_state)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -625,6 +644,10 @@ class Mars100Engine:
 
         # Ecology: merge lagged ecology modifiers (one-year lag)
         for k, v in self.pending_ecology_mods.items():
+            infra_mods[k] = infra_mods.get(k, 1.0) * v
+
+        # Diplomacy: merge lagged treaty resource modifiers (one-year lag)
+        for k, v in self.pending_diplo_resource_mods.items():
             infra_mods[k] = infra_mods.get(k, 1.0) * v
 
         resource_delta = tick_resources(self.resources, len(active),
@@ -785,6 +808,18 @@ class Mars100Engine:
         # Stage ecology modifiers for NEXT year (one-year lag)
         self.pending_ecology_mods = compute_ecology_modifiers(self.ecology)
 
+        # --- diplomacy: tick factions, treaties, crises ---
+        diplo_result = tick_diplomacy(
+            self.diplo_state, self.colonists, self.social, actions,
+            resource_avg=self.resources.average(),
+            event_severity=events[0].severity if events else 0.0,
+            year=self.year, rng=self.diplo_rng)
+
+        # Stage diplomatic pressure for NEXT year (one-year lag)
+        self.pending_diplo_pressure = diplo_result.pressure
+        self.pending_diplo_resource_mods = compute_diplo_resource_modifiers(
+            self.diplo_state)
+
         # Ecology -> psychology: nature exposure reduces stress
         nature_reduction = ecology_result.nature_stress_reduction
         if nature_reduction > 0:
@@ -894,6 +929,10 @@ class Mars100Engine:
                     "element": immigrant.element,
                 })
 
+        # Post-mortality faction cleanup (prune dead/exiled, assign immigrants)
+        maintain_factions(self.colonists, self.social, self.diplo_state,
+                          self.year, self.diplo_rng)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -929,6 +968,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            diplomacy_result=diplo_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -971,6 +1011,7 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_diplomacy=self.diplo_state.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),

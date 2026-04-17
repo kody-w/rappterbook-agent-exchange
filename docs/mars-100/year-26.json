@@ -1,177 +1,3466 @@
 {
   "year": 26,
-  "population": 15,
-  "event": {
-    "id": "dust_storm",
-    "desc": "A massive dust storm engulfs the colony",
-    "severity": 0.6
+  "events": [
+    {
+      "name": "alien_signal",
+      "category": "cosmic",
+      "severity": 0.10417188294689979,
+      "description": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+      "effects": {
+        "morale": 0.060417188294689984,
+        "faith_boost": 0.030208594147344992,
+        "paranoia_boost": 0.060417188294689984
+      }
+    },
+    {
+      "name": "colonist_conflict",
+      "category": "social",
+      "severity": 0.458187389498351,
+      "description": "Accusations of resource hoarding fracture the colony trust.",
+      "effects": {
+        "morale": -0.19163747789967023,
+        "food": -0.02874562168495053
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "terraform",
+    "fen-marsh": "sabotage",
+    "rust-vega": "terraform",
+    "aura-kai": "research",
+    "dax-iron": "code",
+    "luna-tide": "pray",
+    "grove-ash": "cooperate",
+    "ora-flame": "rest",
+    "pax-stone": "rest",
+    "imm-11": "cooperate",
+    "child-12": "research",
+    "imm-13": "terraform",
+    "child-15": "pray"
   },
-  "event_effects": [
-    "Power reduced by 30 kWh"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares proposes research_directive: study the anomaly"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 26,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "rust-vega",
+          "year": 26,
+          "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra considers proposing research_directive but one is already pending"
+      "depth": 2,
+      "colonist_id": "rust-vega",
+      "year": 26,
+      "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 26,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.0759459572214995,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "aura-kai",
+          "year": 26,
+          "expression": "(let ((parent-result 1.0759459572214995)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1835405529436496,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 22.6)"
+      "depth": 2,
+      "colonist_id": "aura-kai",
+      "year": 26,
+      "expression": "(let ((parent-result 1.0759459572214995)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1835405529436496,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 20.4)"
+      "depth": 1,
+      "colonist_id": "pax-stone",
+      "year": 26,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.9403476485446981,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "pax-stone",
+          "year": 26,
+          "expression": "(let ((parent-result 0.9403476485446981)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.034382413399168,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
+      "depth": 2,
+      "colonist_id": "pax-stone",
+      "year": 26,
+      "expression": "(let ((parent-result 0.9403476485446981)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.034382413399168,
+      "steps_used": 0
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan considers proposing research_directive but one is already pending"
+      "depth": 1,
+      "colonist_id": "imm-11",
+      "year": 26,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 30.6)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 24.9)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 30.0)"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Vulcan-23",
-      "action": "Vulcan-23 works on terraforming (output: 26.5)"
+      "depth": 1,
+      "colonist_id": "imm-13",
+      "year": 26,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [
+  "governance": null,
+  "resources_before": {
+    "food": 0.9656396374841991,
+    "water": 0.972782286540009,
+    "power": 1.0,
+    "air": 0.9720969000711861,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 0.8691492713641095,
+    "power": 0.814704582076597,
+    "air": 0.9694429401177763,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.03436036251580088,
+    "water": 0.027217713459991022,
+    "power": 0.0,
+    "air": 0.0279030999288139,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [
     {
-      "colonist": "Ares",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Lyra",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Phobos",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Titan",
-      "depth": 1,
-      "proposal": "research_directive",
-      "result": "[1.0, 1.5]",
-      "s_expr": "(sub-sim\n          (begin\n            (define morale-factor (/ colony-morale 100))\n            (define pop-factor (/ colony-population 10))\n            (list morale-factor pop-factor)))"
-    },
-    {
-      "colonist": "Vulcan",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[2, 7]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 9]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 10]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ares-18",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 13]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Vulcan-23",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 14]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "colonist_id": "luna-tide",
+      "year": 26,
+      "insight": "Luna Tide asks: 'If I am a LisPy data structure, can I rewrite myself?'"
     }
   ],
-  "governance_results": [
-    "Research directive approved (ratio 93%)",
-    "Leadership election: Selene elected (ratio 75%)"
-  ],
-  "resource_effects": [],
-  "births": [
-    "Juno-26 is born!"
-  ],
-  "diary_entries": [
+  "social_cohesion": 0.7253879206624213,
+  "governance_state": {
+    "gov_type": "dictator",
+    "leader_id": "ora-flame",
+    "council_ids": [],
+    "term_end_year": null,
+    "ai_program": null,
+    "constitution": [
+      "Year 6: governance changed to ai_governor",
+      "Year 10: governance changed to lottery",
+      "Year 11: governance changed to consensus",
+      "Year 14: governance changed to dictator",
+      "Year 30: governance changed to consensus",
+      "Year 48: governance changed to lottery",
+      "Year 49: governance changed to council",
+      "Year 59: governance changed to dictator",
+      "Year 64: governance changed to council",
+      "Year 65: governance changed to ai_governor",
+      "Year 68: governance changed to consensus",
+      "Year 80: governance changed to council",
+      "Year 85: governance changed to lottery",
+      "Year 89: governance changed to ai_governor",
+      "Year 91: governance changed to council",
+      "Year 96: governance changed to consensus"
+    ],
+    "history": [
+      {
+        "year": 6,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y6-ai_governor"
+      },
+      {
+        "year": 10,
+        "from": "ai_governor",
+        "to": "lottery",
+        "proposal_id": "prop-y10-lottery"
+      },
+      {
+        "year": 11,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y11-consensus"
+      },
+      {
+        "year": 14,
+        "from": "consensus",
+        "to": "dictator",
+        "proposal_id": "prop-y14-dictator"
+      },
+      {
+        "year": 30,
+        "from": "dictator",
+        "to": "consensus",
+        "proposal_id": "prop-y30-consensus"
+      },
+      {
+        "year": 48,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y48-lottery"
+      },
+      {
+        "year": 49,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y49-council"
+      },
+      {
+        "year": 59,
+        "from": "council",
+        "to": "dictator",
+        "proposal_id": "prop-y59-dictator"
+      },
+      {
+        "year": 64,
+        "from": "dictator",
+        "to": "council",
+        "proposal_id": "prop-y64-council"
+      },
+      {
+        "year": 65,
+        "from": "council",
+        "to": "ai_governor",
+        "proposal_id": "prop-y65-ai_governor"
+      },
+      {
+        "year": 68,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y68-consensus"
+      },
+      {
+        "year": 80,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y80-council"
+      },
+      {
+        "year": 85,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y85-lottery"
+      },
+      {
+        "year": 89,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y89-ai_governor"
+      },
+      {
+        "year": 91,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y91-council"
+      },
+      {
+        "year": 96,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y96-consensus"
+      }
+    ]
+  },
+  "colonist_snapshots": [
     {
-      "colonist": "Ares",
-      "entry": "The dust_storm changed everything. I feel pragmatic about our future here."
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.8543335960854321,
+        "improvisation": 0.35376698350445984,
+        "empathy": 0.5475881005126297,
+        "hoarding": 0.1625375442853593,
+        "faith": 0.5034845997153425,
+        "paranoia": 0.2581891510028005
+      },
+      "skills": {
+        "terraforming": 0.7252958849040207,
+        "hydroponics": 0.2225236174811674,
+        "mediation": 0.5311753340505867,
+        "coding": 0.3622242100882662,
+        "prayer": 0.08754465145064433,
+        "sabotage": 0.11873422404461133
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 6,
+      "governance_votes": 5,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.003389747619679689,
+          "water": 0.06589615445473124,
+          "power": 0.009213294693207317,
+          "air": 0.005842934013530146,
+          "medicine": 0.0
+        },
+        "total_earned": 0.836355,
+        "total_traded": 0.468739,
+        "total_taxed": 0.789532
+      }
     },
     {
-      "colonist": "Iris",
-      "entry": "Year 26 on Mars. A massive dust storm engulfs the colony. Morale is hopeful. We have 1456 food units left."
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.7434761965346467,
+        "improvisation": 0.8076858390709476,
+        "empathy": 0.927930902607875,
+        "hoarding": 0.20556114773550183,
+        "faith": 0.9808159117688919,
+        "paranoia": 0.39257302610555134
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.820902488875191,
+        "mediation": 0.7375738579985026,
+        "coding": 0.11655668515605122,
+        "prayer": 0.5162944373331725,
+        "sabotage": 0.06736505642897865
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 9,
+      "governance_votes": 5,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.01933991417469721,
+          "air": 0.010765682443828748,
+          "medicine": 0.0
+        },
+        "total_earned": 0.706593,
+        "total_traded": 0.471034,
+        "total_taxed": 0.654531
+      }
     },
     {
-      "colonist": "Vulcan",
-      "entry": "Population: 16. A massive dust storm engulfs the colony. I spent the year on coding. Closest to Orion-12."
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.8784306358960173,
+        "improvisation": 0.7530785503154538,
+        "empathy": 0.4266875067585858,
+        "hoarding": 0.6644550672250858,
+        "faith": 0.374670205886624,
+        "paranoia": 0.4989814469894552
+      },
+      "skills": {
+        "terraforming": 0.9090607510573212,
+        "hydroponics": 0.33925822589949955,
+        "mediation": 0.1350711784376598,
+        "coding": 0.8333324073021297,
+        "prayer": 0.02360217981299162,
+        "sabotage": 0.3229021007604294
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 16,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.014258267839330775,
+          "water": 0.054233732667284935,
+          "power": 0.0034791288204946325,
+          "air": 5.015053303732391e-05,
+          "medicine": 0.006119470594025927
+        },
+        "total_earned": 1.208662,
+        "total_traded": 0.24931,
+        "total_taxed": 1.13424
+      }
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.05062429339558155,
+        "improvisation": 0.9479447972759277,
+        "empathy": 0.766687975508007,
+        "hoarding": 0.226548605215932,
+        "faith": 0.776878217838389,
+        "paranoia": 0.16983467683220374
+      },
+      "skills": {
+        "terraforming": 0.2301278203893442,
+        "hydroponics": 0.42718902365674233,
+        "mediation": 0.9,
+        "coding": 0.5606977933974726,
+        "prayer": 0.8147617666206094,
+        "sabotage": 0.044177373327842884
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 12,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0039040116762742412,
+          "water": 0.0005694083479486305,
+          "power": 0.000850215732281926,
+          "air": 0.0,
+          "medicine": 0.009095774797720182
+        },
+        "total_earned": 0.84786,
+        "total_traded": 0.337021,
+        "total_taxed": 0.827037
+      }
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.6481512177616896,
+        "improvisation": 0.2168370268528001,
+        "empathy": 0.06898935103903094,
+        "hoarding": 0.6249780291928428,
+        "faith": 0.28929546190707595,
+        "paranoia": 0.5650396403575491
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.1,
+        "mediation": 0.023146158223172193,
+        "coding": 0.310394890011169,
+        "prayer": 0.12168448214952847,
+        "sabotage": 0.7047165359955503
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 5,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.005857519654294745,
+          "power": 0.0,
+          "air": 0.008149839875057274,
+          "medicine": 0.0
+        },
+        "total_earned": 0.288477,
+        "total_traded": 0.281029,
+        "total_taxed": 0.244792
+      }
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.4342568891398778,
+        "improvisation": 0.8015523688814111,
+        "empathy": 0.5553491628412343,
+        "hoarding": 0.2007078947321199,
+        "faith": 0.48955463084411766,
+        "paranoia": 0.22929275279172107
+      },
+      "skills": {
+        "terraforming": 0.6230907447341082,
+        "hydroponics": 0.6281711674921816,
+        "mediation": 0.3497671546252393,
+        "coding": 0.9074694740244632,
+        "prayer": 0.15798227846235427,
+        "sabotage": 0.11447424177053443
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 11,
+      "governance_votes": 5,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.014973722484236552,
+          "water": 0.004638049779765856,
+          "power": 0.001460984444172401,
+          "air": 0.003141119731008778,
+          "medicine": 0.012361537699797259
+        },
+        "total_earned": 1.070683,
+        "total_traded": 0.516379,
+        "total_taxed": 0.942086
+      }
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7334722345444421,
+        "improvisation": 0.39810368535104396,
+        "empathy": 0.5166842587464416,
+        "hoarding": 0.9786582066976655,
+        "faith": 0.33369229751225155,
+        "paranoia": 0.5314868483285891
+      },
+      "skills": {
+        "terraforming": 0.42817732102613104,
+        "hydroponics": 0.9167132127227393,
+        "mediation": 0.4,
+        "coding": 0.1868903084913513,
+        "prayer": 0.23169546167050425,
+        "sabotage": 0.021344877710238706
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 5,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.040564622655422294,
+          "water": 0.003917759489086773,
+          "power": 0.006542366303265864,
+          "air": 0.0009749094762744175,
+          "medicine": 0.004242539157081498
+        },
+        "total_earned": 1.109689,
+        "total_traded": 0.249872,
+        "total_taxed": 1.049694
+      }
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.3818210940453742,
+        "improvisation": 0.9368667588675753,
+        "empathy": 0.2901478899055444,
+        "hoarding": 0.5288128420548743,
+        "faith": 0.3585511035506227,
+        "paranoia": 0.8777976033276748
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.22003720792576786,
+        "coding": 0.6311358857950533,
+        "prayer": 0.1,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.154183,
+        "total_traded": 0.019353,
+        "total_taxed": 0.095549
+      },
+      "death_year": 8,
+      "death_cause": "equipment malfunction"
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.8825736279401903,
+        "improvisation": 0.3169629692115428,
+        "empathy": 0.8568099208948596,
+        "hoarding": 0.11511286574567975,
+        "faith": 0.9698747524419326,
+        "paranoia": 0.39474088929760776
+      },
+      "skills": {
+        "terraforming": 0.2627561746855534,
+        "hydroponics": 0.3111714555771209,
+        "mediation": 0.6215469662068966,
+        "coding": 0.066534945924354,
+        "prayer": 0.9082163860697791,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 8,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.024114232896130742,
+          "power": 0.004287018833410131,
+          "air": 0.003178494451349223,
+          "medicine": 0.01594243392545467
+        },
+        "total_earned": 0.726763,
+        "total_traded": 0.465902,
+        "total_taxed": 0.744533
+      }
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.7644862226374232,
+        "improvisation": 0.34456794700757803,
+        "empathy": 0.7714729500656143,
+        "hoarding": 0.6857667158592617,
+        "faith": 0.3505672070820872,
+        "paranoia": 0.5059925918596184
+      },
+      "skills": {
+        "terraforming": 0.31736757509871805,
+        "hydroponics": 0.32861926157037163,
+        "mediation": 0.815136465910032,
+        "coding": 0.42882276615426157,
+        "prayer": 0.3286220976931817,
+        "sabotage": 0.02287308798404917
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.31762520581290843
+        },
+        {
+          "year": 3,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.12680601279020176
+        },
+        {
+          "year": 3,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.557442656765154
+        },
+        {
+          "year": 4,
+          "event": "The worst dust storm in decades buries the southern airlock.",
+          "valence": -0.7243346549852673
+        },
+        {
+          "year": 4,
+          "event": "The primary water recycler fails catastrophically.",
+          "valence": 0.39532799243586664
+        },
+        {
+          "year": 5,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.4807762907422617
+        },
+        {
+          "year": 6,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.2137931136008917
+        },
+        {
+          "year": 6,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.10094664785933108
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.042967989134373566
+        },
+        {
+          "year": 8,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08568299029073312
+        },
+        {
+          "year": 9,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.539980460623305
+        },
+        {
+          "year": 10,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.07329727957514147
+        },
+        {
+          "year": 11,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.04490606001964261
+        },
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.019998022315334978,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.009738660238548812,
+          "medicine": 0.002901750085659496
+        },
+        "total_earned": 0.644729,
+        "total_traded": 0.398927,
+        "total_taxed": 0.659899
+      }
+    },
+    {
+      "id": "child-10",
+      "name": "Haze Cliff",
+      "element": "air",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.35972200166761625,
+        "improvisation": 0.6810311923777744,
+        "empathy": 0.8496694597265334,
+        "hoarding": 0.11961219251563295,
+        "faith": 0.4979691666480355,
+        "paranoia": 0.4669039361682489
+      },
+      "skills": {
+        "terraforming": 0.051713234477854295,
+        "hydroponics": 0.0749409048490065,
+        "mediation": 0.06171965083219785,
+        "coding": 0.1236840211568382,
+        "prayer": 0.05851912996116385,
+        "sabotage": 0.06213864878405638
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 11,
+      "subsim_count": 1,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 12,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6631566391686458
+        },
+        {
+          "year": 13,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5836203921200447
+        },
+        {
+          "year": 14,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.10092027896099852
+        },
+        {
+          "year": 14,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.3059807055117516
+        },
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.041446,
+        "total_traded": 0.0,
+        "total_taxed": 0.034583
+      },
+      "death_year": 17,
+      "death_cause": "radiation exposure"
+    },
+    {
+      "id": "imm-11",
+      "name": "Coral Mist",
+      "element": "earth",
+      "archetype": "medic",
+      "stats": {
+        "resolve": 0.33267095328747937,
+        "improvisation": 0.38973485565017524,
+        "empathy": 0.46392360085849305,
+        "hoarding": 0.6205516246830856,
+        "faith": 0.33261136136697983,
+        "paranoia": 0.6943746217515306
+      },
+      "skills": {
+        "terraforming": 0.15720856588234283,
+        "hydroponics": 0.354080619772248,
+        "mediation": 0.6004749499303114,
+        "coding": 0.15187827053591563,
+        "prayer": 0.12694551783868296,
+        "sabotage": 0.13166015678416526
+      },
+      "decision_expr": "(+ (* resolve improvisation) (* empathy 0.3))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 14,
+      "subsim_count": 4,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 15,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.4371169914476886
+        },
+        {
+          "year": 16,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.8978258746738046
+        },
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0011012166827921283,
+          "water": 0.0006895149148520917,
+          "power": 0.007652427390320422,
+          "air": 0.0,
+          "medicine": 0.0009367071429764276
+        },
+        "total_earned": 0.2442,
+        "total_traded": 0.061459,
+        "total_taxed": 0.236341
+      }
+    },
+    {
+      "id": "child-12",
+      "name": "Nova Sol",
+      "element": "air",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.34251881930708516,
+        "improvisation": 0.4513196733166792,
+        "empathy": 0.8153215006424324,
+        "hoarding": 0.5143994291836247,
+        "faith": 0.4999716205521718,
+        "paranoia": 0.32390945521761033
+      },
+      "skills": {
+        "terraforming": 0.009751118051876576,
+        "hydroponics": 0.026565025808408624,
+        "mediation": 0.0709025078160022,
+        "coding": 0.04270076066756068,
+        "prayer": 0.05271674571742368,
+        "sabotage": 0.027951648893767864
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 16,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 17,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.36177324273388256
+        },
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.0,
+        "total_traded": 0.0,
+        "total_taxed": 0.0
+      }
+    },
+    {
+      "id": "imm-13",
+      "name": "Cedar Bluff",
+      "element": "fire",
+      "archetype": "pioneer",
+      "stats": {
+        "resolve": 0.6760841928454644,
+        "improvisation": 0.43608059225441276,
+        "empathy": 0.24080920418909374,
+        "hoarding": 0.3607196775178563,
+        "faith": 0.42928940963315787,
+        "paranoia": 0.5628192611262288
+      },
+      "skills": {
+        "terraforming": 0.6385472764945131,
+        "hydroponics": 0.4678234535510101,
+        "mediation": 0.10170074982669902,
+        "coding": 0.12047345577188229,
+        "prayer": 0.27375436650232793,
+        "sabotage": 0.12796988862329486
+      },
+      "decision_expr": "(+ (* resolve improvisation) (* empathy 0.3))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 17,
+      "subsim_count": 3,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 18,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.05856863924317715
+        },
+        {
+          "year": 18,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.004390482586107603
+        },
+        {
+          "year": 19,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05128406135294659
+        },
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        },
+        {
+          "year": 23,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.18359516037264462
+        },
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.004603199308767162,
+          "water": 0.04880753484206929,
+          "power": 0.002294305388814405,
+          "air": 0.03223411941402962,
+          "medicine": 0.009980127088126031
+        },
+        "total_earned": 0.415361,
+        "total_traded": 0.045236,
+        "total_taxed": 0.314397
+      }
+    },
+    {
+      "id": "child-14",
+      "name": "Cedar Bluff",
+      "element": "water",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.4904841270818951,
+        "improvisation": 0.5045147616948863,
+        "empathy": 0.5938003262873817,
+        "hoarding": 0.4125498937546726,
+        "faith": 0.27164151868445996,
+        "paranoia": 0.37329948592316575
+      },
+      "skills": {
+        "terraforming": 0.042837164214836077,
+        "hydroponics": 0.02533348064522081,
+        "mediation": 0.07287757085403888,
+        "coding": 0.05023854659239478,
+        "prayer": 0.052072095393457474,
+        "sabotage": 0.029973867041491676
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 19,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 20,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.005165548849321889
+        },
+        {
+          "year": 21,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.044410335647584134
+        },
+        {
+          "year": 22,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02402332324163474
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.0
+        },
+        "total_earned": 0.011481,
+        "total_traded": 0.0,
+        "total_taxed": 0.008483
+      },
+      "death_year": 22,
+      "death_cause": "equipment malfunction"
+    },
+    {
+      "id": "child-15",
+      "name": "Reed Shore",
+      "element": "earth",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.8111397770713281,
+        "improvisation": 0.4704459118198596,
+        "empathy": 0.3163733575225138,
+        "hoarding": 0.7377670838099588,
+        "faith": 0.374423666167667,
+        "paranoia": 0.7013561396377964
+      },
+      "skills": {
+        "terraforming": 0.06642978087183293,
+        "hydroponics": 0.05582797814304449,
+        "mediation": 0.058465324119791315,
+        "coding": 0.02654244588850193,
+        "prayer": 0.027596100500449312,
+        "sabotage": 0.037841051583991515
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 23,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 24,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.4871181934078634
+        },
+        {
+          "year": 25,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.9444102252665993
+        },
+        {
+          "year": 25,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6674754197598554
+        },
+        {
+          "year": 26,
+          "event": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+          "valence": 0.052085941473449894
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.458187389498351
+        }
+      ],
+      "wallet": {
+        "holdings": {
+          "food": 0.0015618115058209222,
+          "water": 0.0,
+          "power": 0.0,
+          "air": 0.0,
+          "medicine": 0.002936988156764608
+        },
+        "total_earned": 0.012126,
+        "total_traded": 0.0,
+        "total_taxed": 0.007627
+      }
     }
   ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1455.6948963529912,
-    "water": 3040.024904316247,
-    "power": 293.2657160421672,
-    "oxygen": 931.3754840829758,
-    "materials": 2024.5530884704556,
-    "morale": 100
+  "convergence": {
+    "resolve": 0.2477131215263874,
+    "improvisation": 0.22130448824100474,
+    "empathy": 0.24922647276622817,
+    "hoarding": 0.26276329791058517,
+    "faith": 0.2294463199064627,
+    "paranoia": 0.1634357837651937,
+    "convergence_score": 0.22898158068597696
+  },
+  "births": [],
+  "infrastructure": {
+    "completed": [
+      "shelter_reinforcement"
+    ],
+    "active_project": {
+      "tech_id": "research_lab",
+      "progress": 0,
+      "stall_years": 1
+    },
+    "abandoned": [
+      "water_recycler",
+      "greenhouse_dome",
+      "med_bay",
+      "power_grid"
+    ],
+    "history": [
+      {
+        "year": 1,
+        "event": "started",
+        "tech_id": "shelter_reinforcement"
+      },
+      {
+        "year": 7,
+        "event": "completed",
+        "tech_id": "shelter_reinforcement"
+      },
+      {
+        "year": 8,
+        "event": "started",
+        "tech_id": "water_recycler"
+      },
+      {
+        "year": 12,
+        "event": "abandoned",
+        "tech_id": "water_recycler"
+      },
+      {
+        "year": 13,
+        "event": "started",
+        "tech_id": "greenhouse_dome"
+      },
+      {
+        "year": 15,
+        "event": "abandoned",
+        "tech_id": "greenhouse_dome"
+      },
+      {
+        "year": 16,
+        "event": "started",
+        "tech_id": "med_bay"
+      },
+      {
+        "year": 22,
+        "event": "abandoned",
+        "tech_id": "med_bay"
+      },
+      {
+        "year": 23,
+        "event": "started",
+        "tech_id": "power_grid"
+      },
+      {
+        "year": 25,
+        "event": "abandoned",
+        "tech_id": "power_grid"
+      },
+      {
+        "year": 26,
+        "event": "started",
+        "tech_id": "research_lab"
+      }
+    ]
+  },
+  "culture": {
+    "traditions": 5,
+    "oral_history": 8,
+    "martyrs": 3,
+    "taboos": 0,
+    "tradition_names": [
+      "Consulting the Oracle",
+      "ai_governor",
+      "lottery",
+      "consensus",
+      "dictator"
+    ]
+  },
+  "earth": {
+    "opinion": 0.9767,
+    "funding": 0.7307,
+    "policy": "supportive",
+    "independent": false,
+    "independence_year": null,
+    "next_launch_window": 28,
+    "ships_launched": 13,
+    "ships_lost": 1,
+    "ships_arrived": 11,
+    "ships_in_transit": [
+      {
+        "id": "ship-13",
+        "launched_year": 26,
+        "arrival_year": 27,
+        "cargo": {
+          "spare_parts": 0.558,
+          "medical_supplies": 0.193,
+          "scientific_equipment": 0.254
+        },
+        "lost": false,
+        "arrived": false
+      }
+    ],
+    "messages": [
+      {
+        "year": 13,
+        "category": "warning",
+        "content": "Supply ship ship-6 lost in transit."
+      },
+      {
+        "year": 15,
+        "category": "news",
+        "content": "Supply ship ship-7 arrived with cargo: {'spare_parts': 0.533, 'medical_supplies': 0.309, 'scientific_equipment': 0.218}"
+      },
+      {
+        "year": 15,
+        "category": "policy",
+        "content": "Earth reaffirms commitment to Mars program."
+      },
+      {
+        "year": 17,
+        "category": "news",
+        "content": "Supply ship ship-8 arrived with cargo: {'spare_parts': 0.729, 'medical_supplies': 0.269, 'scientific_equipment': 0.217}"
+      },
+      {
+        "year": 19,
+        "category": "news",
+        "content": "Supply ship ship-9 arrived with cargo: {'spare_parts': 0.606, 'medical_supplies': 0.294, 'scientific_equipment': 0.254}"
+      },
+      {
+        "year": 20,
+        "category": "policy",
+        "content": "Earth reaffirms commitment to Mars program."
+      },
+      {
+        "year": 21,
+        "category": "news",
+        "content": "Supply ship ship-10 arrived with cargo: {'spare_parts': 0.533, 'medical_supplies': 0.319, 'scientific_equipment': 0.182}"
+      },
+      {
+        "year": 23,
+        "category": "news",
+        "content": "Supply ship ship-11 arrived with cargo: {'spare_parts': 0.699, 'medical_supplies': 0.246, 'scientific_equipment': 0.233}"
+      },
+      {
+        "year": 25,
+        "category": "news",
+        "content": "Supply ship ship-12 arrived with cargo: {'spare_parts': 0.733, 'medical_supplies': 0.333, 'scientific_equipment': 0.163}"
+      },
+      {
+        "year": 25,
+        "category": "policy",
+        "content": "Earth reaffirms commitment to Mars program."
+      }
+    ]
+  },
+  "diplomacy": [
+    {
+      "year": 26,
+      "arrivals": [],
+      "losses": [],
+      "ship_launched": {
+        "id": "ship-13",
+        "launched_year": 26,
+        "arrival_year": 27,
+        "cargo": {
+          "spare_parts": 0.558,
+          "medical_supplies": 0.193,
+          "scientific_equipment": 0.254
+        },
+        "lost": false,
+        "arrived": false
+      },
+      "messages": [],
+      "maintenance_modifier": 0.6,
+      "opinion_delta": 0.0017,
+      "funding_delta": 0.0063,
+      "policy_changed": false,
+      "independence_declared": false
+    }
+  ],
+  "immigrants": [],
+  "economics": {
+    "year": 26,
+    "gini": 0.4423,
+    "trades": [
+      {
+        "year": 26,
+        "buyer_id": "aura-kai",
+        "seller_id": "fen-marsh",
+        "resource_given": "medicine",
+        "amount_given": 0.01516,
+        "resource_received": "air",
+        "amount_received": 0.017943
+      },
+      {
+        "year": 26,
+        "buyer_id": "imm-11",
+        "seller_id": "dax-iron",
+        "resource_given": "power",
+        "amount_given": 0.012754,
+        "resource_received": "air",
+        "amount_received": 0.009414
+      },
+      {
+        "year": 26,
+        "buyer_id": "ora-flame",
+        "seller_id": "fen-marsh",
+        "resource_given": "food",
+        "amount_given": 0.020799,
+        "resource_received": "water",
+        "amount_received": 0.009527
+      },
+      {
+        "year": 26,
+        "buyer_id": "ora-flame",
+        "seller_id": "luna-tide",
+        "resource_given": "water",
+        "amount_given": 0.04019,
+        "resource_received": "food",
+        "amount_received": 0.024956
+      },
+      {
+        "year": 26,
+        "buyer_id": "dax-iron",
+        "seller_id": "fen-marsh",
+        "resource_given": "water",
+        "amount_given": 0.009763,
+        "resource_received": "power",
+        "amount_received": 0.032233
+      }
+    ],
+    "tax_collected": 0.3379,
+    "labor_income_total": 0.3361,
+    "revolt_triggered": false,
+    "estates_liquidated": []
+  },
+  "psychology": {
+    "snapshots": {
+      "kira-sol": {
+        "stress": 0.0608,
+        "loneliness": 0.0,
+        "purpose": 0.9704,
+        "morale": 0.967,
+        "last_crisis_year": -999
+      },
+      "fen-marsh": {
+        "stress": 0.0861,
+        "loneliness": 0.0,
+        "purpose": 0.927,
+        "morale": 0.9377,
+        "last_crisis_year": -999
+      },
+      "rust-vega": {
+        "stress": 0.0993,
+        "loneliness": 0.0,
+        "purpose": 0.9365,
+        "morale": 0.9385,
+        "last_crisis_year": -999
+      },
+      "aura-kai": {
+        "stress": 0.1598,
+        "loneliness": 0.0,
+        "purpose": 1.0,
+        "morale": 0.9521,
+        "last_crisis_year": -999
+      },
+      "dax-iron": {
+        "stress": 0.0059,
+        "loneliness": 0.0,
+        "purpose": 0.9116,
+        "morale": 0.954,
+        "last_crisis_year": -999
+      },
+      "luna-tide": {
+        "stress": 0.0059,
+        "loneliness": 0.0,
+        "purpose": 0.945,
+        "morale": 0.9707,
+        "last_crisis_year": -999
+      },
+      "grove-ash": {
+        "stress": 0.0126,
+        "loneliness": 0.0,
+        "purpose": 0.9807,
+        "morale": 0.9866,
+        "last_crisis_year": -999
+      },
+      "ora-flame": {
+        "stress": 0.0,
+        "loneliness": 0.0,
+        "purpose": 0.9349,
+        "morale": 0.9675,
+        "last_crisis_year": -999
+      },
+      "pax-stone": {
+        "stress": 0.0,
+        "loneliness": 0.0,
+        "purpose": 0.96,
+        "morale": 0.98,
+        "last_crisis_year": -999
+      },
+      "imm-11": {
+        "stress": 0.0002,
+        "loneliness": 0.0,
+        "purpose": 0.9341,
+        "morale": 0.967,
+        "last_crisis_year": -999
+      },
+      "child-12": {
+        "stress": 0.1425,
+        "loneliness": 0.0,
+        "purpose": 0.8337,
+        "morale": 0.8741,
+        "last_crisis_year": -999
+      },
+      "imm-13": {
+        "stress": 0.104,
+        "loneliness": 0.0,
+        "purpose": 0.8683,
+        "morale": 0.9029,
+        "last_crisis_year": -999
+      },
+      "child-15": {
+        "stress": 0.0049,
+        "loneliness": 0.0,
+        "purpose": 0.5919,
+        "morale": 0.7945,
+        "last_crisis_year": -999
+      }
+    },
+    "crises": [],
+    "colony_morale": 0.9379,
+    "colony_stress": 0.0525,
+    "bottom_quartile_morale": 0.8572
+  },
+  "behavior": {
+    "contagion": [
+      {
+        "colonist_id": "kira-sol",
+        "stress_delta": -0.003554,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.011826
+      },
+      {
+        "colonist_id": "fen-marsh",
+        "stress_delta": -0.012127,
+        "loneliness_delta": 0.0,
+        "purpose_delta": 0.003818
+      },
+      {
+        "colonist_id": "rust-vega",
+        "stress_delta": -0.01732,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.003798
+      },
+      {
+        "colonist_id": "aura-kai",
+        "stress_delta": -0.036129,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.022651
+      },
+      {
+        "colonist_id": "dax-iron",
+        "stress_delta": 0.016313,
+        "loneliness_delta": 0.0,
+        "purpose_delta": 0.00593
+      },
+      {
+        "colonist_id": "luna-tide",
+        "stress_delta": 0.013735,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.001525
+      },
+      {
+        "colonist_id": "grove-ash",
+        "stress_delta": 0.011772,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.016143
+      },
+      {
+        "colonist_id": "ora-flame",
+        "stress_delta": 0.01846,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -2.4e-05
+      },
+      {
+        "colonist_id": "pax-stone",
+        "stress_delta": 0.018123,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.008756
+      },
+      {
+        "colonist_id": "imm-11",
+        "stress_delta": 0.019537,
+        "loneliness_delta": 0.0,
+        "purpose_delta": -0.000891
+      },
+      {
+        "colonist_id": "child-12",
+        "stress_delta": -0.028866,
+        "loneliness_delta": 0.0,
+        "purpose_delta": 0.022879
+      },
+      {
+        "colonist_id": "imm-13",
+        "stress_delta": -0.015701,
+        "loneliness_delta": 0.0,
+        "purpose_delta": 0.006661
+      },
+      {
+        "colonist_id": "child-15",
+        "stress_delta": 0.014318,
+        "loneliness_delta": 0.0,
+        "purpose_delta": 0.04
+      }
+    ],
+    "perturbations": {
+      "kira-sol": {
+        "terraform": 0.08375571295919097,
+        "farm": 0.0,
+        "mediate": 0.09242825784336156,
+        "code": 0.06879343833270081,
+        "pray": 0.017170171892194882,
+        "sabotage": 0.0,
+        "cooperate": 0.09242825784336156,
+        "hoard": 0.017170171892194882,
+        "explore": 0.08384317189726412,
+        "rest": 0.017170171892194882,
+        "research": 0.07274350197838378
+      },
+      "fen-marsh": {
+        "terraform": 0.05353269952397164,
+        "farm": 0.0,
+        "mediate": 0.08864706393421713,
+        "code": 0.06462744046735674,
+        "pray": 0.022189481886770213,
+        "sabotage": 0.0,
+        "cooperate": 0.09749058801719343,
+        "hoard": 0.022189481886770213,
+        "explore": 0.08817134319630743,
+        "rest": 0.022189481886770213,
+        "research": 0.06055513282657412
+      },
+      "rust-vega": {
+        "terraform": 0.07046675833792694,
+        "farm": 0.0,
+        "mediate": 0.08835338767840772,
+        "code": 0.07589765584032951,
+        "pray": 0.024600344637066385,
+        "sabotage": 0.0,
+        "cooperate": 0.08835338767840772,
+        "hoard": 0.024600344637066385,
+        "explore": 0.07605321535987453,
+        "rest": 0.024600344637066385,
+        "research": 0.06904614524667782
+      },
+      "aura-kai": {
+        "terraform": 0.05305244620037805,
+        "farm": 0.0,
+        "mediate": 0.0903149292686397,
+        "code": 0.07160231545683174,
+        "pray": 0.03709973851290737,
+        "sabotage": 0.0,
+        "cooperate": 0.1193117375984004,
+        "hoard": 0.03709973851290737,
+        "explore": 0.07176506001218601,
+        "rest": 0.03709973851290737,
+        "research": 0.06700280072591837
+      },
+      "dax-iron": {
+        "terraform": 0.0593002327821115,
+        "farm": 0.0,
+        "mediate": 0.09042126245962084,
+        "code": 0.06942949510983483,
+        "pray": 0.006658304536598834,
+        "sabotage": 0.0,
+        "cooperate": 0.1087555476953602,
+        "hoard": 0.006658304536598834,
+        "explore": 0.08709211019132143,
+        "rest": 0.006658304536598834,
+        "research": 0.06474201540156617
+      },
+      "luna-tide": {
+        "terraform": 0.06356984304251337,
+        "farm": 0.0,
+        "mediate": 0.09316662248867394,
+        "code": 0.06652006976875718,
+        "pray": 0.005900453452487633,
+        "sabotage": 0.0,
+        "cooperate": 0.09316662248867394,
+        "hoard": 0.005900453452487633,
+        "explore": 0.09021639576243012,
+        "rest": 0.005900453452487633,
+        "research": 0.07221342180560637
+      },
+      "grove-ash": {
+        "terraform": 0.06602294667432052,
+        "farm": 0.017904581713433357,
+        "mediate": 0.09498994086045931,
+        "code": 0.08161512853772991,
+        "pray": 0.0073098230818421745,
+        "sabotage": 0.0,
+        "cooperate": 0.09806884465924891,
+        "hoard": 0.0073098230818421745,
+        "explore": 0.09133502931953823,
+        "rest": 0.0073098230818421745,
+        "research": 0.06602294667432052
+      },
+      "ora-flame": {
+        "terraform": 0.0877573190961264,
+        "farm": 0.0,
+        "mediate": 0.09238326676528917,
+        "code": 0.06523629509029516,
+        "pray": 0.005537983141204828,
+        "sabotage": 0.0,
+        "cooperate": 0.09238326676528917,
+        "hoard": 0.005537983141204828,
+        "explore": 0.08961427519468676,
+        "rest": 0.005537983141204828,
+        "research": 0.06246730351969275
+      },
+      "pax-stone": {
+        "terraform": 0.0649624062407628,
+        "farm": 0.0,
+        "mediate": 0.09403317788120358,
+        "code": 0.06768080769336927,
+        "pray": 0.005436802905212959,
+        "sabotage": 0.0,
+        "cooperate": 0.09403317788120358,
+        "hoard": 0.005436802905212959,
+        "explore": 0.10741248697045255,
+        "rest": 0.005436802905212959,
+        "research": 0.0649624062407628
+      },
+      "imm-11": {
+        "terraform": 0.06202438939817677,
+        "farm": 0.0,
+        "mediate": 0.09213772138948224,
+        "code": 0.06497987111329324,
+        "pray": 0.005910963430232949,
+        "sabotage": 0.0,
+        "cooperate": 0.09521662518827184,
+        "hoard": 0.005910963430232949,
+        "explore": 0.08918223967436577,
+        "rest": 0.005910963430232949,
+        "research": 0.06202438939817677
+      },
+      "child-12": {
+        "terraform": 0.036442500895960586,
+        "farm": 0.0,
+        "mediate": 0.07883933678568478,
+        "code": 0.053483761602377056,
+        "pray": 0.034082521412832946,
+        "sabotage": 0.0,
+        "cooperate": 0.08974064801018744,
+        "hoard": 0.034082521412832946,
+        "explore": 0.06179807607926831,
+        "rest": 0.034082521412832946,
+        "research": 0.036442500895960586
+      },
+      "imm-13": {
+        "terraform": 0.04574591670630189,
+        "farm": 0.0,
+        "mediate": 0.08219285562141794,
+        "code": 0.05623839452502475,
+        "pray": 0.026497036976326212,
+        "sabotage": 0.0,
+        "cooperate": 0.08219285562141794,
+        "hoard": 0.026497036976326212,
+        "explore": 0.06894433713325483,
+        "rest": 0.026497036976326212,
+        "research": 0.04298987603686164
+      },
+      "child-15": {
+        "terraform": 0.016912866051888277,
+        "farm": 0.0,
+        "mediate": 0.062042466622008345,
+        "code": 0.019789950754698832,
+        "pray": 0.005754169405621109,
+        "sabotage": 0.0,
+        "cooperate": 0.062042466622008345,
+        "hoard": 0.005754169405621109,
+        "explore": 0.05916538191919779,
+        "rest": 0.005754169405621109,
+        "research": 0.016912866051888277
+      }
+    },
+    "learned_updates": {
+      "kira-sol": {
+        "terraform": 0.023547360572587602,
+        "research": 0.012535149591780405
+      },
+      "fen-marsh": {
+        "explore": 0.010619020205475413,
+        "cooperate": 0.008843524082976301,
+        "research": 0.007022433302602481,
+        "sabotage": 0.0
+      },
+      "rust-vega": {
+        "code": 0.010987470931597992,
+        "terraform": 0.017856745747728612,
+        "research": 0.0164361326564795
+      },
+      "aura-kai": {
+        "cooperate": 0.028996808329760707,
+        "research": 0.013950354525540314
+      },
+      "dax-iron": {
+        "cooperate": 0.018334285235739347,
+        "research": 0.005441782619454663,
+        "code": 0.0068001100594239135
+      },
+      "luna-tide": {
+        "research": 0.008643578763093003,
+        "pray": 0.0
+      },
+      "grove-ash": {
+        "code": 0.011937270322488319,
+        "farm": 0.017904581713433357,
+        "cooperate": 0.0030789037987895953
+      },
+      "ora-flame": {
+        "terraform": 0.025290015576433653,
+        "rest": 0.0
+      },
+      "pax-stone": {
+        "explore": 0.016097710541855454,
+        "rest": 0.0
+      },
+      "imm-11": {
+        "cooperate": 0.0030789037987895953
+      },
+      "child-12": {
+        "cooperate": 0.010901311224502656,
+        "research": 0.0
+      },
+      "imm-13": {
+        "terraform": 0.0027560406694402463
+      },
+      "child-15": {
+        "pray": 0.0
+      }
+    }
+  },
+  "ecology": {
+    "resource_bonuses": {
+      "food": 0.000664,
+      "air": 5.9e-05,
+      "water": 0.001
+    },
+    "nature_stress_reduction": 0.0044
+  },
+  "diplomacy_result": {
+    "factions_formed": [],
+    "factions_dissolved": [],
+    "treaties_proposed": [],
+    "treaties_dissolved": [],
+    "violations": [],
+    "crises": [],
+    "pressure": {}
   }
 }
