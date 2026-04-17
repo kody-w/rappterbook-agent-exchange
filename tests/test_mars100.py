@@ -7,7 +7,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.mars100 import (
+from src.mars100_core import (
     COLONIST_NAMES, ELEMENTS, EVENTS, GOVERNANCE_TYPES,
     INITIAL_RESOURCES, SKILL_NAMES, STAT_NAMES,
     apply_event_effects, check_births, check_meta_awareness,

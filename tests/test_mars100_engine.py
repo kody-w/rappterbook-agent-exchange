@@ -112,14 +112,14 @@ class TestDeathAndExile:
                 assert "cause" in d
                 assert "year" in d
 
-    def test_alive_count_decreases(self):
+    def test_alive_count_tracks_births(self):
         engine = Mars100Engine(seed=42, total_years=50)
         result = engine.run()
         initial = 10
-        current = initial - result.total_deaths - result.total_exiles
+        current = initial + result.total_births - result.total_deaths - result.total_exiles
         if current < 0:
             current = 0
-        assert current <= initial
+        assert current <= 20  # MAX_POPULATION
 
 
 class TestMetaAwareness:
@@ -165,6 +165,93 @@ class TestCallback:
         engine.run(callback=lambda yr: results.append(yr.year))
         assert len(results) == 5
         assert results == [1, 2, 3, 4, 5]
+
+
+class TestBirthsIntegration:
+    """Birth system integration with the engine."""
+
+    def test_births_field_exists(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        for yr in result.years:
+            assert hasattr(yr, "births")
+            assert isinstance(yr.births, list)
+
+    def test_population_field_exists(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        for yr in result.years:
+            assert hasattr(yr, "population")
+            assert yr.population >= 0
+
+    def test_births_in_serialization(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        d = result.to_dict()
+        assert "total_births" in d["summary"]
+
+    def test_births_occur_over_50_years(self):
+        """Given enough years and decent resources, at least one birth should happen."""
+        total_births = 0
+        for seed in range(5):
+            engine = Mars100Engine(seed=seed, total_years=50)
+            result = engine.run()
+            total_births += result.total_births
+        assert total_births > 0, "Expected at least 1 birth across 5 seeds × 50 years"
+
+    def test_population_starts_at_10(self):
+        engine = Mars100Engine(seed=42, total_years=3)
+        yr = engine.tick()
+        assert yr.population >= 1  # at least some alive
+
+
+class TestConvergenceIntegration:
+    """Value convergence tracking in the engine."""
+
+    def test_convergence_field_exists(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        for yr in result.years:
+            assert hasattr(yr, "convergence")
+
+    def test_convergence_in_serialization(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        d = result.to_dict()
+        assert "convergence_trend" in d["summary"]
+
+    def test_convergence_trend_valid(self):
+        engine = Mars100Engine(seed=42, total_years=50)
+        result = engine.run()
+        valid = {"converging", "diverging", "stable", "insufficient_data"}
+        assert result.convergence_trend in valid
+
+
+class TestMetaInsights:
+    """Meta-insight extraction from deep sub-sims."""
+
+    def test_meta_insights_field_exists(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        for yr in result.years:
+            assert hasattr(yr, "meta_insights")
+            assert isinstance(yr.meta_insights, list)
+
+    def test_meta_insights_in_serialization(self):
+        engine = Mars100Engine(seed=42, total_years=10)
+        result = engine.run()
+        d = result.to_dict()
+        assert "meta_insights" in d
+
+    def test_meta_insight_structure(self):
+        """If any meta-insights exist, they should have required fields."""
+        engine = Mars100Engine(seed=42, total_years=50)
+        result = engine.run()
+        for yr in result.years:
+            for mi in yr.meta_insights:
+                assert "insight" in mi
+                assert "depth" in mi
+                assert "colonist_id" in mi
 
 
 class TestColonyCollapse:

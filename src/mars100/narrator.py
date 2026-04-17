@@ -16,14 +16,18 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
     actions = year_result.get("actions", {})
     deaths = year_result.get("deaths", [])
     exiles = year_result.get("exiles", [])
+    births = year_result.get("births", [])
     meta = year_result.get("meta_awareness", [])
     governance = year_result.get("governance")
     resources = year_result.get("resources_after", {})
     cohesion = year_result.get("social_cohesion", 0.5)
     subsims = year_result.get("subsim_log", [])
+    convergence = year_result.get("convergence")
+    meta_insights = year_result.get("meta_insights", [])
+    population = year_result.get("population", "?")
 
     lines: list[str] = []
-    lines.append(f"## Year {year}")
+    lines.append(f"## Year {year} (pop: {population})")
     lines.append("")
     if events:
         lines.append("### Events")
@@ -59,8 +63,16 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
         lines.append(f"\n** DEATH: {d['name']} — {d['cause']} **")
     for e in exiles:
         lines.append(f"\n** EXILE: {e['name']} **")
+    for b in births:
+        lines.append(f"\n🎒 BIRTH: {b['child_name']} (parents: {b['parent_a_id']}, {b['parent_b_id']})")
     for m in meta:
         lines.append(f"\n*META: {m['insight']}*")
+    for mi in meta_insights:
+        lines.append(f"\n⚡ INSIGHT (depth-{mi['depth']}): {mi['insight']}")
+    if convergence:
+        dist = convergence.get("mean_pairwise_distance", 0)
+        clusters = convergence.get("cluster_count", 0)
+        lines.append(f"\n*Convergence: distance={dist:.3f}, clusters={clusters}*")
     lines.append("\n---")
     return "\n".join(lines)
 
@@ -122,11 +134,13 @@ def generate_final_report(sim_result: dict) -> str:
              f"- **Duration:** {len(years_data)} Martian years",
              f"- **Deaths:** {summary.get('total_deaths', 0)}",
              f"- **Exiles:** {summary.get('total_exiles', 0)}",
+             f"- **Births:** {summary.get('total_births', 0)}",
              f"- **Sub-simulations:** {summary.get('total_subsims', 0)}",
              f"- **Governance changes:** {summary.get('governance_changes', 0)}",
              f"- **Meta-awareness events:** {summary.get('meta_awareness_events', 0)}",
              f"- **Final cohesion:** {summary.get('final_cohesion', 0):.0%}",
-             f"- **Final governance:** {final_gov.get('gov_type', 'unknown')}", ""]
+             f"- **Final governance:** {final_gov.get('gov_type', 'unknown')}",
+             f"- **Value convergence:** {summary.get('convergence_trend', 'unknown')}", ""]
 
     history = final_gov.get("history", [])
     if history:

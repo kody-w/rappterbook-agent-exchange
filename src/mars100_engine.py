@@ -18,7 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.mars100 import run_simulation
+from src.mars100_core import run_simulation
 
 
 def main() -> None:
