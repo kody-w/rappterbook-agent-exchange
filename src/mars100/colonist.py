@@ -156,7 +156,8 @@ class Colonist:
     def evolve_skills(self, action: str, rng: random.Random) -> None:
         skill_map = {"terraform": "terraforming", "farm": "hydroponics",
                      "mediate": "mediation", "code": "coding",
-                     "pray": "prayer", "sabotage": "sabotage"}
+                     "pray": "prayer", "sabotage": "sabotage",
+                     "research": "coding"}
         target = skill_map.get(action)
         if target:
             current = getattr(self.skills, target)

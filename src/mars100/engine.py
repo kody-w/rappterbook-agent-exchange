@@ -25,9 +25,13 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.infrastructure import (
+    InfrastructureState, choose_project, start_project,
+    tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
-           "sabotage", "cooperate", "hoard", "explore", "rest"]
+           "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
@@ -52,6 +56,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    infrastructure: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +72,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "infrastructure": self.infrastructure,
         }
 
 
@@ -86,10 +92,11 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    infrastructure: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "4.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -106,6 +113,7 @@ class SimulationResult:
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "infrastructure": self.infrastructure,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -125,6 +133,7 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.infra = InfrastructureState()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -171,6 +180,8 @@ class Mars100Engine:
                 w += colonist.stats.improvisation * 0.5
             elif action == "rest":
                 w += 0.3
+            elif action == "research":
+                w += colonist.skills.coding * 0.6 + colonist.stats.improvisation * 0.3
             if critical:
                 if action == "farm" and "food" in critical:
                     w += 2.0
@@ -313,6 +324,8 @@ class Mars100Engine:
 
     def _check_death(self, colonist: Colonist) -> str | None:
         rate = BASE_DEATH_RATE
+        death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
+        rate *= death_rate_mult
         for name in RESOURCE_NAMES:
             val = getattr(self.resources, name)
             if val < 0.1:
@@ -489,7 +502,38 @@ class Mars100Engine:
             for k, v in ev.effects.items():
                 if k in RESOURCE_NAMES:
                     event_effects[k] = event_effects.get(k, 0.0) + v
-        resource_delta = tick_resources(self.resources, len(active), skill_bonuses, event_effects)
+
+        # Infrastructure: compute resource modifiers from completed techs
+        infra_mods = compute_resource_modifiers(self.infra.completed)
+        event_damage_mult = infra_mods.pop("event_damage_mult", 1.0)
+        event_effects = {k: v * event_damage_mult if v < 0 else v
+                         for k, v in event_effects.items()}
+
+        resource_delta = tick_resources(self.resources, len(active),
+                                        skill_bonuses, event_effects,
+                                        infra_modifiers=infra_mods)
+
+        # Infrastructure: deduct operating costs
+        op_costs = compute_operating_costs(self.infra.completed)
+        for res_name, cost in op_costs.items():
+            if res_name in RESOURCE_NAMES:
+                current = getattr(self.resources, res_name)
+                setattr(self.resources, res_name, max(0.0, current - cost))
+
+        # Infrastructure: choose + start project if idle
+        resources_snapshot = self.resources.to_dict()
+        if self.infra.project is None:
+            tech = choose_project(self.infra, resources_snapshot,
+                                  active, self.rng)
+            if tech:
+                start_project(self.infra, tech, self.resources, self.year)
+
+        # Infrastructure: tick active project
+        researchers = sum(1 for cid, a in actions.items() if a == "research")
+        research_skills = [c.skills.coding for c in active
+                           if actions.get(c.id) == "research"]
+        avg_skill = sum(research_skills) / max(1, len(research_skills))
+        infra_event = tick_infrastructure(self.infra, researchers, avg_skill, self.year)
 
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
@@ -541,6 +585,7 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            infrastructure=self.infra.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -572,6 +617,7 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            infrastructure=self.infra.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

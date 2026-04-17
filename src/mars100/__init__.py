@@ -19,6 +19,13 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.infrastructure import (
+    TechSpec, TECH_TREE, TECH_BY_ID,
+    ActiveProject, InfrastructureState,
+    available_techs, can_afford, choose_project, start_project,
+    tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
+    validate_tech_tree,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -33,4 +40,9 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "TechSpec", "TECH_TREE", "TECH_BY_ID",
+    "ActiveProject", "InfrastructureState",
+    "available_techs", "can_afford", "choose_project", "start_project",
+    "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
+    "validate_tech_tree",
 ]
