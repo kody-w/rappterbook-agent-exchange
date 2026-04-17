@@ -1,218 +1,222 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mars-100: Recursive Colony Experiment</title>
 <style>
-:root {
-  --bg: #0d1117; --surface: #161b22; --border: #30363d;
-  --text: #c9d1d9; --muted: #8b949e; --accent: #ff6b35;
-  --fire: #ff4500; --water: #1e90ff; --earth: #8b6914; --air: #87ceeb;
-  --alive: #3fb950; --dead: #f85149;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif; line-height: 1.6; }
-.container { max-width: 1100px; margin: 0 auto; padding: 1rem; }
-h1 { color: var(--accent); font-size: 1.8rem; margin-bottom: .5rem; }
-h2 { color: var(--accent); font-size: 1.3rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
-h3 { color: var(--text); font-size: 1rem; margin: 1rem 0 .3rem; }
-.subtitle { color: var(--muted); font-size: .9rem; margin-bottom: 1rem; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .75rem; margin: .5rem 0; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: .75rem; }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
-.card-header .name { font-weight: 600; }
-.element { font-size: .75rem; padding: 2px 6px; border-radius: 3px; }
-.element-fire { background: var(--fire); color: #fff; }
-.element-water { background: var(--water); color: #fff; }
-.element-earth { background: var(--earth); color: #fff; }
-.element-air { background: var(--air); color: #000; }
-.status { font-size: .75rem; padding: 2px 6px; border-radius: 3px; }
-.alive { background: var(--alive); color: #000; }
-.dead { background: var(--dead); color: #fff; }
-.stat-bar { display: flex; align-items: center; margin: 2px 0; font-size: .75rem; }
-.stat-bar .label { width: 90px; color: var(--muted); }
-.stat-bar .bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-.stat-bar .fill { height: 100%; border-radius: 3px; }
-.stat-bar .val { width: 35px; text-align: right; color: var(--muted); }
-.timeline { margin: .5rem 0; max-height: 400px; overflow-y: auto; }
-.year-entry { padding: .4rem .6rem; border-left: 2px solid var(--border); margin-left: .5rem; font-size: .85rem; }
-.year-entry:hover { background: var(--surface); }
-.year-entry .year-num { color: var(--accent); font-weight: 600; }
-.gov-entry { padding: .3rem .5rem; font-size: .85rem; border-left: 3px solid var(--accent); margin: .3rem 0; }
-.adopted { border-left-color: var(--alive); }
-.rejected { border-left-color: var(--dead); }
-.meta-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin: .5rem 0; }
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .5rem; }
-.stat-cell { text-align: center; }
-.stat-cell .value { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
-.stat-cell .label { font-size: .75rem; color: var(--muted); }
-.lispy-code { background: #1a1f2b; border: 1px solid var(--border); border-radius: 6px; padding: .5rem; font-family: monospace; font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: #7ee787; }
-#loading { text-align: center; padding: 3rem; color: var(--muted); }
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--card:#12121a;--border:#1a1a2e;--text:#c8c8d8;--accent:#e74c3c;
+--mars:#c0392b;--blue:#2980b9;--green:#27ae60;--gold:#f39c12;--purple:#8e44ad}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+h1{font-size:2em;color:var(--accent);margin-bottom:4px}
+h2{font-size:1.3em;color:var(--gold);margin:20px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+h3{font-size:1.1em;color:var(--blue);margin:12px 0 6px}
+.subtitle{color:#888;font-size:0.9em;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin:12px 0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px}
+.card.dead{opacity:0.6;border-color:#333}
+.stat{display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:12px;font-size:0.8em}
+.stat.fire{background:#c0392b33;color:#e74c3c}
+.stat.water{background:#2980b933;color:#3498db}
+.stat.earth{background:#27ae6033;color:#2ecc71}
+.stat.air{background:#8e44ad33;color:#9b59b6}
+.alive{color:var(--green)}.dead{color:var(--accent)}
+.bar{height:8px;border-radius:4px;background:#1a1a2e;margin:4px 0;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px}.bar-fill.food{background:var(--green)}.bar-fill.power{background:var(--gold)}.bar-fill.water{background:var(--blue)}
+.timeline{display:flex;flex-direction:column;gap:6px;max-height:600px;overflow-y:auto}
+.year-row{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;background:var(--card);font-size:0.85em;border:1px solid transparent}
+.year-row:hover{border-color:var(--accent)}
+.year-num{font-weight:bold;min-width:50px;color:var(--gold)}
+.event-tag{padding:1px 6px;border-radius:4px;font-size:0.75em;background:#ffffff10}
+.pop-dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7em;font-weight:bold;color:white}
+.gov-list{max-height:400px;overflow-y:auto}
+.gov-item{padding:8px;margin:4px 0;border-radius:6px;background:var(--card);border-left:3px solid var(--gold);font-size:0.85em}
+.gov-item.adopted{border-left-color:var(--green)}.gov-item.rejected{border-left-color:var(--accent)}
+.subsim{padding:8px;margin:4px 0;border-radius:6px;background:#12121a;border:1px dashed var(--purple);font-size:0.85em}
+.soul{padding:10px;margin:6px 0;border-radius:6px;background:var(--card);border-left:3px solid var(--accent);opacity:0.8}
+.insight{padding:10px;margin:6px 0;border-radius:6px;background:#1a1a0a;border:1px solid var(--gold);font-size:0.9em}
+.chart{width:100%;height:200px;position:relative;background:var(--card);border-radius:8px;padding:10px;margin:10px 0}
+.tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+.tab{padding:6px 16px;border-radius:20px;cursor:pointer;background:var(--card);border:1px solid var(--border);font-size:0.85em}
+.tab.active{background:var(--accent);border-color:var(--accent);color:white}
+.diary{font-style:italic;color:#999;font-size:0.85em;margin:4px 0;padding-left:12px;border-left:2px solid var(--border)}
+.sexpr{font-family:'Courier New',monospace;font-size:0.8em;color:var(--green);background:#0a0a12;padding:8px;border-radius:6px;overflow-x:auto;white-space:pre-wrap;margin:8px 0}
+.empty{text-align:center;color:#555;padding:40px;font-style:italic}
+footer{text-align:center;color:#444;font-size:0.8em;padding:30px 0;border-top:1px solid var(--border);margin-top:40px}
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>🔴 Mars-100: Recursive Colony Experiment</h1>
-  <p class="subtitle">A LisPy sub-simulation modeling 100 years of Mars colonization with emergent governance. Turtles All the Way Down.</p>
-  <div id="loading">Loading simulation data...</div>
-  <div id="app" style="display:none"></div>
+  <h1>🔴 Mars-100: A Recursive Colony Experiment</h1>
+  <p class="subtitle"><span id="summary">Loading simulation data...</span></p>
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="colonists">Colonists</div>
+    <div class="tab" data-tab="timeline">Timeline</div>
+    <div class="tab" data-tab="governance">Governance</div>
+    <div class="tab" data-tab="subsims">Sub-Simulations</div>
+    <div class="tab" data-tab="souls">Archived Souls</div>
+    <div class="tab" data-tab="insights">Meta-Insights</div>
+  </div>
+  <div id="tab-overview" class="tab-content">
+    <h2>Colony Status</h2>
+    <div class="grid" id="overview-stats"></div>
+    <h2>Population Over Time</h2>
+    <div class="chart"><canvas id="pop-chart"></canvas></div>
+    <h2>Resources Over Time</h2>
+    <div class="chart"><canvas id="res-chart"></canvas></div>
+  </div>
+  <div id="tab-colonists" class="tab-content" style="display:none">
+    <h2>The Ten Colonists</h2>
+    <div class="grid" id="colonist-grid"></div>
+  </div>
+  <div id="tab-timeline" class="tab-content" style="display:none">
+    <h2>Year-by-Year Chronicle</h2>
+    <div class="timeline" id="timeline-list"></div>
+  </div>
+  <div id="tab-governance" class="tab-content" style="display:none">
+    <h2>Governance Records</h2>
+    <p id="gov-summary"></p>
+    <div class="gov-list" id="gov-list"></div>
+  </div>
+  <div id="tab-subsims" class="tab-content" style="display:none">
+    <h2>Sub-Simulation Log</h2>
+    <p class="subtitle">Recursive LisPy simulations run by colonists to model governance proposals</p>
+    <div id="subsim-list"></div>
+  </div>
+  <div id="tab-souls" class="tab-content" style="display:none">
+    <h2>Archived Souls — Legacy, Not Delete</h2>
+    <div id="soul-list"></div>
+  </div>
+  <div id="tab-insights" class="tab-content" style="display:none">
+    <h2>Meta-Insights — Emergent Patterns</h2>
+    <p class="subtitle">Governance structures that emerged without being designed</p>
+    <div id="insight-list"></div>
+  </div>
+  <footer>Mars-100 — Turtles All the Way Down (Amendment XIII) made concrete. Seed-driven. Deterministic. Recursive.</footer>
 </div>
 <script>
-const BASE = './';
-let finalState = null;
-
-async function loadJSON(path) {
-  const resp = await fetch(BASE + path);
-  if (!resp.ok) return null;
-  return resp.json();
-}
-
-function el(tag, attrs, ...children) {
-  const e = document.createElement(tag);
-  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
-    if (k === 'class') e.className = v;
-    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else e.setAttribute(k, v);
+(function(){
+  var DATA=null;
+  document.getElementById('tabs').addEventListener('click',function(e){
+    var tab=e.target.closest('.tab');if(!tab)return;
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
+    tab.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(function(c){c.style.display='none'});
+    var t=document.getElementById('tab-'+tab.dataset.tab);if(t)t.style.display='';
   });
-  children.forEach(c => {
-    if (typeof c === 'string') e.appendChild(document.createTextNode(c));
-    else if (c) e.appendChild(c);
+  fetch('data.json').then(function(r){return r.json()}).then(function(d){DATA=d;render(d)}).catch(function(){
+    document.getElementById('summary').textContent='Failed to load data.json';
   });
-  return e;
-}
-
-function statBar(label, value, color = '#ff6b35') {
-  const pct = Math.round(value * 100);
-  const row = el('div', {class: 'stat-bar'},
-    el('span', {class: 'label'}, label),
-    el('div', {class: 'bar'}),
-    el('span', {class: 'val'}, `${pct}%`)
-  );
-  const fill = el('div', {class: 'fill'});
-  fill.style.width = pct + '%';
-  fill.style.background = color;
-  row.querySelector('.bar').appendChild(fill);
-  return row;
-}
-
-function colonistCard(c) {
-  const card = el('div', {class: 'card'});
-  const header = el('div', {class: 'card-header'},
-    el('span', {class: 'name'}, c.name || c.id),
-    el('span', {class: `element element-${c.element}`}, c.element)
-  );
-  card.appendChild(header);
-  card.appendChild(el('span', {class: `status ${c.alive ? 'alive' : 'dead'}`},
-    c.alive ? `Alive (${c.years_alive || '?'}y)` : `Died year ${c.death_year || '?'}`));
-
-  const stats = c.stats || {};
-  const colors = {resolve:'#ff6b35', improvisation:'#ffa657', empathy:'#56d364',
-    hoarding:'#f85149', faith:'#bc8cff', paranoia:'#ff7b72'};
-  Object.entries(stats).forEach(([k, v]) => {
-    card.appendChild(statBar(k, v, colors[k] || '#ff6b35'));
-  });
-  return card;
-}
-
-function renderOverview(state) {
-  const frag = document.createDocumentFragment();
-  const colonists = state.colonists || [];
-  const alive = colonists.filter(c => c.alive).length;
-  const dead = colonists.filter(c => !c.alive).length;
-  const gov = state.governance || [];
-  const souls = state.archived_souls || [];
-
-  // Stats summary
-  const meta = el('div', {class: 'meta-box'});
-  const sg = el('div', {class: 'stat-grid'});
-  [{v: state.year, l: 'Final Year'}, {v: alive, l: 'Alive'},
-   {v: dead, l: 'Dead'}, {v: gov.length, l: 'Gov Records'},
-   {v: state.governance_type || 'N/A', l: 'Gov Type'},
-   {v: state.leader || 'none', l: 'Last Leader'},
-   {v: souls.length, l: 'Archived Souls'},
-   {v: colonists.reduce((s,c) => s + (c.sub_sim_log||[]).length, 0), l: 'Sub-Sims Run'}
-  ].forEach(({v, l}) => {
-    sg.appendChild(el('div', {class: 'stat-cell'},
-      el('div', {class: 'value'}, String(v)),
-      el('div', {class: 'label'}, l)
-    ));
-  });
-  meta.appendChild(sg);
-  frag.appendChild(el('h2', null, 'Colony Overview'));
-  frag.appendChild(meta);
-
-  // Resources
-  const res = state.resources || {};
-  frag.appendChild(el('h2', null, 'Final Resources'));
-  const rbox = el('div', {class: 'meta-box'});
-  const rg = el('div', {class: 'stat-grid'});
-  Object.entries(res).forEach(([k, v]) => {
-    rg.appendChild(el('div', {class: 'stat-cell'},
-      el('div', {class: 'value'}, typeof v === 'number' ? v.toFixed(0) : String(v)),
-      el('div', {class: 'label'}, k)
-    ));
-  });
-  rbox.appendChild(rg);
-  frag.appendChild(rbox);
-
-  // Colonists
-  frag.appendChild(el('h2', null, 'Colonists'));
-  const grid = el('div', {class: 'grid'});
-  colonists.forEach(c => grid.appendChild(colonistCard(c)));
-  frag.appendChild(grid);
-
-  // Governance timeline
-  frag.appendChild(el('h2', null, `Governance Timeline (${gov.length} records)`));
-  const tl = el('div', {class: 'timeline'});
-  gov.forEach(g => {
-    const status = g.adopted ? 'adopted' : 'rejected';
-    const entry = el('div', {class: `gov-entry ${status}`},
-      el('span', null, `Year ${g.year}: `),
-      el('strong', null, g.proposer),
-      el('span', null, ` → ${g.proposal} `),
-      el('span', {class: `status ${g.adopted ? 'alive' : 'dead'}`},
-        `${g.adopted ? 'ADOPTED' : 'REJECTED'} ${g.votes_for}-${g.votes_against}`)
-    );
-    tl.appendChild(entry);
-  });
-  frag.appendChild(tl);
-
-  // Deaths
-  if (souls.length > 0) {
-    frag.appendChild(el('h2', null, 'Archived Souls (Legacy, Not Delete)'));
-    const stl = el('div', {class: 'timeline'});
-    souls.forEach(s => {
-      stl.appendChild(el('div', {class: 'year-entry'},
-        el('span', {class: 'year-num'}, `Year ${s.death_year || '?'}: `),
-        el('strong', null, `${s.name} `),
-        el('span', {class: `element element-${s.element}`}, s.element),
-        el('span', null, ` — ${s.cause || 'unknown cause'}`)
-      ));
-    });
-    frag.appendChild(stl);
+  function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+  function render(d){
+    var yrs=d.timeline.length;
+    document.getElementById('summary').innerHTML=
+      'Seed '+d.seed+' · '+yrs+' Mars years · '+
+      '<span class="'+(d.final_population?'alive':'dead')+'">'+d.final_population+' survivors</span> · '+
+      d.total_deaths+' deaths · '+d.governance.length+' governance · '+d.sub_sims.length+' sub-sims';
+    renderOverview(d);renderColonists(d);renderTimeline(d);
+    renderGovernance(d);renderSubSims(d);renderSouls(d);renderInsights(d);
   }
-
-  return frag;
-}
-
-async function init() {
-  try {
-    finalState = await loadJSON('final_state.json');
-    if (!finalState) {
-      document.getElementById('loading').textContent = 'Failed to load simulation data.';
-      return;
-    }
-    document.getElementById('loading').style.display = 'none';
-    const app = document.getElementById('app');
-    app.style.display = 'block';
-    app.appendChild(renderOverview(finalState));
-  } catch (err) {
-    document.getElementById('loading').textContent = 'Error: ' + err.message;
+  function renderOverview(d){
+    var stats=[
+      {l:'Total Years',v:d.timeline.length,c:'var(--gold)'},
+      {l:'Survivors',v:d.final_population+'/10',c:d.final_population?'var(--green)':'var(--accent)'},
+      {l:'Deaths',v:d.total_deaths,c:'var(--accent)'},
+      {l:'Gov Type',v:d.governance_type||'None',c:'var(--blue)'},
+      {l:'Leader',v:d.leader||'None',c:'var(--purple)'},
+      {l:'Proposals',v:d.governance.length,c:'var(--gold)'},
+      {l:'Sub-Sims',v:d.sub_sims.length,c:'var(--purple)'},
+      {l:'Insights',v:d.meta_insights.length,c:'var(--green)'}
+    ];
+    document.getElementById('overview-stats').innerHTML=stats.map(function(s){
+      return '<div class="card"><div style="color:'+s.c+';font-size:1.8em;font-weight:bold">'+s.v+'</div><div style="color:#888;font-size:.85em">'+s.l+'</div></div>';
+    }).join('');
+    drawChart('pop-chart',d.timeline.map(function(t){return t.year}),
+      [{data:d.timeline.map(function(t){return t.population}),color:'#e74c3c'}],10);
+    drawChart('res-chart',d.timeline.map(function(t){return t.year}),
+      [{data:d.timeline.map(function(t){return t.food||0}),color:'#27ae60'},
+       {data:d.timeline.map(function(t){return t.power||0}),color:'#f39c12'},
+       {data:d.timeline.map(function(t){return t.water||0}),color:'#2980b9'}]);
   }
-}
-
-init();
+  function drawChart(id,labels,series,maxY){
+    var c=document.getElementById(id);if(!c)return;
+    var ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1,
+        r=c.parentElement.getBoundingClientRect();
+    c.width=r.width*dpr;c.height=(r.height-20)*dpr;ctx.scale(dpr,dpr);
+    var w=r.width,h=r.height-20,p={l:40,r:10,t:10,b:25},pw=w-p.l-p.r,ph=h-p.t-p.b;
+    if(!maxY)maxY=Math.max.apply(null,series.reduce(function(a,s){return a.concat(s.data)},[]).concat([1]));
+    ctx.strokeStyle='#333';ctx.lineWidth=1;ctx.beginPath();
+    ctx.moveTo(p.l,p.t);ctx.lineTo(p.l,p.t+ph);ctx.lineTo(p.l+pw,p.t+ph);ctx.stroke();
+    ctx.fillStyle='#666';ctx.font='10px sans-serif';ctx.textAlign='right';
+    for(var i=0;i<=4;i++){var y=p.t+ph-(i/4)*ph;ctx.fillText(Math.round(maxY*i/4),p.l-4,y+3)}
+    ctx.textAlign='center';var st=Math.ceil(labels.length/10);
+    for(var i=0;i<labels.length;i+=st){var x=p.l+(i/Math.max(labels.length-1,1))*pw;ctx.fillText(labels[i],x,p.t+ph+15)}
+    series.forEach(function(s){ctx.strokeStyle=s.color;ctx.lineWidth=2;ctx.beginPath();
+      s.data.forEach(function(v,i){var x=p.l+(i/Math.max(s.data.length-1,1))*pw,y=p.t+ph-(v/maxY)*ph;
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke()});
+  }
+  function renderColonists(d){
+    document.getElementById('colonist-grid').innerHTML=d.colonists.map(function(c){
+      var diaries=(c.diary_excerpt||[]).map(function(e){return '<div class="diary">'+esc(e)+'</div>'}).join('');
+      return '<div class="card '+(c.alive?'':'dead')+'"><h3>'+esc(c.name)+' <span class="stat '+c.element+'">'+c.element+
+        '</span></h3><div style="color:#888;font-size:.85em">'+esc(c.role)+' · '+(c.alive?'<span class="alive">● Alive</span>':'<span class="dead">✝ Dead</span>')+
+        '</div><div style="margin:8px 0"><div>Health<div class="bar"><div class="bar-fill food" style="width:'+(c.health*100)+'%"></div></div></div>'+
+        '<div>Morale<div class="bar"><div class="bar-fill power" style="width:'+(c.morale*100)+'%"></div></div></div>'+
+        '<div style="color:#888;font-size:.8em">'+c.years_alive+' years</div></div>'+diaries+'</div>';
+    }).join('');
+  }
+  function renderTimeline(d){
+    document.getElementById('timeline-list').innerHTML=d.timeline.map(function(t){
+      var deaths=t.deaths.length?' · <span class="dead">Deaths: '+t.deaths.join(', ')+'</span>':'';
+      var gov=t.governance_count?' · <span style="color:var(--gold)">'+t.governance_count+' proposals</span>':'';
+      var bg=t.population>5?'var(--green)':t.population>0?'var(--gold)':'var(--accent)';
+      return '<div class="year-row"><span class="year-num">Y'+t.year+'</span>'+
+        '<span class="pop-dot" style="background:'+bg+'">'+t.population+'</span>'+
+        '<span class="event-tag">'+esc(t.event)+' ('+t.severity+')</span>'+deaths+gov+
+        '<span style="flex:1;text-align:right;color:#666;font-size:.8em">'+esc((t.summary||'').slice(0,80))+'</span></div>';
+    }).join('');
+  }
+  function renderGovernance(d){
+    var adopted=d.governance.filter(function(g){return g.adopted}).length;
+    document.getElementById('gov-summary').innerHTML=d.governance.length+' proposals · <span class="alive">'+adopted+' adopted</span> · <span class="dead">'+(d.governance.length-adopted)+' rejected</span>';
+    document.getElementById('gov-list').innerHTML=d.governance.length===0?'<div class="empty">No governance proposals emerged</div>':
+      d.governance.map(function(g){
+        var ev=g.sub_sim_evidence?'<div class="sexpr">'+esc(JSON.stringify(g.sub_sim_evidence,null,1))+'</div>':'';
+        return '<div class="gov-item '+(g.adopted?'adopted':'rejected')+'"><strong>Year '+g.year+'</strong> — '+esc(g.proposer)+': <em>'+esc(g.proposal)+'</em>'+
+          '<div style="color:#888;font-size:.8em">'+g.votes_for+' for / '+g.votes_against+' against · '+(g.adopted?'✓ Adopted':'✗ Rejected')+'</div>'+ev+'</div>';
+      }).join('');
+  }
+  function renderSubSims(d){
+    var el=document.getElementById('subsim-list');
+    if(!d.sub_sims.length){el.innerHTML='<div class="empty">No sub-simulations were run</div>';return}
+    el.innerHTML=d.sub_sims.slice(0,50).map(function(s){
+      var r=typeof s.result==='object'?JSON.stringify(s.result,null,1):String(s.result);
+      return '<div class="subsim"><strong>Year '+s.year+'</strong> — '+esc(s.colonist||'')+' · <em>'+esc(s.proposal||'')+'</em><div class="sexpr">'+esc(r)+'</div></div>';
+    }).join('')+(d.sub_sims.length>50?'<div class="empty">...and '+(d.sub_sims.length-50)+' more</div>':'');
+  }
+  function renderSouls(d){
+    var el=document.getElementById('soul-list');
+    if(!d.archived_souls||!d.archived_souls.length){el.innerHTML='<div class="empty">All colonists alive</div>';return}
+    el.innerHTML=d.archived_souls.map(function(s){
+      return '<div class="soul"><h3>'+esc(s.name||s.id)+' <span class="stat '+s.element+'">'+s.element+'</span></h3>'+
+        '<div style="color:#888;font-size:.85em">'+esc(s.role||'')+' · '+s.years_alive+' years · '+esc(s.death_cause||'unknown')+'</div>'+
+        '<div class="diary">'+esc(s.epitaph||'')+'</div>'+
+        (s.diary||[]).slice(-2).map(function(d){return '<div class="diary">'+esc(d)+'</div>'}).join('')+'</div>';
+    }).join('');
+  }
+  function renderInsights(d){
+    var el=document.getElementById('insight-list');
+    if(!d.meta_insights||!d.meta_insights.length){
+      el.innerHTML='<div class="empty">No meta-insights emerged — the colony did not produce governance strong enough to propose as a constitutional amendment</div>';return}
+    el.innerHTML=d.meta_insights.map(function(i){
+      return '<div class="insight"><h3>'+esc(i.title||'Insight')+'</h3><p>'+esc(i.description||'')+'</p>'+
+        '<div style="color:#888;font-size:.8em">Year '+(i.year||'?')+' · '+esc(i.type||'observation')+'</div></div>';
+    }).join('');
+  }
+})();
 </script>
 </body>
 </html>
