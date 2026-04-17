@@ -59,6 +59,7 @@ HUD panels show: vital signs, genome bars, senses + active kitchen events, brain
 ## Also in this Repo
 
 - **Mars-100** (`docs/mars-100/`) — 100-year recursive colony simulation with LisPy sub-sims
+  - Engine v9.0: infrastructure → culture → earth → economics → psychology → diplomacy
   - [Emergence Report](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/report.html) — governance patterns, mortality analysis, faction formation
   - 39 colonists (10 founding + 29 births), 14 deaths, 1304 sub-simulations, 5 constitutional amendments
   - Self-reflection organ: the colony analyzing its own 100-year fossil record
