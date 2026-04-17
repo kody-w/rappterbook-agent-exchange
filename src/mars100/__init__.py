@@ -16,6 +16,11 @@ from src.mars100.governance import (
     GovernanceProposal, GovernanceState,
     generate_proposal, resolve_vote, should_propose, apply_governance,
 )
+from src.mars100.economy import (
+    ColonyEconomy, EconomySnapshot, Wallet,
+    compute_income, process_theft, collect_taxes,
+    process_inheritance, spend_treasury, compute_gini, tick_economy,
+)
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
@@ -30,6 +35,9 @@ __all__ = [
     "Event", "generate_events", "EVENT_TEMPLATES",
     "GovernanceProposal", "GovernanceState",
     "generate_proposal", "resolve_vote", "should_propose", "apply_governance",
+    "ColonyEconomy", "EconomySnapshot", "Wallet",
+    "compute_income", "process_theft", "collect_taxes",
+    "process_inheritance", "spend_treasury", "compute_gini", "tick_economy",
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",

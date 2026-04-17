@@ -94,6 +94,7 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    parent_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -103,6 +104,7 @@ class Colonist:
             "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
+            "parent_ids": self.parent_ids,
         }
         if self.death_year is not None:
             d["death_year"] = self.death_year
@@ -123,6 +125,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            parent_ids=d.get("parent_ids", []),
         )
 
     def is_active(self) -> bool:
@@ -172,6 +175,7 @@ class Colonist:
         bindings["element"] = self.element
         bindings["alive"] = self.alive
         bindings["memory-count"] = len(self.memories)
+        bindings["wealth"] = 0.0  # placeholder; engine overrides with real wallet value
         return bindings
 
 
@@ -263,4 +267,5 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
+        parent_ids=[parent_a.id, parent_b.id],
     )
