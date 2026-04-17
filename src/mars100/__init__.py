@@ -26,6 +26,11 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.memory_ecology import (
+    CulturalMemory, MemoryPool,
+    event_to_theme, memory_action_bias, memory_vote_bias,
+    inherit_cultural_memory,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +50,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "CulturalMemory", "MemoryPool",
+    "event_to_theme", "memory_action_bias", "memory_vote_bias",
+    "inherit_cultural_memory",
 ]
