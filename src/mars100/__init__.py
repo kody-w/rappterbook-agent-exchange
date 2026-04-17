@@ -26,6 +26,18 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.diplomacy import (
+    Faction, Pact, DiplomacyState, DiplomacyYearResult,
+    detect_factions, manage_pacts, compute_action_modifiers,
+    tick_diplomacy, check_crisis, STAT_TO_FACTION,
+    CRISIS_THRESHOLD,
+)
+from src.mars100.counterfactual import (
+    CounterfactualResult, TimelineDelta,
+    branch_engine, collect_checkpoints, apply_intervention,
+    run_forward, compare_timelines, run_counterfactual,
+    generate_counterfactuals, run_all_counterfactuals,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +57,12 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "CounterfactualResult", "TimelineDelta",
+    "branch_engine", "collect_checkpoints", "apply_intervention",
+    "run_forward", "compare_timelines", "run_counterfactual",
+    "generate_counterfactuals", "run_all_counterfactuals",
+    "Faction", "Pact", "DiplomacyState", "DiplomacyYearResult",
+    "detect_factions", "manage_pacts", "compute_action_modifiers",
+    "tick_diplomacy", "check_crisis", "STAT_TO_FACTION",
+    "CRISIS_THRESHOLD",
 ]

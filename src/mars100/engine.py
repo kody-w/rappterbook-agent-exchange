@@ -29,6 +29,7 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.diplomacy import DiplomacyState, tick_diplomacy
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +58,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +75,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
         }
 
 
@@ -93,6 +96,7 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -114,6 +118,7 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +139,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.diplomacy_state = DiplomacyState()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -144,8 +150,9 @@ class Mars100Engine:
     def _active_ids(self) -> list[str]:
         return [c.id for c in self._active_colonists()]
 
-    def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
-        """Choose an action for a colonist based on personality and events."""
+    def _choose_action(self, colonist: Colonist, events: list[Event],
+                       modifiers: dict[str, float] | None = None) -> str:
+        """Choose an action for a colonist based on personality, events, and diplomacy."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
@@ -197,6 +204,12 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Apply diplomacy modifiers
+        if modifiers:
+            for act, mult in modifiers.items():
+                if act in weights:
+                    weights[act] = max(0.01, weights[act] * mult)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -465,11 +478,18 @@ class Mars100Engine:
                 valence = -ev.severity if ev.effects.get("morale", 0) < 0 else ev.severity * 0.5
                 colonist.add_memory(self.year, ev.description, valence)
 
+        # Diplomacy: detect factions, manage pacts, compute action modifiers
+        diplo_result = tick_diplomacy(
+            self.diplomacy_state, active, self.resources, self.year, self.rng,
+        )
+        diplo_mods = diplo_result.action_modifiers
+
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
         subsim_log: list[SubSimResult] = []
         for colonist in active:
-            action = self._choose_action(colonist, events)
+            action = self._choose_action(colonist, events,
+                                         modifiers=diplo_mods.get(colonist.id))
             actions[colonist.id] = action
             colonist.evolve_skills(action, self.rng)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
@@ -586,6 +606,7 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplomacy_state.summary(self.year),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +639,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplomacy_state.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
