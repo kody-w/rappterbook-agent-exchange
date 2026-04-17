@@ -245,3 +245,183 @@ class TestSimulation:
     def test_history_length_matches_years(self):
         r = run_simulation(years=20, seed=42)
         assert len(r["deltas"]) == r["summary"]["years_survived"]
+
+
+# ----------- New tests for evolution features -----------
+
+from src.mars100 import compute_value_convergence, spawn_deep_subsim
+
+
+class TestValueConvergence:
+    """Value convergence tracking — measures stat divergence across the population."""
+
+    def test_convergence_returns_dict(self):
+        colony = create_colony(seed=42)
+        result = compute_value_convergence(colony)
+        assert isinstance(result, dict)
+        assert "per_stat" in result and "score" in result and "n" in result
+
+    def test_convergence_per_stat_keys(self):
+        colony = create_colony(seed=42)
+        result = compute_value_convergence(colony)
+        for stat in STAT_NAMES:
+            assert stat in result["per_stat"]
+            assert isinstance(result["per_stat"][stat], float)
+            assert result["per_stat"][stat] >= 0
+
+    def test_convergence_score_non_negative(self):
+        colony = create_colony(seed=42)
+        result = compute_value_convergence(colony)
+        assert result["score"] >= 0.0
+
+    def test_convergence_with_identical_colonists(self):
+        colony = create_colony(seed=42)
+        # Make all colonists identical
+        template = colony["colonists"][0]["stats"].copy()
+        for c in colony["colonists"]:
+            c["stats"] = template.copy()
+        result = compute_value_convergence(colony)
+        assert result["score"] == 0.0
+
+    def test_convergence_with_one_alive(self):
+        colony = create_colony(seed=42)
+        for c in colony["colonists"][1:]:
+            c["alive"] = False
+        result = compute_value_convergence(colony)
+        assert result["score"] == 0.0
+        assert result["n"] == 1
+
+    def test_convergence_in_delta(self):
+        colony = create_colony(seed=42)
+        delta = tick_year(colony, 1, 42)
+        assert "value_convergence" in delta
+        assert delta["value_convergence"]["n"] >= 1
+
+    def test_convergence_in_summary(self):
+        r = run_simulation(years=10, seed=42)
+        assert "convergence_curve" in r["summary"]
+        assert len(r["summary"]["convergence_curve"]) == r["summary"]["years_survived"]
+        for score in r["summary"]["convergence_curve"]:
+            assert isinstance(score, (int, float)) and score >= 0
+
+    def test_convergence_curve_bounded(self):
+        """Convergence score should be bounded — max std dev is 50 for 0-100 stats."""
+        r = run_simulation(years=50, seed=42)
+        for score in r["summary"]["convergence_curve"]:
+            assert score < 60, f"Convergence score {score} seems unreasonably high"
+
+
+class TestDeepSubSims:
+    """Deep sub-simulations (depth 2-3) for skilled colonists."""
+
+    def test_deep_subsim_returns_list(self):
+        colony = create_colony(seed=42)
+        event = EVENTS[0]
+        result = spawn_deep_subsim(colony["colonists"][0], colony, event, 1, 42)
+        assert isinstance(result, list)
+
+    def test_deep_subsim_low_skill_returns_empty(self):
+        colony = create_colony(seed=42)
+        c = colony["colonists"][0]
+        c["skills"]["coding"] = 5
+        c["stats"]["improvisation"] = 5
+        result = spawn_deep_subsim(c, colony, EVENTS[0], 1, 42)
+        assert result == []
+
+    def test_deep_subsim_high_skill_returns_entries(self):
+        colony = create_colony(seed=42)
+        c = colony["colonists"][0]
+        c["skills"]["coding"] = 70
+        c["stats"]["improvisation"] = 60
+        c["sub_sims_run"] = 0
+        result = spawn_deep_subsim(c, colony, EVENTS[0], 50, 42)
+        assert len(result) >= 1
+        assert result[0]["depth"] == 2
+        assert c["sub_sims_run"] >= 1
+
+    def test_depth_3_requires_veteran(self):
+        colony = create_colony(seed=42)
+        c = colony["colonists"][0]
+        c["skills"]["coding"] = 70
+        c["stats"]["improvisation"] = 60
+        c["stats"]["faith"] = 60
+        c["year_born"] = 0
+        c["sub_sims_run"] = 0
+        # Year 10 — not veteran enough (need 20+ years alive)
+        result = spawn_deep_subsim(c, colony, EVENTS[0], 10, 42)
+        depth_3 = [s for s in result if s.get("depth") == 3]
+        assert len(depth_3) == 0
+
+    def test_depth_3_veteran_colonist(self):
+        colony = create_colony(seed=42)
+        c = colony["colonists"][0]
+        c["skills"]["coding"] = 70
+        c["stats"]["improvisation"] = 60
+        c["stats"]["faith"] = 60
+        c["stats"]["resolve"] = 80
+        c["stats"]["empathy"] = 50
+        c["year_born"] = 0
+        c["sub_sims_run"] = 0
+        result = spawn_deep_subsim(c, colony, EVENTS[0], 50, 42)
+        depth_3 = [s for s in result if s.get("depth") == 3]
+        assert len(depth_3) == 1
+        assert "meta_insight" in depth_3[0]
+
+    def test_deep_sims_in_tick(self):
+        """Deep sims should appear in tick deltas after year 1."""
+        colony = create_colony(seed=42)
+        # Boost several colonists to trigger deep sims
+        for c in colony["colonists"][:3]:
+            c["skills"]["coding"] = 65
+            c["stats"]["improvisation"] = 55
+        delta = tick_year(colony, 5, 42)
+        deep = [s for s in delta["sub_sims"] if s.get("depth", 1) >= 2]
+        assert len(deep) >= 1, "Expected at least one deep sub-sim with boosted colonists"
+
+    def test_deep_sims_in_summary(self):
+        r = run_simulation(years=10, seed=42)
+        assert "deep_sub_simulations" in r["summary"]
+        assert isinstance(r["summary"]["deep_sub_simulations"], int)
+
+    def test_meta_insights_in_summary(self):
+        r = run_simulation(years=10, seed=42)
+        assert "depth_3_meta_insights" in r["summary"]
+        assert isinstance(r["summary"]["depth_3_meta_insights"], list)
+
+
+class TestMetaInsights:
+    """Meta-insight extraction from depth-3 sub-simulations."""
+
+    def test_extract_meta_insight_from_valid(self):
+        from src.mars100.sim import _extract_meta_insight
+        result = ["depth-3", 3, 5000.0, "Governance works best when every voice is heard."]
+        assert _extract_meta_insight(result) is not None
+
+    def test_extract_meta_insight_short_string(self):
+        from src.mars100.sim import _extract_meta_insight
+        result = ["depth-3", 3, 5000.0, "short"]
+        assert _extract_meta_insight(result) is None
+
+    def test_extract_meta_insight_missing(self):
+        from src.mars100.sim import _extract_meta_insight
+        assert _extract_meta_insight(["depth-3", 3]) is None
+        assert _extract_meta_insight("not a list") is None
+        assert _extract_meta_insight(42) is None
+
+    def test_full_sim_meta_insights(self):
+        """Run a full sim with boosted colonists and verify meta-insights emerge."""
+        colony = create_colony(seed=42)
+        for c in colony["colonists"][:3]:
+            c["skills"]["coding"] = 70
+            c["stats"]["improvisation"] = 60
+            c["stats"]["faith"] = 60
+            c["stats"]["resolve"] = 80
+            c["stats"]["empathy"] = 50
+        deltas = []
+        for year in range(1, 60):
+            delta = tick_year(colony, year, 42)
+            deltas.append(delta)
+        all_d3 = [s for d in deltas for s in d["sub_sims"]
+                   if s.get("depth") == 3 and s.get("meta_insight")]
+        # With boosted colonists over 60 years, we should see meta-insights
+        assert len(all_d3) >= 1, "Expected at least 1 depth-3 meta-insight over 60 years"

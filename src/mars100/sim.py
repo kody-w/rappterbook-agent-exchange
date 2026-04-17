@@ -599,6 +599,112 @@ def check_births(colony: dict, rng: _random_mod.Random) -> list[str]:
     return effects
 
 
+def compute_value_convergence(colony: dict) -> dict:
+    """Measure how colonist stats converge or diverge across the population.
+
+    Returns a dict with per-stat standard deviation and an overall convergence
+    score (lower = more converged).
+    """
+    alive = [c for c in colony["colonists"] if c["alive"]]
+    if len(alive) < 2:
+        return {"per_stat": {s: 0.0 for s in STAT_NAMES}, "score": 0.0, "n": len(alive)}
+    per_stat: dict[str, float] = {}
+    for stat in STAT_NAMES:
+        vals = [c["stats"][stat] for c in alive]
+        mean = sum(vals) / len(vals)
+        variance = sum((v - mean) ** 2 for v in vals) / len(vals)
+        per_stat[stat] = math.sqrt(variance)
+    score = sum(per_stat.values()) / len(per_stat)
+    return {"per_stat": per_stat, "score": score, "n": len(alive)}
+
+
+def spawn_deep_subsim(colonist: dict, colony: dict, event: dict,
+                      year: int, base_seed: int,
+                      parent_result: str | None = None) -> list[dict]:
+    """Spawn depth-2 and depth-3 sub-simulations for skilled colonists.
+
+    Depth 2: colonist models a counter-scenario based on depth-1 result.
+    Depth 3: colonist meta-models — simulates what a sub-sim colonist would do.
+    Returns a list of sub-sim log entries.
+    """
+    log: list[dict] = []
+    # Only colonists with high coding + improvisation attempt deep sims
+    coding = colonist["skills"].get("coding", 0)
+    improv = colonist["stats"].get("improvisation", 0)
+    if coding < 40 or improv < 35:
+        return log
+
+    c_seed = base_seed * 10000 + year * 100 + colonist["id"] + 7777
+    env, ctx = make_env(seed=c_seed)
+    colonist_to_env(colonist, colony, event, env)
+
+    # Depth 2: counter-scenario
+    d2_expr = (
+        '(begin'
+        '  (define food-per-cap (/ colony-food (max 1 colony-population)))'
+        '  (define stress (- 100 colony-morale))'
+        '  (define survival-score (- food-per-cap (* stress 0.5)))'
+        '  (list "depth-2" survival-score food-per-cap stress))'
+    )
+    try:
+        result2 = run_in_env(d2_expr, env, ctx)
+        colonist["sub_sims_run"] += 1
+        log.append({
+            "colonist": colonist["name"],
+            "depth": 2,
+            "expression": d2_expr[:200],
+            "result": str(result2),
+            "year": year,
+        })
+    except (LispError, Exception):
+        return log
+
+    # Depth 3: only for veteran colonists (>30 years alive, high faith+improv)
+    faith = colonist["stats"].get("faith", 0)
+    years_alive = year - colonist.get("year_born", 0)
+    if faith < 50 or years_alive < 20 or coding < 55:
+        return log
+
+    d3_expr = (
+        '(begin'
+        '  (define sim-depth 3)'
+        '  (define self-model (* my-resolve my-empathy))'
+        '  (define meta-score (+ self-model (* my-faith 0.5)))'
+        '  (define awareness (if (> meta-score 2500)'
+        '    "The colonist at depth 3 realizes: governance works best when every voice runs its own simulation before voting."'
+        '    (if (> meta-score 1500)'
+        '      "Pattern detected: recursive modeling produces convergent outcomes regardless of initial conditions."'
+        '      "Sub-simulation resources insufficient for meta-insight.")))'
+        '  (list "depth-3" sim-depth meta-score awareness))'
+    )
+    try:
+        d3_env, d3_ctx = make_env(seed=c_seed + 3333)
+        colonist_to_env(colonist, colony, event, d3_env)
+        result3 = run_in_env(d3_expr, d3_env, d3_ctx)
+        colonist["sub_sims_run"] += 1
+        log.append({
+            "colonist": colonist["name"],
+            "depth": 3,
+            "expression": d3_expr[:200],
+            "result": str(result3),
+            "year": year,
+            "meta_insight": _extract_meta_insight(result3),
+        })
+    except (LispError, Exception):
+        pass
+
+    return log
+
+
+def _extract_meta_insight(result: object) -> str | None:
+    """Extract a meta-insight string from a depth-3 sub-sim result."""
+    if isinstance(result, list) and len(result) >= 4:
+        insight = result[3]
+        if isinstance(insight, str) and len(insight) > 30:
+            return insight
+    return None
+
+
 def evolve_relationships(colony: dict, rng: _random_mod.Random) -> None:
     """Evolve relationships based on proximity and shared experience."""
     alive = [c for c in colony["colonists"] if c["alive"]]
@@ -767,6 +873,13 @@ def tick_year(colony: dict, year: int, base_seed: int) -> dict:
                 except (LispError, Exception):
                     pass
 
+    # 2b. Deep sub-simulations (depth 2-3)
+    deep_logs: list[dict] = []
+    for c in alive:
+        if c["alive"]:
+            deep_logs.extend(spawn_deep_subsim(c, colony, event, year, base_seed))
+    delta["sub_sims"].extend(deep_logs)
+
     # 3. Governance
     delta["governance_results"] = resolve_proposals(colony, year_rng)
 
@@ -785,7 +898,10 @@ def tick_year(colony: dict, year: int, base_seed: int) -> dict:
     # 8. Meta-awareness check
     delta["meta_awareness"] = check_meta_awareness(colony, year)
 
-    # 9. Snapshot resources
+    # 9. Value convergence tracking
+    delta["value_convergence"] = compute_value_convergence(colony)
+
+    # 10. Snapshot resources
     delta["resources_snapshot"] = dict(colony["resources"])
 
     return delta
@@ -813,6 +929,10 @@ def run_simulation(years: int = 100, seed: int = 42) -> dict:
     total_deaths = sum(len([e for e in d["resource_effects"] if "dies" in e.lower()]) for d in deltas)
     total_proposals = sum(len(d["governance_results"]) for d in deltas)
     meta_events = [d["meta_awareness"] for d in deltas if d["meta_awareness"]]
+    convergence_curve = [d.get("value_convergence", {}).get("score", 0.0) for d in deltas]
+    deep_sims = [s for d in deltas for s in d["sub_sims"] if s.get("depth", 1) >= 2]
+    meta_insights = [s.get("meta_insight") for s in deep_sims
+                     if s.get("depth") == 3 and s.get("meta_insight")]
     return {
         "colony": colony,
         "deltas": deltas,
@@ -823,11 +943,14 @@ def run_simulation(years: int = 100, seed: int = 42) -> dict:
             "total_births": total_births,
             "total_deaths": total_deaths,
             "total_sub_simulations": total_subsims,
+            "deep_sub_simulations": len(deep_sims),
+            "depth_3_meta_insights": meta_insights,
             "total_proposals": total_proposals,
             "governance_system": colony["governance"]["system"],
             "constitutional_amendments": colony["governance"]["amendments"],
             "meta_awareness_events": meta_events,
             "population_curve": pop_curve,
             "morale_curve": morale_curve,
+            "convergence_curve": convergence_curve,
         },
     }

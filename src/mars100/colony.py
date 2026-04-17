@@ -137,6 +137,29 @@ class SocialGraph:
         return {a: {b: r.to_dict() for b, r in rels.items()} for a, rels in self.edges.items()}
 
 
+def compute_value_convergence(colonists: list) -> dict[str, float]:
+    """Measure stat standard deviation across living colonists.
+
+    Returns a dict mapping stat names to their std-dev.  Lower values mean
+    the population's values are converging; higher values mean diverging.
+    A convergence_score (mean of all std-devs) summarises the trend.
+    """
+    from src.mars100.colonist import STAT_NAMES
+    active = [c for c in colonists if getattr(c, "is_active", lambda: c.get("alive", True))()]
+    if len(active) < 2:
+        return {name: 0.0 for name in STAT_NAMES} | {"convergence_score": 0.0}
+    result: dict[str, float] = {}
+    for name in STAT_NAMES:
+        values = [getattr(c.stats, name) if hasattr(c, "stats") and hasattr(c.stats, name)
+                  else c.get("stats", {}).get(name, 0.5)
+                  for c in active]
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / len(values)
+        result[name] = variance ** 0.5
+    result["convergence_score"] = sum(v for k, v in result.items() if k != "convergence_score") / len(STAT_NAMES)
+    return result
+
+
 def tick_resources(resources: Resources, active_count: int,
                    skill_bonuses: dict[str, float],
                    event_effects: dict[str, float]) -> dict[str, float]:
