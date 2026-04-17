@@ -130,7 +130,7 @@ def main() -> None:
 
 
 def _compact_results(results: dict) -> dict:
-    """Build compact frontend data."""
+    """Build compact frontend data matching docs/mars-100/index.html schema."""
     deltas = results.get("deltas", [])
     return {
         "_meta": results["_meta"],
@@ -139,13 +139,14 @@ def _compact_results(results: dict) -> dict:
             {
                 "year": d["year"],
                 "event": d["event"]["type"],
+                "severity": round(d["event"].get("severity", 0.5), 3),
+                "morale": d["morale"],
                 "alive": d["alive_count"],
                 "dead": d["dead_count"],
-                "morale": d["morale"],
                 "terraforming": d["terraforming"],
+                "governance_form": d.get("governance_form", "anarchy"),
+                "value_convergence": round(d.get("value_convergence", 0.0), 4),
                 "sub_sims": d["sub_sims_this_year"],
-                "food": round(d["resources_snapshot"]["food"], 0),
-                "water": round(d["resources_snapshot"]["water"], 0),
             }
             for d in deltas
         ],

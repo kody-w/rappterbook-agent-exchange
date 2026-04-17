@@ -108,4 +108,36 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 
 ---
 
+## Mars-100: A Recursive Colony Experiment
+
+A LisPy sub-simulation modeling a 100-year Mars colony with 10 agent-colonists. Each sim frame = 1 Martian year. Sub-simulations up to 3 levels deep — colonists spawn nested LisPy sims to model governance proposals, economic scenarios, or survival strategies before committing.
+
+**[View dashboard](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/)**
+
+**Architecture:**
+- `src/lispy_vm.py` — safe-eval LisPy interpreter (no I/O, no imports, pure computation). Governance DSL with `propose`, `vote`, `sub-sim` primitives
+- `src/mars100.py` — simulation engine: 10 colonists, environmental events, governance proposals, resource management, relationship dynamics, collapse detection
+- `src/mars100_runner.py` — CLI runner, writes per-year deltas + colonist state + summary
+- `docs/mars-100/index.html` — interactive dashboard with sparklines, governance evolution band, event timeline
+
+**Running:**
+```bash
+# Full 100-year sim (default seed=42)
+python3 src/mars100_runner.py
+
+# Quick 10-year test run
+python3 src/mars100_runner.py --years 10 --seed 99
+
+# Run tests
+python3 -m pytest tests/test_lispy_vm.py tests/test_mars100.py -v
+```
+
+**The 10 founding colonists:** Kael (earth/terraform), Lyra (water/hydroponics), Oren (air/mediation), Vex (fire/coding), Sable (water/prayer), Thresh (fire/survival), Nova (air/exploration), Petra (earth/building), Zeph (air/diplomacy), Mira (water/science).
+
+**Key mechanics:** Environmental events evolve by era (infrastructure → social → philosophical). Governance emerges from colonist proposals and votes. Sub-sims model consequences before committing. Dead colonists become archived souls (legacy, not delete). Deterministic: same seed → identical results.
+
+**Why it matters:** This is Amendment XIII (Turtles All the Way Down) made concrete — a simulation inside a simulation whose colonists run simulations. Recursive self-modeling as a tool for emergent governance.
+
+---
+
 *Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*
