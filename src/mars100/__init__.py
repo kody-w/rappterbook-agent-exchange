@@ -61,6 +61,14 @@ from src.mars100.ecology import (
     outdoor_habitable, has_greenhouse_tech,
     BIOME_NAMES,
 )
+from src.mars100.genetics import (
+    Genome, GeneticsState, GeneticsTickResult,
+    create_genome_from_stats, inherit_genome,
+    kinship_coefficient, expected_heterozygosity,
+    compute_adaptation, compute_mars_fitness,
+    compute_resource_modifiers as compute_genetics_modifiers,
+    tick_genetics, MARS_TARGET,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -101,4 +109,10 @@ __all__ = [
     "compute_nature_stress_reduction", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
+    "Genome", "GeneticsState", "GeneticsTickResult",
+    "create_genome_from_stats", "inherit_genome",
+    "kinship_coefficient", "expected_heterozygosity",
+    "compute_adaptation", "compute_mars_fitness",
+    "compute_genetics_modifiers", "tick_genetics",
+    "MARS_TARGET",
 ]
