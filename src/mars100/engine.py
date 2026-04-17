@@ -29,6 +29,9 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.diplomacy import (
+    ActionOutcome, DiplomacyState, tick_diplomacy,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +60,7 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    diplomacy_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +77,7 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "diplomacy_events": self.diplomacy_events,
         }
 
 
@@ -93,10 +98,11 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -108,12 +114,16 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_factions": len(self.diplomacy.get("factions", [])),
+                "total_treaties": len(self.diplomacy.get("treaties", [])),
+                "total_betrayals": len(self.diplomacy.get("betrayals", [])),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +144,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.diplomacy = DiplomacyState()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -537,15 +548,25 @@ class Mars100Engine:
 
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
+        action_outcomes: list[ActionOutcome] = []
         for cid, action in actions.items():
+            outcome = ActionOutcome(actor_id=cid, action=action)
             if action == "cooperate":
                 partner = self.social.most_trusted_by(cid, active_ids)
                 if partner:
                     self.social.update_from_cooperation(cid, partner, self.rng)
+                    outcome.target_id = partner
             if action == "sabotage":
                 victim = self.rng.choice(active_ids) if active_ids else None
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
+                    outcome.target_id = victim
+            action_outcomes.append(outcome)
+
+        # Diplomacy: factions, treaties, betrayals
+        diplo_events = tick_diplomacy(self.diplomacy, self.colonists,
+                                      action_outcomes, self.social,
+                                      self.year, self.rng)
 
         year_births = self._check_births()
 
@@ -586,12 +607,14 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy_events=[e.to_dict() for e in diplo_events],
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_betrayals = total_treaties = total_factions = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -601,6 +624,13 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            for de in result.diplomacy_events:
+                if de["event_type"] == "betrayal":
+                    total_betrayals += 1
+                elif de["event_type"] == "treaty_signed":
+                    total_treaties += 1
+                elif de["event_type"] == "faction_formed":
+                    total_factions += 1
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -618,6 +648,7 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplomacy.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
