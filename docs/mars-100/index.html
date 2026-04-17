@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mars-100: Recursive Colony Simulation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.5}
+.container{max-width:1100px;margin:0 auto;padding:20px}
+h1{color:#ff6b35;font-size:2rem;margin-bottom:4px}
+h2{color:#58a6ff;font-size:1.2rem;margin:24px 0 8px}
+.subtitle{color:#8b949e;font-size:0.95rem;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
+.card .label{color:#8b949e;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px}
+.card .value{font-size:1.8rem;font-weight:700;margin-top:4px}
+.card .detail{color:#8b949e;font-size:0.85rem;margin-top:4px}
+.green{color:#3fb950}.red{color:#f85149}.yellow{color:#d29922}.blue{color:#58a6ff}.purple{color:#bc8cff}
+.chart{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px;overflow-x:auto}
+.chart svg{width:100%;height:auto}
+.bar-row{display:flex;align-items:center;margin-bottom:6px}
+.bar-label{width:120px;font-size:0.8rem;color:#8b949e;flex-shrink:0}
+.bar{height:18px;border-radius:3px;min-width:2px;transition:width 0.3s}
+.bar-value{margin-left:8px;font-size:0.8rem;color:#c9d1d9}
+.timeline{position:relative;padding-left:24px}
+.timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:#30363d}
+.event{position:relative;margin-bottom:12px;padding:8px 12px;background:#161b22;border:1px solid #30363d;border-radius:6px}
+.event::before{content:'';position:absolute;left:-20px;top:14px;width:10px;height:10px;border-radius:50%;background:#30363d}
+.event.death::before{background:#f85149}
+.event.gov-change::before{background:#bc8cff}
+.event.meta::before{background:#d29922}
+.event .year-tag{color:#58a6ff;font-weight:600;font-size:0.85rem}
+.event .text{font-size:0.85rem;margin-top:2px}
+.gov-band{display:flex;height:28px;border-radius:4px;overflow:hidden;margin:8px 0}
+.gov-segment{display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:600;color:#0d1117;min-width:20px}
+.gov-anarchy{background:#f85149}
+.gov-consensus{background:#3fb950}
+.gov-council{background:#58a6ff}
+.gov-elected_democracy{background:#bc8cff}
+.gov-autocracy{background:#d29922}
+.gov-theocracy{background:#da3633}
+.gov-technocracy{background:#1f6feb}
+.gov-commune{background:#a371f7}
+.sparkline{display:flex;align-items:end;height:60px;gap:1px}
+.spark-bar{background:#58a6ff;border-radius:1px 1px 0 0;min-width:2px;flex:1}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:0.8rem}
+.legend-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+footer{text-align:center;color:#484f58;font-size:0.75rem;margin-top:40px;padding:20px}
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <h1>🔴 Mars-100</h1>
+  <p class="subtitle">Recursive Colony Simulation — 100 Martian Years, 10 Colonists, LisPy Sub-Sims</p>
+  <div id="loading">Loading simulation data...</div>
+</div>
+<script>
+(function(){
+  const DATA_URL = 'data.json';
+
+  async function load() {
+    try {
+      const resp = await fetch(DATA_URL);
+      const data = await resp.json();
+      render(data);
+    } catch(e) {
+      document.getElementById('loading').textContent = 'Failed to load data.json: ' + e.message;
+    }
+  }
+
+  function render(data) {
+    const app = document.getElementById('app');
+    const s = data.summary;
+    const t = data.timeline;
+
+    // Remove loading
+    document.getElementById('loading').remove();
+
+    // Stats cards
+    app.innerHTML += `
+      <div class="grid">
+        <div class="card">
+          <div class="label">Years Simulated</div>
+          <div class="value blue">${s.years_simulated}</div>
+          <div class="detail">${s.collapsed ? '⚠ Colony collapsed' : '✓ Colony survived'}</div>
+        </div>
+        <div class="card">
+          <div class="label">Colonists</div>
+          <div class="value ${s.alive_count >= 6 ? 'green' : 'yellow'}">${s.alive_count} alive</div>
+          <div class="detail">${s.dead_count} died — ${s.deaths.map(d => d.name).join(', ') || 'none'}</div>
+        </div>
+        <div class="card">
+          <div class="label">Final Governance</div>
+          <div class="value purple">${(s.final_governance_form || '?').replace('_', ' ')}</div>
+          <div class="detail">${s.total_proposals} proposals, ${s.passed_proposals} passed</div>
+        </div>
+        <div class="card">
+          <div class="label">Sub-Simulations</div>
+          <div class="value yellow">${s.total_sub_sims}</div>
+          <div class="detail">${s.meta_aware_colonists} colonist${s.meta_aware_colonists !== 1 ? 's' : ''} became meta-aware</div>
+        </div>
+        <div class="card">
+          <div class="label">Terraforming</div>
+          <div class="value green">${(s.terraforming_progress * 100).toFixed(1)}%</div>
+          <div class="detail">Progress toward habitable Mars</div>
+        </div>
+        <div class="card">
+          <div class="label">Value Convergence</div>
+          <div class="value blue">${s.value_convergence ? s.value_convergence.convergence_score.toFixed(4) : '?'}</div>
+          <div class="detail">${s.value_convergence && s.value_convergence.convergence_score < 0.15 ? '↓ Values converging' : '↑ Values diverging'}</div>
+        </div>
+      </div>
+    `;
+
+    // Governance timeline band
+    const govTimeline = s.governance_form_timeline || [];
+    if (govTimeline.length > 0) {
+      let segments = [];
+      let prev = govTimeline[0].form;
+      let count = 1;
+      for (let i = 1; i < govTimeline.length; i++) {
+        if (govTimeline[i].form === prev) {
+          count++;
+        } else {
+          segments.push({form: prev, years: count});
+          prev = govTimeline[i].form;
+          count = 1;
+        }
+      }
+      segments.push({form: prev, years: count});
+      const total = govTimeline.length;
+
+      let bandHtml = '<h2>Governance Evolution</h2><div class="gov-band">';
+      for (const seg of segments) {
+        const pct = (seg.years / total * 100).toFixed(1);
+        bandHtml += `<div class="gov-segment gov-${seg.form}" style="width:${pct}%" title="${seg.form} (${seg.years} years)">${seg.years > 5 ? seg.form.replace('_', ' ') : ''}</div>`;
+      }
+      bandHtml += '</div>';
+      bandHtml += '<div class="legend">';
+      for (const seg of segments) {
+        bandHtml += `<div class="legend-item"><div class="legend-dot gov-${seg.form}"></div>${seg.form.replace('_', ' ')} (${seg.years}y)</div>`;
+      }
+      bandHtml += '</div>';
+      app.innerHTML += bandHtml;
+    }
+
+    // Population + Morale sparklines
+    app.innerHTML += '<h2>Population Over Time</h2>';
+    const maxAlive = Math.max(...t.map(d => d.alive));
+    let popHtml = '<div class="chart"><div class="sparkline">';
+    for (const d of t) {
+      const h = Math.max(2, (d.alive / maxAlive) * 60);
+      const color = d.alive <= 3 ? '#f85149' : d.alive <= 6 ? '#d29922' : '#3fb950';
+      popHtml += `<div class="spark-bar" style="height:${h}px;background:${color}" title="Year ${d.year}: ${d.alive} alive"></div>`;
+    }
+    popHtml += '</div></div>';
+    app.innerHTML += popHtml;
+
+    app.innerHTML += '<h2>Morale Over Time</h2>';
+    let moraleHtml = '<div class="chart"><div class="sparkline">';
+    for (const d of t) {
+      const h = Math.max(1, d.morale * 60);
+      const color = d.morale < 0.2 ? '#f85149' : d.morale < 0.5 ? '#d29922' : '#3fb950';
+      moraleHtml += `<div class="spark-bar" style="height:${h}px;background:${color}" title="Year ${d.year}: morale ${d.morale}"></div>`;
+    }
+    moraleHtml += '</div></div>';
+    app.innerHTML += moraleHtml;
+
+    // Value convergence sparkline
+    const convTimeline = s.convergence_timeline || [];
+    if (convTimeline.length > 0) {
+      app.innerHTML += '<h2>Value Convergence (lower = more aligned)</h2>';
+      const maxConv = Math.max(...convTimeline.map(d => d.score), 0.01);
+      let convHtml = '<div class="chart"><div class="sparkline">';
+      for (const d of convTimeline) {
+        const h = Math.max(1, (d.score / maxConv) * 60);
+        convHtml += `<div class="spark-bar" style="height:${h}px;background:#a371f7" title="Year ${d.year}: ${d.score.toFixed(4)}"></div>`;
+      }
+      convHtml += '</div></div>';
+      app.innerHTML += convHtml;
+    }
+
+    // Key events timeline
+    app.innerHTML += '<h2>Key Events</h2>';
+    let eventsHtml = '<div class="timeline">';
+    const deaths = new Set((s.deaths || []).map(d => d.year));
+    let prevGov = null;
+    for (const d of t) {
+      const govChanged = d.governance_form !== prevGov;
+      const hasDeath = deaths.has(d.year);
+      const isMeta = d.event === 'meta_awareness';
+      const isAlien = d.event === 'alien_signal';
+      const isCrisis = d.event.includes('crisis') || d.event === 'epidemic';
+
+      if (govChanged || hasDeath || isMeta || isAlien || (isCrisis && d.severity > 0.5)) {
+        let cls = hasDeath ? 'death' : govChanged ? 'gov-change' : isMeta ? 'meta' : '';
+        let text = '';
+        if (govChanged) text += `🏛 Governance → <strong>${d.governance_form.replace('_', ' ')}</strong>. `;
+        if (hasDeath) {
+          const deadThisYear = (s.deaths || []).filter(dd => dd.year === d.year);
+          text += deadThisYear.map(dd => `💀 ${dd.name} died (${dd.cause})`).join('. ') + '. ';
+        }
+        if (isMeta) text += '🧠 Meta-awareness event — a colonist questions the nature of their reality. ';
+        if (isAlien) text += '👽 Alien signal detected! ';
+        if (isCrisis) text += `⚠ ${d.event.replace('_', ' ')} (severity ${d.severity.toFixed(2)}). `;
+        text += `Morale: ${d.morale}, Alive: ${d.alive}`;
+
+        eventsHtml += `<div class="event ${cls}"><span class="year-tag">Year ${d.year}</span><div class="text">${text}</div></div>`;
+      }
+      prevGov = d.governance_form;
+    }
+    eventsHtml += '</div>';
+    app.innerHTML += eventsHtml;
+
+    // Deaths table
+    if (s.deaths && s.deaths.length > 0) {
+      app.innerHTML += '<h2>Memorial — Archived Souls</h2>';
+      let deathHtml = '<div class="chart"><table style="width:100%;font-size:0.85rem"><tr style="color:#8b949e"><th style="text-align:left;padding:4px">Name</th><th>Year</th><th>Cause</th></tr>';
+      for (const d of s.deaths) {
+        deathHtml += `<tr><td style="padding:4px">${d.name}</td><td style="text-align:center">${d.year}</td><td class="red">${d.cause}</td></tr>`;
+      }
+      deathHtml += '</table></div>';
+      app.innerHTML += deathHtml;
+    }
+
+    // Footer
+    app.innerHTML += `<footer>
+      Mars-100 v${data._meta.version} — Seed ${data._meta.seed} — Generated ${new Date(data._meta.generated).toLocaleDateString()}<br>
+      Amendment XIII (Turtles All the Way Down) made concrete.
+    </footer>`;
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>
