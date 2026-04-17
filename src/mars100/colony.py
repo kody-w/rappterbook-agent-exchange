@@ -155,15 +155,21 @@ class SocialGraph:
 
 def tick_resources(resources: Resources, active_count: int,
                    skill_bonuses: dict[str, float],
-                   event_effects: dict[str, float]) -> dict[str, float]:
+                   event_effects: dict[str, float],
+                   infra_modifiers: dict[str, float] | None = None) -> dict[str, float]:
     """Advance resources by one year. Returns delta dict for conservation tracking."""
+    mods = infra_modifiers or {}
     before = resources.to_dict()
     for name in RESOURCE_NAMES:
         current = getattr(resources, name)
-        production = BASE_PRODUCTION[name] * active_count * (1.0 + skill_bonuses.get(name, 0.0))
-        consumption = BASE_CONSUMPTION[name] * active_count
-        maintenance = MAINTENANCE_COST[name]
-        spoilage = current * SPOILAGE_RATE[name]
+        prod_mult = mods.get(f"{name}_production_mult", 1.0)
+        cons_mult = mods.get(f"{name}_consumption_mult", 1.0)
+        maint_mult = mods.get(f"{name}_maintenance_mult", 1.0)
+        spoil_mult = mods.get(f"{name}_spoilage_mult", 1.0)
+        production = BASE_PRODUCTION[name] * active_count * (1.0 + skill_bonuses.get(name, 0.0)) * prod_mult
+        consumption = BASE_CONSUMPTION[name] * active_count * cons_mult
+        maintenance = MAINTENANCE_COST[name] * maint_mult
+        spoilage = current * SPOILAGE_RATE[name] * spoil_mult
         event_delta = event_effects.get(name, 0.0)
         new_val = current + production - consumption - maintenance - spoilage + event_delta
         setattr(resources, name, new_val)
