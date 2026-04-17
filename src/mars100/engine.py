@@ -25,6 +25,11 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.culture import (
+    CulturalMemory, InteractionRecord, tick_culture,
+    cultural_action_modifiers, cultural_vote_modifier,
+    cultural_resource_bonuses, transmit_to_child, prune_dead_colonist,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +57,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    culture_summary: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +73,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "culture_summary": self.culture_summary,
         }
 
 
@@ -86,10 +93,12 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    total_memes_created: int = 0
+    final_active_memes: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,6 +110,8 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_memes_created": self.total_memes_created,
+                "final_active_memes": self.final_active_memes,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -125,6 +136,7 @@ class Mars100Engine:
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
+        self.culture = CulturalMemory()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -136,7 +148,7 @@ class Mars100Engine:
         return [c.id for c in self._active_colonists()]
 
     def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
-        """Choose an action for a colonist based on personality and events."""
+        """Choose an action for a colonist based on personality, events, and culture."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
@@ -148,6 +160,7 @@ class Mars100Engine:
             score = 0.5
 
         critical = self.resources.critical()
+        culture_mods = cultural_action_modifiers(self.culture, colonist.id)
         weights: dict[str, float] = {}
         for action in ACTIONS:
             w = 1.0
@@ -186,6 +199,11 @@ class Mars100Engine:
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
             weights[action] = max(0.01, w)
+
+        # Apply cultural modifiers (subtle bias, not override)
+        for action, mod in culture_mods.items():
+            if action in weights:
+                weights[action] = max(0.01, weights[action] + mod)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -387,7 +405,43 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Cultural influence on governance votes
+        score += cultural_vote_modifier(self.culture, colonist.id, proposal.gov_type)
         return score + self.rng.gauss(0, 0.15) > 0.5
+
+    def _build_interactions(self, actions: dict[str, str],
+                            active: list[Colonist],
+                            deaths: list[dict]) -> list[InteractionRecord]:
+        """Build structured interaction records from this year's actions."""
+        death_ids = {d["id"] for d in deaths}
+        records: list[InteractionRecord] = []
+        for colonist in active:
+            action = actions.get(colonist.id, "rest")
+            partner = None
+            if action == "cooperate":
+                partner = self.social.most_trusted_by(colonist.id, [c.id for c in active])
+            elif action == "sabotage":
+                candidates = [c.id for c in active if c.id != colonist.id]
+                partner = self.rng.choice(candidates) if candidates else None
+            # Determine outcome based on skill level
+            skill_map = {"terraform": "terraforming", "farm": "hydroponics",
+                         "code": "coding", "mediate": "mediation",
+                         "pray": "prayer", "sabotage": "sabotage"}
+            skill_name = skill_map.get(action)
+            outcome = "normal"
+            if skill_name:
+                skill_val = getattr(colonist.skills, skill_name, 0.0)
+                if skill_val > 0.7 and self.rng.random() < 0.15:
+                    outcome = "exceptional"
+            adjacent_death = None
+            if death_ids and self.rng.random() < 0.3:
+                adjacent_death = self.rng.choice(list(death_ids))
+            records.append(InteractionRecord(
+                colonist_id=colonist.id, action=action, partner_id=partner,
+                resource_contribution={}, outcome=outcome,
+                adjacent_death=adjacent_death,
+            ))
+        return records
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
         """Extract insights from deep sub-simulations (depth >= 2)."""
@@ -484,6 +538,10 @@ class Mars100Engine:
                 apply_governance(gov_proposal, self.governance, active_ids, self.rng)
 
         skill_bonuses = self._compute_skill_bonuses(actions)
+        # Cultural resource bonuses from innovations and songs
+        culture_bonuses = cultural_resource_bonuses(self.culture, active_ids)
+        for k, v in culture_bonuses.items():
+            skill_bonuses[k] = skill_bonuses.get(k, 0.0) + v
         event_effects: dict[str, float] = {}
         for ev in events:
             for k, v in ev.effects.items():
@@ -504,6 +562,10 @@ class Mars100Engine:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
         year_births = self._check_births()
+        # Vertical cultural transmission to newborns
+        for birth in year_births:
+            transmit_to_child(self.culture, birth.get("parents", []),
+                              birth["id"], self.rng)
 
         deaths: list[dict] = []
         exiles: list[dict] = []
@@ -524,6 +586,14 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        # Build interaction records for culture engine
+        interactions = self._build_interactions(actions, active, deaths)
+        # Culture phase: create, transmit, forget memes
+        culture_summary = tick_culture(
+            self.culture, self.year, self._active_colonists(),
+            self.social, events, interactions, deaths, self.rng,
+        )
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
@@ -541,12 +611,14 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            culture_summary=culture_summary,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_memes = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +628,7 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_memes += result.culture_summary.get("memes_created", 0)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +645,8 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_memes_created=total_memes,
+            final_active_memes=self.culture.active_meme_count(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

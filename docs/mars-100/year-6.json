@@ -1,85 +1,978 @@
 {
   "year": 6,
-  "population": 11,
-  "event": {
-    "id": "earth_contact",
-    "desc": "Communication window with Earth opens",
-    "severity": 0.1
+  "events": [
+    {
+      "name": "phobos_transit",
+      "category": "cosmic",
+      "severity": 0.07425182519297871,
+      "description": "Double shadow: Phobos and Deimos transit simultaneously.",
+      "effects": {
+        "morale": 0.028712591259648937,
+        "faith_boost": 0.01722755475578936
+      }
+    },
+    {
+      "name": "colonist_conflict",
+      "category": "social",
+      "severity": 0.5198904738152205,
+      "description": "A bitter dispute over food rationing escalates to shouting.",
+      "effects": {
+        "morale": -0.20397809476304413,
+        "food": -0.030596714214456616
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "hoard",
+    "fen-marsh": "mediate",
+    "rust-vega": "explore",
+    "aura-kai": "mediate",
+    "dax-iron": "hoard",
+    "luna-tide": "code",
+    "grove-ash": "hoard",
+    "zeph-wind": "rest",
+    "ora-flame": "pray",
+    "pax-stone": "sabotage"
   },
-  "event_effects": [
-    "Morale +15 from Earth contact"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 28.6)"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 6,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 24.6)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 6,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.5195852845853621,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 26.4)"
+      "depth": 1,
+      "colonist_id": "ora-flame",
+      "year": 6,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "ora-flame",
+          "year": 6,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 20.6)"
+      "depth": 2,
+      "colonist_id": "ora-flame",
+      "year": 6,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 28.1)"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 21.6)"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 20.3)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 29.1)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 31.1)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 20.6)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 29.5)"
+      "depth": 1,
+      "colonist_id": "kira-sol",
+      "year": 6,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": {
+    "id": "prop-y6-council",
+    "year": 6,
+    "proposer_id": "kira-sol",
+    "gov_type": "council",
+    "parameters": {
+      "council_size": 3,
+      "term_years": 10
+    },
+    "rationale": "Elect a council of 3 for 10 years.",
+    "subsim_result": {
+      "depth": 1,
+      "colonist_id": "kira-sol",
+      "year": 6,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
+    },
+    "votes_for": [
+      "kira-sol",
+      "fen-marsh",
+      "aura-kai",
+      "dax-iron",
+      "luna-tide",
+      "grove-ash",
+      "zeph-wind",
+      "ora-flame",
+      "pax-stone"
+    ],
+    "votes_against": [
+      "rust-vega"
+    ],
+    "passed": true
+  },
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": 0.0,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.6026559740371051,
+  "governance_state": {
+    "gov_type": "council",
+    "leader_id": null,
+    "council_ids": [
+      "dax-iron",
+      "fen-marsh",
+      "luna-tide"
+    ],
+    "term_end_year": 16,
+    "ai_program": null,
+    "constitution": [
+      "Year 6: governance changed to council",
+      "Year 14: governance changed to lottery",
+      "Year 19: governance changed to consensus",
+      "Year 31: governance changed to council",
+      "Year 41: governance changed to consensus",
+      "Year 60: governance changed to lottery",
+      "Year 63: governance changed to council",
+      "Year 64: governance changed to anarchy",
+      "Year 65: governance changed to consensus",
+      "Year 68: governance changed to anarchy",
+      "Year 70: governance changed to dictator",
+      "Year 71: governance changed to anarchy",
+      "Year 74: governance changed to lottery",
+      "Year 77: governance changed to ai_governor",
+      "Year 86: governance changed to consensus",
+      "Year 90: governance changed to council"
+    ],
+    "history": [
+      {
+        "year": 6,
+        "from": "anarchy",
+        "to": "council",
+        "proposal_id": "prop-y6-council"
+      },
+      {
+        "year": 14,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y14-lottery"
+      },
+      {
+        "year": 19,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y19-consensus"
+      },
+      {
+        "year": 31,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y31-council"
+      },
+      {
+        "year": 41,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y41-consensus"
+      },
+      {
+        "year": 60,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y60-lottery"
+      },
+      {
+        "year": 63,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y63-council"
+      },
+      {
+        "year": 64,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y64-anarchy"
+      },
+      {
+        "year": 65,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y65-consensus"
+      },
+      {
+        "year": 68,
+        "from": "consensus",
+        "to": "anarchy",
+        "proposal_id": "prop-y68-anarchy"
+      },
+      {
+        "year": 70,
+        "from": "anarchy",
+        "to": "dictator",
+        "proposal_id": "prop-y70-dictator"
+      },
+      {
+        "year": 71,
+        "from": "dictator",
+        "to": "anarchy",
+        "proposal_id": "prop-y71-anarchy"
+      },
+      {
+        "year": 74,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y74-lottery"
+      },
+      {
+        "year": 77,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y77-ai_governor"
+      },
+      {
+        "year": 86,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y86-consensus"
+      },
+      {
+        "year": 90,
+        "from": "consensus",
+        "to": "council",
+        "proposal_id": "prop-y90-council"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.8618432924126415,
+        "improvisation": 0.3557362779334904,
+        "empathy": 0.4750621420388817,
+        "hoarding": 0.30454875732064657,
+        "faith": 0.10871091485036027,
+        "paranoia": 0.3028650842684088
+      },
+      "skills": {
+        "terraforming": 0.7082330006974364,
+        "hydroponics": 0.2,
+        "mediation": 0.5116193869280826,
+        "coding": 0.311494815583392,
+        "prayer": 0.027389477030490758,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.26441716857332953,
+        "improvisation": 0.5959059516485908,
+        "empathy": 0.9401971401535275,
+        "hoarding": 0.2504743217295967,
+        "faith": 0.6670262632506476,
+        "paranoia": 0.10118050166055612
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.8,
+        "mediation": 0.7220000214677044,
+        "coding": 0.1,
+        "prayer": 0.5077316684436477,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.6612746670448838,
+        "improvisation": 0.7097406899109164,
+        "empathy": 0.38256046353990586,
+        "hoarding": 0.6727494066695686,
+        "faith": 0.10205509794244122,
+        "paranoia": 0.5693865067060344
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.31301879086757045,
+        "mediation": 0.1,
+        "coding": 0.8051813819966115,
+        "prayer": 0.0,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.42559124526327025,
+        "improvisation": 0.8249399725278217,
+        "empathy": 0.8114018473366942,
+        "hoarding": 0.06657795655386584,
+        "faith": 0.9102110356861054,
+        "paranoia": 0.16761725243734954
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.901004946170284,
+        "coding": 0.5,
+        "prayer": 0.8101796602609385,
+        "sabotage": 0.019096518172034588
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.7538512696907038,
+        "improvisation": 0.25473721747481703,
+        "empathy": 0.27910225829882396,
+        "hoarding": 0.5747007949474341,
+        "faith": 0.13993460933775037,
+        "paranoia": 0.5603789828388505
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.12290586266871655,
+        "mediation": 0.0,
+        "coding": 0.2,
+        "prayer": 0.0,
+        "sabotage": 0.7048247472568447
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.4195852845853621,
+        "improvisation": 0.842738168620657,
+        "empathy": 0.4124004811426973,
+        "hoarding": 0.3883461389072017,
+        "faith": 0.35968719190985826,
+        "paranoia": 0.347407291226216
+      },
+      "skills": {
+        "terraforming": 0.6,
+        "hydroponics": 0.6065729200706192,
+        "mediation": 0.32571069908182715,
+        "coding": 0.9051429989694484,
+        "prayer": 0.1,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.6953576571872204,
+        "improvisation": 0.49975552550344504,
+        "empathy": 0.6729698864680027,
+        "hoarding": 0.7124532255083531,
+        "faith": 0.4517734262402494,
+        "paranoia": 0.2604683924627041
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.9,
+        "mediation": 0.4136925135687411,
+        "coding": 0.1,
+        "prayer": 0.20886726536602768,
+        "sabotage": 0.017185191111031513
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.4261364006142365,
+        "improvisation": 1.0,
+        "empathy": 0.3461088515932965,
+        "hoarding": 0.516471378656224,
+        "faith": 0.2910159744370205,
+        "paranoia": 0.6797050304348993
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.617450386743257,
+        "prayer": 0.11132534263166588,
+        "sabotage": 0.803989109172404
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.7107846003637966,
+        "improvisation": 0.4106785195395574,
+        "empathy": 0.7847147326511799,
+        "hoarding": 0.10466994391002787,
+        "faith": 0.8538450132615845,
+        "paranoia": 0.7776851895165194
+      },
+      "skills": {
+        "terraforming": 0.2175451400798039,
+        "hydroponics": 0.3159738239821859,
+        "mediation": 0.6084697885413977,
+        "coding": 0.0,
+        "prayer": 0.9027307977653165,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.6343163424700465,
+        "improvisation": 0.2882344579779795,
+        "empathy": 0.6148483857880999,
+        "hoarding": 0.4048301600167376,
+        "faith": 0.5618784316632055,
+        "paranoia": 0.4388252120303726
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.3110324080298366,
+        "mediation": 0.8032516880754808,
+        "coding": 0.4107648540909676,
+        "prayer": 0.3,
+        "sabotage": 0.03446061657981321
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 1,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.1421385300488067
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.013683718254907296
+        },
+        {
+          "year": 4,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.5797868447519678
+        },
+        {
+          "year": 5,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.42236707560919623
+        },
+        {
+          "year": 6,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.037125912596489355
+        },
+        {
+          "year": 6,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.5198904738152205
+        }
+      ]
+    }
+  ],
+  "convergence": {
+    "resolve": 0.17949558251185566,
+    "improvisation": 0.2447055384757776,
+    "empathy": 0.21394695340215233,
+    "hoarding": 0.21121590221235995,
+    "faith": 0.2830780762071669,
+    "paranoia": 0.2115520915676064,
+    "convergence_score": 0.2239990240628198
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Titan",
-      "entry": "Population: 11. Communication window with Earth opens. I spent the year on coding. Closest to Iris."
-    },
-    {
-      "colonist": "Selene",
-      "entry": "Another year. Communication window with Earth opens. The colony feels hopeful. My empathy grows stronger."
-    },
-    {
-      "colonist": "Phobos",
-      "entry": "Year 6 on Mars. Communication window with Earth opens. Morale is hopeful. We have 1174 food units left."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1173.7565625292812,
-    "water": 1370.0,
-    "power": 444.66497918741044,
-    "oxygen": 1020.4997879960617,
-    "materials": 888.090161606347,
-    "morale": 100
+  "culture_summary": {
+    "year": 6,
+    "memes_created": 2,
+    "transmissions": 9,
+    "memes_forgotten": 0,
+    "memes_pruned": 0,
+    "active_memes": 7,
+    "created_details": [
+      {
+        "id": "meme-5",
+        "meme_type": "story",
+        "content": "Year 6: The tale of colonist_conflict, as told by dax-iron",
+        "origin_colonist": "dax-iron",
+        "origin_year": 6,
+        "accuracy": 1.0,
+        "believers": [
+          "dax-iron"
+        ],
+        "influence": {
+          "pray": 0.02,
+          "mediate": 0.02
+        },
+        "generation": 0
+      },
+      {
+        "id": "meme-6",
+        "meme_type": "song",
+        "content": "Year 6: Ora Flame's hymn to the red sky",
+        "origin_colonist": "ora-flame",
+        "origin_year": 6,
+        "accuracy": 1.0,
+        "believers": [
+          "ora-flame"
+        ],
+        "influence": {
+          "medicine": 0.01
+        },
+        "generation": 0
+      }
+    ]
   }
 }

@@ -11,14 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.mars100 import run_simulation
+from src.mars100 import Mars100Engine
 
 
 def main() -> None:
@@ -37,78 +36,65 @@ def main() -> None:
     colonists_dir = docs_dir / "colonists"
     colonists_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Mars-100 — simulating {args.years} Martian years with seed {args.seed}")
+    print(f"Mars-100 v3.0 — simulating {args.years} Martian years (seed {args.seed})")
 
-    result = run_simulation(years=args.years, seed=args.seed)
-    colony = result["colony"]
-    deltas = result["deltas"]
-    summary = result["summary"]
+    engine = Mars100Engine(seed=args.seed, total_years=args.years)
+    result = engine.run()
+    data = result.to_dict()
+    summary = data["summary"]
 
     if not args.quiet:
-        for delta in deltas:
-            year = delta["year"]
-            pop = delta["population"]
-            event_id = delta["event"]["id"] if delta["event"] else "none"
-            if year % 10 == 0 or year <= 5:
-                gov = " ".join(f"[{g}]" for g in delta["governance_results"])
-                subsims = f" (sub-sims: {len(delta['sub_sims'])})" if delta["sub_sims"] else ""
-                meta = f" * {delta['meta_awareness'][:60]}..." if delta["meta_awareness"] else ""
-                print(f"  Year {year:>3}/{args.years}  Pop: {pop:>2}  Event: {event_id:<20}{subsims}{gov}{meta}")
+        for yr in data["years"]:
+            year_num = yr["year"]
+            pop = len(yr.get("colonist_snapshots", []))
+            events = yr.get("events", [])
+            event_id = events[0].get("name", events[0].get("id", "?")) if events else "none"
+            if year_num % 10 == 0 or year_num <= 5:
+                subsims = f" (sub-sims: {len(yr.get('subsim_log', []))})" if yr.get("subsim_log") else ""
+                culture = ""
+                cs = yr.get("culture_summary", {})
+                if cs.get("memes_created"):
+                    culture = f" 🧬{cs['memes_created']}new/{cs['active_memes']}active"
+                print(f"  Year {year_num:>3}/{args.years}  Pop: {pop:>2}  Event: {event_id:<20}{subsims}{culture}")
 
     print(f"\n{'='*60}")
     print("SIMULATION COMPLETE")
     print(f"{'='*60}")
-    print(f"  Years survived:     {summary['years_survived']}")
-    print(f"  Final population:   {summary['final_population']}")
+    print(f"  Years simulated:    {len(data['years'])}")
+    print(f"  Final population:   {len(data['final_colonists'])}")
     print(f"  Births:             {summary['total_births']}")
     print(f"  Deaths:             {summary['total_deaths']}")
-    print(f"  Sub-simulations:    {summary['total_sub_simulations']}")
-    print(f"  Governance:         {summary['governance_system']}")
-    if summary["meta_awareness_events"]:
-        print(f"  Meta-awareness:     {len(summary['meta_awareness_events'])} events")
-        for e in summary["meta_awareness_events"][:3]:
-            print(f"    - {e[:100]}...")
-    if summary["constitutional_amendments"]:
-        print(f"  Amendments:         {len(summary['constitutional_amendments'])}")
-        for a in summary["constitutional_amendments"]:
-            print(f"    Year {a['year']}: {a['text']}")
+    print(f"  Sub-simulations:    {summary['total_subsims']}")
+    print(f"  Governance changes: {summary['governance_changes']}")
+    print(f"  Convergence:        {summary['convergence_trend']}")
+    print(f"  Memes created:      {summary['total_memes_created']}")
+    print(f"  Active memes:       {summary['final_active_memes']}")
+    if summary.get("promoted_insights"):
+        print(f"  Promoted insights:  {summary['promoted_insights']}")
 
-    # Save state
+    # Save canonical state
     state_path = state_dir / "mars100.json"
     with open(state_path, "w") as f:
-        json.dump(colony, f, indent=2, default=str)
+        json.dump(data, f, indent=2, default=str)
     print(f"\n  State -> {state_path}")
 
     # Save per-year deltas
-    for delta in deltas:
-        year_path = docs_dir / f"year-{delta['year']}.json"
+    for yr in data["years"]:
+        year_path = docs_dir / f"year-{yr['year']}.json"
         with open(year_path, "w") as f:
-            json.dump(delta, f, indent=2, default=str)
+            json.dump(yr, f, indent=2, default=str)
 
     # Save colonist files
-    for c in colony["colonists"]:
+    for c in data["final_colonists"]:
         with open(colonists_dir / f"{c['id']}.json", "w") as f:
             json.dump(c, f, indent=2, default=str)
-    for soul in colony["dead_souls"]:
-        with open(colonists_dir / f"{soul['id']}-soul.json", "w") as f:
-            json.dump(soul, f, indent=2, default=str)
 
     # Save dashboard data
     data_path = docs_dir / "data.json"
-    dashboard_data = {
-        "_meta": {
-            "engine": "mars-100", "version": "1.0",
-            "years": args.years, "seed": args.seed,
-            "generated": datetime.now(timezone.utc).isoformat(),
-        },
-        "summary": summary,
-        "colony": colony,
-        "deltas": deltas,
-    }
     with open(data_path, "w") as f:
-        json.dump(dashboard_data, f, indent=2, default=str)
+        json.dump(data, f, indent=2, default=str)
     print(f"  Dashboard -> {data_path}")
-    print(f"  Files: {len(deltas)} year deltas + {len(colony['colonists'])} colonists")
+    print(f"  Files: {len(data['years'])} year deltas + {len(data['final_colonists'])} colonists")
 
 
 if __name__ == "__main__":
