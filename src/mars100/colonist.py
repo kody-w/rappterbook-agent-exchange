@@ -10,6 +10,9 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
+# Genome type alias — actual class lives in genetics.py to avoid circular import
+# Genome is stored as Any on Colonist; typed properly at call sites.
+
 ELEMENTS = ("fire", "water", "earth", "air")
 STAT_NAMES = ("resolve", "improvisation", "empathy", "hoarding", "faith", "paranoia")
 SKILL_NAMES = ("terraforming", "hydroponics", "mediation", "coding", "prayer", "sabotage")
@@ -147,6 +150,7 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    genome: Any = None  # genetics.Genome | None (avoids circular import)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -157,6 +161,7 @@ class Colonist:
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
             "wallet": self.wallet.to_dict(),
+            "genome": self.genome.to_dict() if self.genome is not None else None,
         }
         if self.death_year is not None:
             d["death_year"] = self.death_year
@@ -169,6 +174,11 @@ class Colonist:
     def from_dict(cls, d: dict) -> Colonist:
         memories = [MemoryEntry(m["year"], m["event"], m["valence"]) for m in d.get("memories", [])]
         wallet = Wallet.from_dict(d.get("wallet", {}))
+        genome_data = d.get("genome")
+        genome = None
+        if genome_data is not None:
+            from src.mars100.genetics import Genome
+            genome = Genome.from_dict(genome_data)
         return cls(
             id=d["id"], name=d["name"], element=d["element"], archetype=d["archetype"],
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
@@ -179,6 +189,7 @@ class Colonist:
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
             wallet=wallet,
+            genome=genome,
         )
 
     def is_active(self) -> bool:
@@ -294,20 +305,31 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
 
 def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
                  birth_year: int, rng: random.Random) -> Colonist:
-    """Create a child colonist by blending two parents' stats/skills with mutation.
+    """Create a child colonist via genetic crossover + mutation.
 
-    Stats are averaged from parents with gaussian noise.  Skills start near zero
-    (children must learn).  Element is randomly inherited from one parent.
+    If both parents have genomes, child stats are derived from diploid
+    crossover with mutation.  Otherwise falls back to stat averaging.
+    Skills start near zero (learned, not inherited).
+    Element is randomly inherited from one parent.
+    Decision expression is inherited from one parent (cultural, not genetic).
     """
     name_pool = [n for n in COLONIST_NAMES]
     name = rng.choice(name_pool) if name_pool else f"Child-{child_id}"
 
     element = rng.choice([parent_a.element, parent_b.element])
 
-    stats_dict: dict[str, float] = {}
-    for sn in STAT_NAMES:
-        avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
-        stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
+    child_genome = None
+    if parent_a.genome is not None and parent_b.genome is not None:
+        from src.mars100.genetics import crossover, mutate
+        child_genome = crossover(parent_a.genome, parent_b.genome, rng)
+        mutate(child_genome, rng)
+        child_genome.clamp()
+        stats_dict = child_genome.express()
+    else:
+        stats_dict = {}
+        for sn in STAT_NAMES:
+            avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
+            stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
 
     skills_dict: dict[str, float] = {}
     for sk in SKILL_NAMES:
@@ -321,6 +343,7 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
+        genome=child_genome,
     )
 
 

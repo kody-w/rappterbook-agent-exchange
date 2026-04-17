@@ -98,7 +98,12 @@ __all__ = [
     "EcologyState", "EcologyYearContext", "EcologyTickResult",
     "tick_ecology", "compute_biosphere_index",
     "compute_ecology_bonuses", "compute_ecology_modifiers",
-    "compute_nature_stress_reduction", "update_biome_level",
+    "compute_nature_stress_reduction",
+    "Genome", "GeneticsState", "GeneticsTickResult",
+    "create_genome_from_stats", "crossover", "mutate",
+    "compute_pedigree_kinship", "compute_diversity_index",
+    "inbreeding_birth_modifier", "genetic_death_modifier",
+    "record_birth", "tick_genetics", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
 ]
