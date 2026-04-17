@@ -50,6 +50,7 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences,
 )
+from src.mars100.ecology import Biosphere, tick_ecology
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,6 +87,7 @@ class YearResult:
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -108,7 +110,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
-            "behavior": self.behavior,
+            "behavior": self.behavior, "ecology": self.ecology,
         }
 
 
@@ -137,10 +139,11 @@ class SimulationResult:
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
+    final_ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "9.0",
+            "_meta": {"engine": "mars-100", "version": "10.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -165,7 +168,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
-            "final_behavior": self.final_behavior,
+            "final_behavior": self.final_behavior, "final_ecology": self.final_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -195,6 +198,8 @@ class Mars100Engine:
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
         self.behavior_map: dict[str, BehaviorProfile] = {}
+        self.biosphere = Biosphere()
+        self.ecology_rng = random.Random(seed + 10007)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -611,6 +616,25 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # Ecology: evolve biosphere and merge bonuses into skill_bonuses
+        terraformers = sum(1 for a in actions.values() if a == "terraform")
+        terraform_skills = [c.skills.terraforming for c in active
+                            if actions.get(c.id) == "terraform"]
+        avg_tf = sum(terraform_skills) / max(1, len(terraform_skills)) if terraform_skills else 0.0
+        eco_farmers = sum(1 for a in actions.values() if a == "farm")
+        primary_event = events[0].name if events else "calm"
+        primary_severity = events[0].severity if events else 0.0
+        ecology_result = tick_ecology(
+            self.biosphere, self.year, terraformers, avg_tf, eco_farmers,
+            len(active), primary_event, primary_severity,
+            self.infra.completed, self.ecology_rng,
+        )
+        for res_key, bonus in ecology_result.resource_bonuses.items():
+            if res_key in skill_bonuses:
+                skill_bonuses[res_key] += bonus
+            else:
+                skill_bonuses[res_key] = bonus
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
                                         infra_modifiers=infra_mods)
@@ -886,6 +910,7 @@ class Mars100Engine:
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
+            ecology=self.biosphere.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -927,6 +952,7 @@ class Mars100Engine:
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
+            final_ecology=self.biosphere.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
