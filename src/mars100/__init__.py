@@ -48,6 +48,11 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.diplomacy import (
+    Faction as LiveFaction, DiplomacyState, DiplomacyTickResult,
+    FactionEvent, FactionContext,
+    tick_diplomacy, compute_vote_bias, is_faction_leader,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +84,7 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "LiveFaction", "DiplomacyState", "DiplomacyTickResult",
+    "FactionEvent", "FactionContext",
+    "tick_diplomacy", "compute_vote_bias", "is_faction_leader",
 ]

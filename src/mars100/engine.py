@@ -45,6 +45,11 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, FactionContext, tick_diplomacy,
+    compute_vote_bias, is_faction_leader,
+    PROPOSAL_PRIORITY_BONUS,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +85,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    factions: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +108,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "factions": self.factions,
         }
 
 
@@ -129,10 +136,12 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_factions: dict = field(default_factory=dict)
+    total_faction_events: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +156,7 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_faction_events": self.total_faction_events,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +167,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_factions": self.final_factions,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +196,8 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.diplo_state = DiplomacyState()
+        self.diplo_rng = random.Random(seed + 10007)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -486,6 +499,8 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Faction loyalty bias (v9.0)
+        score += compute_vote_bias(colonist.id, proposal.proposer_id, self.diplo_state)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -562,7 +577,12 @@ class Mars100Engine:
 
         gov_proposal: GovernanceProposal | None = None
         if should_propose(self.year, self.governance, self.rng) and active:
-            proposer = self.rng.choice(active)
+            # Faction leaders get proposal priority (v9.0)
+            leaders = [c for c in active if is_faction_leader(c.id, self.diplo_state)]
+            if leaders and self.rng.random() < PROPOSAL_PRIORITY_BONUS + 0.5:
+                proposer = self.rng.choice(leaders)
+            else:
+                proposer = self.rng.choice(active)
             gov_proposal = generate_proposal(self.year, proposer.id, self.governance, self.rng)
             if subsim_budget.can_spawn(proposer.id):
                 gov_expr = "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))"
@@ -695,6 +715,13 @@ class Mars100Engine:
             ))
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
+
+        # --- diplomacy: faction formation, membership, leaders (dedicated RNG) ---
+        diplo_colonist_data = [c.to_dict() for c in self.colonists]
+        diplo_ctx = FactionContext(
+            year=self.year, colonist_data=diplo_colonist_data,
+            social_get=self.social.get, rng=self.diplo_rng)
+        diplo_result = tick_diplomacy(self.diplo_state, diplo_ctx)
 
         year_births = self._check_births()
 
@@ -832,6 +859,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            factions=diplo_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -839,6 +867,7 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_faction_events = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -852,6 +881,7 @@ class Mars100Engine:
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
+            total_faction_events += len(result.factions.get("events", []))
             if callback:
                 callback(result)
         return SimulationResult(
@@ -875,6 +905,8 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_factions=self.diplo_state.to_dict(),
+            total_faction_events=total_faction_events,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
