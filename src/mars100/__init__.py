@@ -30,6 +30,11 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure, transmit_to_child,
 )
+from src.mars100.economics import (
+    EconomicState, PersonalInventory, Trade,
+    compute_gini, map_economic_system, tick_economics,
+    compute_economic_pressure, inequality_vote_bias,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -49,4 +54,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "EconomicState", "PersonalInventory", "Trade",
+    "compute_gini", "map_economic_system", "tick_economics",
+    "compute_economic_pressure", "inequality_vote_bias",
 ]

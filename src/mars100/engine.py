@@ -33,6 +33,10 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure,
 )
+from src.mars100.economics import (
+    EconomicState, tick_economics, compute_economic_pressure,
+    inequality_vote_bias,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -62,6 +66,7 @@ class YearResult:
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
+    economics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +84,7 @@ class YearResult:
             "births": self.births,
             "infrastructure": self.infrastructure,
             "culture": self.culture,
+            "economics": self.economics,
         }
 
 
@@ -100,10 +106,11 @@ class SimulationResult:
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
     final_culture: dict = field(default_factory=dict)
+    final_economics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "5.0",
+            "_meta": {"engine": "mars-100", "version": "5.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -122,6 +129,7 @@ class SimulationResult:
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
+            "final_economics": self.final_economics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -144,6 +152,8 @@ class Mars100Engine:
         self.infra = InfrastructureState()
         self.culture = CulturalMemory()
         self.culture_rng = random.Random(seed + 7919)
+        self.economics = EconomicState()
+        self.econ_rng = random.Random(seed + 8831)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -211,6 +221,11 @@ class Mars100Engine:
         # Cultural pressure from colony memory
         cultural_pressure = compute_cultural_pressure(self.culture)
         for act, delta in cultural_pressure.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
+        # Economic pressure from inequality
+        econ_pressure = compute_economic_pressure(self.economics)
+        for act, delta in econ_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
         total = sum(weights.values())
@@ -329,6 +344,7 @@ class Mars100Engine:
                 self.colonists.append(child)
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
+                self.economics.add_colonist(child.id)
                 births.append({
                     "id": child.id, "name": child.name, "year": self.year,
                     "parents": [parent_a.id, parent_b.id],
@@ -415,6 +431,9 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Economic inequality biases voting
+        score += inequality_vote_bias(self.economics, colonist.id,
+                                      proposal.gov_type)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -564,6 +583,12 @@ class Mars100Engine:
 
         year_births = self._check_births()
 
+        # --- personal economics tick ---
+        colonist_hoarding = {c.id: c.stats.hoarding for c in active}
+        econ_summary = tick_economics(
+            self.economics, actions, colonist_hoarding, self.social,
+            active_ids, self.year, self.governance.gov_type, self.econ_rng)
+
         deaths: list[dict] = []
         exiles: list[dict] = []
         for colonist in list(active):
@@ -572,10 +597,14 @@ class Mars100Engine:
                 colonist.die(self.year, cause)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
+                pool = self.economics.remove_colonist(colonist.id)
+                self.economics.redistribute(pool, self._active_ids())
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+                pool = self.economics.remove_colonist(colonist.id)
+                self.economics.redistribute(pool, self._active_ids())
 
         # --- cultural memory evolution ---
         death_records = [
@@ -629,6 +658,7 @@ class Mars100Engine:
             births=year_births,
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
+            economics=econ_summary,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -662,6 +692,7 @@ class Mars100Engine:
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
+            final_economics=self.economics.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
