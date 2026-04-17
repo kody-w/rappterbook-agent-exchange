@@ -25,6 +25,12 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.oral_history import (
+    OralHistory, action_modifiers as oral_action_modifiers,
+    subsim_bindings as oral_subsim_bindings,
+    on_birth as oral_on_birth, on_death as oral_on_death,
+    tick_year as oral_tick_year,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +58,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    oral_history: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +74,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "oral_history": self.oral_history,
         }
 
 
@@ -89,7 +97,7 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -126,6 +134,7 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self.oral_history = OralHistory()
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -187,6 +196,12 @@ class Mars100Engine:
                     w += 1.0
             weights[action] = max(0.01, w)
 
+        # Apply myth-based modifiers from oral history
+        myth_mods = oral_action_modifiers(self.oral_history, colonist.id)
+        for action, bonus in myth_mods.items():
+            if action in weights:
+                weights[action] = max(0.01, weights[action] + bonus)
+
         total = sum(weights.values())
         r = self.rng.random() * total
         cumulative = 0.0
@@ -232,6 +247,7 @@ class Mars100Engine:
         expr = self._generate_subsim_expression(colonist, events)
         bindings = colonist.lispy_bindings()
         bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
+        bindings.update(oral_subsim_bindings(self.oral_history, colonist.id))
         result = spawn_subsim(expression=expr, colonist_id=colonist.id,
                               year=self.year, bindings=bindings,
                               depth=1, budget=budget, log=log)
@@ -493,17 +509,31 @@ class Mars100Engine:
 
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
+        cooperation_pairs: list[tuple[str, str]] = []
         for cid, action in actions.items():
             if action == "cooperate":
                 partner = self.social.most_trusted_by(cid, active_ids)
                 if partner:
                     self.social.update_from_cooperation(cid, partner, self.rng)
+                    cooperation_pairs.append((cid, partner))
             if action == "sabotage":
                 victim = self.rng.choice(active_ids) if active_ids else None
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
+        # Oral history: witness events, share memories, check myths
+        oral_log = oral_tick_year(
+            self.oral_history, self.year,
+            events=[e.to_dict() for e in events],
+            active_ids=active_ids,
+            cooperation_pairs=cooperation_pairs,
+            trust_fn=lambda a, b: self.social.get(a, b).trust,
+            rng=self.rng,
+        )
+
         year_births = self._check_births()
+        for birth in year_births:
+            oral_on_birth(self.oral_history, birth["id"], self._active_ids())
 
         deaths: list[dict] = []
         exiles: list[dict] = []
@@ -511,11 +541,13 @@ class Mars100Engine:
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
+                oral_on_death(self.oral_history, colonist.id)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
+                oral_on_death(self.oral_history, colonist.id)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
         meta_events: list[dict] = []
@@ -541,6 +573,7 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            oral_history=self.oral_history.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:

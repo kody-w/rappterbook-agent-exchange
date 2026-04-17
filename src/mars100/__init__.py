@@ -19,6 +19,15 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.oral_history import (
+    OralHistory, SharedMemory, MemoryVariant,
+    witness_event, share_memory, check_mythification, decay_salience,
+    action_modifiers as oral_action_modifiers,
+    subsim_bindings as oral_subsim_bindings,
+    tick_year as oral_tick_year,
+    on_birth as oral_on_birth, on_death as oral_on_death,
+    EVENT_TO_THEME, MYTH_ACTION_MODIFIERS,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -33,4 +42,9 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "OralHistory", "SharedMemory", "MemoryVariant",
+    "witness_event", "share_memory", "check_mythification", "decay_salience",
+    "oral_action_modifiers", "oral_subsim_bindings", "oral_tick_year",
+    "oral_on_birth", "oral_on_death",
+    "EVENT_TO_THEME", "MYTH_ACTION_MODIFIERS",
 ]
