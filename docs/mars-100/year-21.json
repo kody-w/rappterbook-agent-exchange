@@ -1,135 +1,281 @@
 {
   "year": 21,
-  "population": 14,
-  "event": {
-    "id": "ice_discovery",
-    "desc": "Subsurface ice deposit found",
-    "severity": 0.2
+  "events": [
+    {
+      "name": "breakthrough",
+      "category": "discovery",
+      "severity": 0.11306921016209626,
+      "description": "New hydroponics technique doubles crop yield per unit water.",
+      "effects": {
+        "food": 0.09196038152431443,
+        "morale": 0.06130692101620963,
+        "power": 0.030653460508104816
+      }
+    },
+    {
+      "name": "alien_signal",
+      "category": "cosmic",
+      "severity": 0.37443102527439953,
+      "description": "Repeating pattern in cosmic ray data \u2014 statistical fluke or message?",
+      "effects": {
+        "morale": 0.08744310252743996,
+        "faith_boost": 0.04372155126371998,
+        "paranoia_boost": 0.08744310252743996
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "code",
+    "fen-marsh": "pray",
+    "rust-vega": "sabotage",
+    "aura-kai": "pray",
+    "dax-iron": "terraform",
+    "luna-tide": "hoard",
+    "grove-ash": "farm",
+    "zeph-wind": "pray",
+    "child-10": "sabotage",
+    "child-11": "hoard"
   },
-  "event_effects": [
-    "Ice discovery: water +470"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares explores (materials +11)"
+      "depth": 1,
+      "colonist_id": "fen-marsh",
+      "year": 21,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.346237307734541,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra explores (materials +45)"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 21,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "zeph-wind",
+          "year": 21,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "depth": 2,
+      "colonist_id": "zeph-wind",
+      "year": 21,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 27.3)"
-    },
-    {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan explores (materials +13)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing leadership_election but one is already pending"
+      "depth": 1,
+      "colonist_id": "child-10",
+      "year": 21,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": -0.04946271508986033,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [
-    {
-      "colonist": "Vulcan",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[2, 6]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 9]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 7]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 9]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ares-18",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 13]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    }
-  ],
-  "governance_results": [
-    "Leadership election: Selene elected (ratio 100%)"
-  ],
-  "resource_effects": [],
+  "governance": null,
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": 0.0,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.7638060381995844,
+  "governance_state": {
+    "gov_type": "lottery",
+    "leader_id": "dax-iron",
+    "council_ids": [],
+    "term_end_year": 22,
+    "ai_program": null,
+    "constitution": [
+      "Year 4: governance changed to ai_governor",
+      "Year 14: governance changed to lottery",
+      "Year 15: governance changed to ai_governor",
+      "Year 18: governance changed to consensus",
+      "Year 20: governance changed to lottery",
+      "Year 24: governance changed to council",
+      "Year 29: governance changed to anarchy",
+      "Year 45: governance changed to lottery",
+      "Year 47: governance changed to ai_governor",
+      "Year 51: governance changed to council",
+      "Year 53: governance changed to lottery",
+      "Year 56: governance changed to council",
+      "Year 63: governance changed to lottery",
+      "Year 65: governance changed to council",
+      "Year 75: governance changed to anarchy",
+      "Year 94: governance changed to consensus",
+      "Year 97: governance changed to lottery"
+    ],
+    "history": [
+      {
+        "year": 4,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y4-ai_governor"
+      },
+      {
+        "year": 14,
+        "from": "ai_governor",
+        "to": "lottery",
+        "proposal_id": "prop-y14-lottery"
+      },
+      {
+        "year": 15,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y15-ai_governor"
+      },
+      {
+        "year": 18,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y18-consensus"
+      },
+      {
+        "year": 20,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y20-lottery"
+      },
+      {
+        "year": 24,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y24-council"
+      },
+      {
+        "year": 29,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y29-anarchy"
+      },
+      {
+        "year": 45,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y45-lottery"
+      },
+      {
+        "year": 47,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y47-ai_governor"
+      },
+      {
+        "year": 51,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y51-council"
+      },
+      {
+        "year": 53,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y53-lottery"
+      },
+      {
+        "year": 56,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y56-council"
+      },
+      {
+        "year": 63,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y63-lottery"
+      },
+      {
+        "year": 65,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y65-council"
+      },
+      {
+        "year": 75,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y75-anarchy"
+      },
+      {
+        "year": 94,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y94-consensus"
+      },
+      {
+        "year": 97,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y97-lottery"
+      }
+    ]
+  },
+  "convergence": {
+    "resolve": 0.24531973977165314,
+    "improvisation": 0.2085602832098006,
+    "empathy": 0.2364904251779264,
+    "hoarding": 0.24795662514412448,
+    "faith": 0.2743642483909742,
+    "paranoia": 0.25858544023971136,
+    "convergence_score": 0.2452127936556984
+  },
   "births": [],
-  "diary_entries": [
+  "dream_log": [
     {
-      "colonist": "Phobos",
-      "entry": "Another year. Subsurface ice deposit found. The colony feels hopeful. My paranoia grows stronger."
+      "colonist_id": "aura-kai",
+      "year": 21,
+      "old_expr": "(if (< faith 0.8604) (* faith empathy) improvisation)",
+      "adopted": true,
+      "fitness_delta": 0.098,
+      "candidates_tried": 3,
+      "subsim_used": true,
+      "new_expr": "(if (< faith 0.9151) (* faith empathy) improvisation)"
     },
     {
-      "colonist": "Iris",
-      "entry": "Another year. Subsurface ice deposit found. The colony feels hopeful. My faith grows stronger."
+      "colonist_id": "luna-tide",
+      "year": 21,
+      "old_expr": "(+ (/ improvisation coding) (/ terraforming 2.0221))",
+      "adopted": true,
+      "fitness_delta": 0.0896,
+      "candidates_tried": 3,
+      "subsim_used": true,
+      "new_expr": "(+ (/ improvisation coding) (/ terraforming 2.0707))"
     },
     {
-      "colonist": "Cosmo",
-      "entry": "Another year. Subsurface ice deposit found. The colony feels hopeful. My empathy grows stronger."
+      "colonist_id": "zeph-wind",
+      "year": 21,
+      "old_expr": "(if (< paranoia 0.2583) sabotage (/ improvisation coding))",
+      "adopted": true,
+      "fitness_delta": 0.0613,
+      "candidates_tried": 3,
+      "subsim_used": false,
+      "new_expr": "(if (< paranoia 0.0966) sabotage (/ improvisation coding))"
     }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1344.4330505971914,
-    "water": 2986.024904316247,
-    "power": 406.5619830256614,
-    "oxygen": 960.3302867589969,
-    "materials": 1858.1259700760681,
-    "morale": 100
-  }
+  ]
 }

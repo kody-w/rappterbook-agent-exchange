@@ -19,6 +19,10 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.dreaming import (
+    DreamResult, dream, should_dream, mutate_expr,
+    evaluate_fitness, ADOPTION_THRESHOLD,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -33,4 +37,6 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "DreamResult", "dream", "should_dream", "mutate_expr",
+    "evaluate_fitness", "ADOPTION_THRESHOLD",
 ]

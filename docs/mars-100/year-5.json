@@ -1,85 +1,266 @@
 {
   "year": 5,
-  "population": 11,
-  "event": {
-    "id": "resource_strike",
-    "desc": "New mineral deposits discovered",
-    "severity": 0.2
+  "events": [
+    {
+      "name": "ice_volcano",
+      "category": "environment",
+      "severity": 0.494355713744024,
+      "description": "Ice geyser breaks through permafrost near the colony perimeter.",
+      "effects": {
+        "water": 0.1491533570616036,
+        "air": 0.0497177856872012,
+        "morale": -0.0497177856872012
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "rest",
+    "fen-marsh": "mediate",
+    "rust-vega": "code",
+    "aura-kai": "terraform",
+    "dax-iron": "sabotage",
+    "luna-tide": "hoard",
+    "grove-ash": "mediate",
+    "zeph-wind": "hoard",
+    "ora-flame": "cooperate",
+    "pax-stone": "farm"
   },
-  "event_effects": [
-    "Materials +257"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 31.1)"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 5,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "aura-kai",
+          "year": 5,
+          "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 21.1)"
+      "depth": 2,
+      "colonist_id": "aura-kai",
+      "year": 5,
+      "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 24.8)"
+      "depth": 1,
+      "colonist_id": "pax-stone",
+      "year": 5,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.8722437917162574,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "pax-stone",
+          "year": 5,
+          "expression": "(let ((parent-result 0.8722437917162574)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 0.9594681708878833,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 27.9)"
-    },
-    {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 23.0)"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 19.6)"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 23.9)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 28.5)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 25.3)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 23.4)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 29.7)"
+      "depth": 2,
+      "colonist_id": "pax-stone",
+      "year": 5,
+      "expression": "(let ((parent-result 0.8722437917162574)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 0.9594681708878833,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": null,
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": 0.0,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "cause": "radiation exposure",
+      "year": 5
+    }
+  ],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.6236652253651912,
+  "governance_state": {
+    "gov_type": "ai_governor",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": 14,
+    "ai_program": "(if (> food 0.5) (+ morale 0.1) (- morale 0.05))",
+    "constitution": [
+      "Year 4: governance changed to ai_governor",
+      "Year 14: governance changed to lottery",
+      "Year 15: governance changed to ai_governor",
+      "Year 18: governance changed to consensus",
+      "Year 20: governance changed to lottery",
+      "Year 24: governance changed to council",
+      "Year 29: governance changed to anarchy",
+      "Year 45: governance changed to lottery",
+      "Year 47: governance changed to ai_governor",
+      "Year 51: governance changed to council",
+      "Year 53: governance changed to lottery",
+      "Year 56: governance changed to council",
+      "Year 63: governance changed to lottery",
+      "Year 65: governance changed to council",
+      "Year 75: governance changed to anarchy",
+      "Year 94: governance changed to consensus",
+      "Year 97: governance changed to lottery"
+    ],
+    "history": [
+      {
+        "year": 4,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y4-ai_governor"
+      },
+      {
+        "year": 14,
+        "from": "ai_governor",
+        "to": "lottery",
+        "proposal_id": "prop-y14-lottery"
+      },
+      {
+        "year": 15,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y15-ai_governor"
+      },
+      {
+        "year": 18,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y18-consensus"
+      },
+      {
+        "year": 20,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y20-lottery"
+      },
+      {
+        "year": 24,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y24-council"
+      },
+      {
+        "year": 29,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y29-anarchy"
+      },
+      {
+        "year": 45,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y45-lottery"
+      },
+      {
+        "year": 47,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y47-ai_governor"
+      },
+      {
+        "year": 51,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y51-council"
+      },
+      {
+        "year": 53,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y53-lottery"
+      },
+      {
+        "year": 56,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y56-council"
+      },
+      {
+        "year": 63,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y63-lottery"
+      },
+      {
+        "year": 65,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y65-council"
+      },
+      {
+        "year": 75,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y75-anarchy"
+      },
+      {
+        "year": 94,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y94-consensus"
+      },
+      {
+        "year": 97,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y97-lottery"
+      }
+    ]
+  },
+  "convergence": {
+    "resolve": 0.2095045297855416,
+    "improvisation": 0.21317030523116162,
+    "empathy": 0.23768465952971393,
+    "hoarding": 0.24932837541685843,
+    "faith": 0.2780940925990335,
+    "paranoia": 0.2072529641172028,
+    "convergence_score": 0.232505821113252
+  },
   "births": [],
-  "diary_entries": [
+  "dream_log": [
     {
-      "colonist": "Vulcan",
-      "entry": "Year 5 on Mars. New mineral deposits discovered. Morale is hopeful. We have 1165 food units left."
-    },
-    {
-      "colonist": "Iris",
-      "entry": "The resource_strike changed everything. I feel optimistic about our future here."
-    },
-    {
-      "colonist": "Cosmo",
-      "entry": "Another year. New mineral deposits discovered. The colony feels hopeful. My empathy grows stronger."
+      "colonist_id": "luna-tide",
+      "year": 5,
+      "old_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "adopted": false,
+      "fitness_delta": 0.0,
+      "candidates_tried": 3,
+      "subsim_used": false
     }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1164.6602306560608,
-    "water": 1392.0,
-    "power": 441.87516081622744,
-    "oxygen": 1017.1891698163124,
-    "materials": 879.5037906984975,
-    "morale": 90.10943413986341
-  }
+  ]
 }

@@ -1,91 +1,316 @@
 {
   "year": 14,
-  "population": 12,
-  "event": {
-    "id": "dust_devil",
-    "desc": "Dust devil disrupts solar panels",
-    "severity": 0.3
+  "events": [
+    {
+      "name": "alien_signal",
+      "category": "cosmic",
+      "severity": 0.45392540675698645,
+      "description": "Anomalous radio signal detected from Phobos.",
+      "effects": {
+        "morale": 0.09539254067569865,
+        "faith_boost": 0.047696270337849324,
+        "paranoia_boost": 0.09539254067569865
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "rest",
+    "fen-marsh": "explore",
+    "rust-vega": "mediate",
+    "aura-kai": "hoard",
+    "dax-iron": "code",
+    "luna-tide": "sabotage",
+    "grove-ash": "explore",
+    "zeph-wind": "code"
   },
-  "event_effects": [
-    "Dust devil: power -20"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 27.7)"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 14,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "zeph-wind",
+          "year": 14,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 24.2)"
+      "depth": 2,
+      "colonist_id": "zeph-wind",
+      "year": 14,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 22.1)"
-    },
-    {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 26.8)"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 23.1)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 22.7)"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 works on terraforming (output: 26.3)"
+      "depth": 1,
+      "colonist_id": "dax-iron",
+      "year": 14,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
-  "births": [
-    "Astra-14 is born!"
-  ],
-  "diary_entries": [
+  "governance": {
+    "id": "prop-y14-lottery",
+    "year": 14,
+    "proposer_id": "dax-iron",
+    "gov_type": "lottery",
+    "parameters": {
+      "rotation_years": 2
+    },
+    "rationale": "Random leader selection every 2 year(s).",
+    "subsim_result": {
+      "depth": 1,
+      "colonist_id": "dax-iron",
+      "year": 14,
+      "expression": "(let ((change-score (+ empathy resolve faith))) (if (> change-score 1.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
+    },
+    "votes_for": [
+      "kira-sol",
+      "fen-marsh",
+      "aura-kai",
+      "dax-iron",
+      "luna-tide",
+      "grove-ash"
+    ],
+    "votes_against": [
+      "rust-vega",
+      "zeph-wind"
+    ],
+    "passed": true
+  },
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 0.7607607988573554
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 0.8955455828802084
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": 0.0,
+    "air": 0.0,
+    "medicine": 0.134784784022853
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.8633294642887755,
+  "governance_state": {
+    "gov_type": "lottery",
+    "leader_id": "rust-vega",
+    "council_ids": [],
+    "term_end_year": 16,
+    "ai_program": null,
+    "constitution": [
+      "Year 4: governance changed to ai_governor",
+      "Year 14: governance changed to lottery",
+      "Year 15: governance changed to ai_governor",
+      "Year 18: governance changed to consensus",
+      "Year 20: governance changed to lottery",
+      "Year 24: governance changed to council",
+      "Year 29: governance changed to anarchy",
+      "Year 45: governance changed to lottery",
+      "Year 47: governance changed to ai_governor",
+      "Year 51: governance changed to council",
+      "Year 53: governance changed to lottery",
+      "Year 56: governance changed to council",
+      "Year 63: governance changed to lottery",
+      "Year 65: governance changed to council",
+      "Year 75: governance changed to anarchy",
+      "Year 94: governance changed to consensus",
+      "Year 97: governance changed to lottery"
+    ],
+    "history": [
+      {
+        "year": 4,
+        "from": "anarchy",
+        "to": "ai_governor",
+        "proposal_id": "prop-y4-ai_governor"
+      },
+      {
+        "year": 14,
+        "from": "ai_governor",
+        "to": "lottery",
+        "proposal_id": "prop-y14-lottery"
+      },
+      {
+        "year": 15,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y15-ai_governor"
+      },
+      {
+        "year": 18,
+        "from": "ai_governor",
+        "to": "consensus",
+        "proposal_id": "prop-y18-consensus"
+      },
+      {
+        "year": 20,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y20-lottery"
+      },
+      {
+        "year": 24,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y24-council"
+      },
+      {
+        "year": 29,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y29-anarchy"
+      },
+      {
+        "year": 45,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y45-lottery"
+      },
+      {
+        "year": 47,
+        "from": "lottery",
+        "to": "ai_governor",
+        "proposal_id": "prop-y47-ai_governor"
+      },
+      {
+        "year": 51,
+        "from": "ai_governor",
+        "to": "council",
+        "proposal_id": "prop-y51-council"
+      },
+      {
+        "year": 53,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y53-lottery"
+      },
+      {
+        "year": 56,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y56-council"
+      },
+      {
+        "year": 63,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y63-lottery"
+      },
+      {
+        "year": 65,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y65-council"
+      },
+      {
+        "year": 75,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y75-anarchy"
+      },
+      {
+        "year": 94,
+        "from": "anarchy",
+        "to": "consensus",
+        "proposal_id": "prop-y94-consensus"
+      },
+      {
+        "year": 97,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y97-lottery"
+      }
+    ]
+  },
+  "convergence": {
+    "resolve": 0.2089338700276174,
+    "improvisation": 0.21284066867048332,
+    "empathy": 0.24112319962989692,
+    "hoarding": 0.277500427542059,
+    "faith": 0.29304906622807597,
+    "paranoia": 0.26612429878325555,
+    "convergence_score": 0.24992858848023136
+  },
+  "births": [],
+  "dream_log": [
     {
-      "colonist": "Nova",
-      "entry": "Another year. Dust devil disrupts solar panels. The colony feels hopeful. My empathy grows stronger."
+      "colonist_id": "fen-marsh",
+      "year": 14,
+      "old_expr": "(* empathy (+ faith 0.7177))",
+      "adopted": false,
+      "fitness_delta": 0.0,
+      "candidates_tried": 3,
+      "subsim_used": false
     },
     {
-      "colonist": "Selene-1",
-      "entry": "The dust_devil changed everything. I feel pragmatic about our future here."
+      "colonist_id": "rust-vega",
+      "year": 14,
+      "old_expr": "(let ((risk (/ paranoia 0.5000))) (+ improvisation risk))",
+      "adopted": true,
+      "fitness_delta": 0.2376,
+      "candidates_tried": 3,
+      "subsim_used": true,
+      "new_expr": "(let ((risk (/ paranoia 0.5000))) (- improvisation risk))"
     },
     {
-      "colonist": "Ares",
-      "entry": "Year 14 on Mars. Dust devil disrupts solar panels. Morale is hopeful. We have 1132 food units left."
+      "colonist_id": "aura-kai",
+      "year": 14,
+      "old_expr": "(if (> faith 0.5124) (* faith empathy) improvisation)",
+      "adopted": true,
+      "fitness_delta": 0.0929,
+      "candidates_tried": 3,
+      "subsim_used": true,
+      "new_expr": "(if (> faith 0.8604) (* faith empathy) improvisation)"
+    },
+    {
+      "colonist_id": "dax-iron",
+      "year": 14,
+      "old_expr": "(if (< paranoia 0.6000) (* hoarding resolve) (- resolve empathy))",
+      "adopted": false,
+      "fitness_delta": 0.0,
+      "candidates_tried": 3,
+      "subsim_used": false
+    },
+    {
+      "colonist_id": "luna-tide",
+      "year": 14,
+      "old_expr": "(+ (/ improvisation coding) (/ terraforming 2.1396))",
+      "adopted": false,
+      "fitness_delta": 0.0,
+      "candidates_tried": 3,
+      "subsim_used": false
+    },
+    {
+      "colonist_id": "zeph-wind",
+      "year": 14,
+      "old_expr": "(if (< paranoia 0.5000) sabotage (* improvisation coding))",
+      "adopted": false,
+      "fitness_delta": 0.0,
+      "candidates_tried": 3,
+      "subsim_used": false
     }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1132.4330505971914,
-    "water": 1940.5504844698708,
-    "power": 389.7371169080855,
-    "oxygen": 1004.7639546271469,
-    "materials": 1161.7736136196156,
-    "morale": 100
-  }
+  ]
 }

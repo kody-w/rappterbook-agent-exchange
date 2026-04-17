@@ -94,6 +94,8 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    expr_generation: int = 0
+    expr_history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -102,6 +104,8 @@ class Colonist:
             "skills": self.skills.to_dict(), "decision_expr": self.decision_expr,
             "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
+            "expr_generation": self.expr_generation,
+            "expr_history": self.expr_history,
             "memories": [m.to_dict() for m in self.memories],
         }
         if self.death_year is not None:
@@ -123,6 +127,8 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            expr_generation=d.get("expr_generation", 0),
+            expr_history=d.get("expr_history", []),
         )
 
     def is_active(self) -> bool:
@@ -141,6 +147,19 @@ class Colonist:
     def exile(self, year: int) -> None:
         self.exiled = True
         self.exile_year = year
+
+    def adopt_expr(self, year: int, new_expr: str) -> None:
+        """Replace decision_expr and record the change in history."""
+        self.expr_history.append({
+            "year": year,
+            "old_expr": self.decision_expr,
+            "new_expr": new_expr,
+            "generation": self.expr_generation,
+        })
+        if len(self.expr_history) > 20:
+            self.expr_history = self.expr_history[-20:]
+        self.decision_expr = new_expr
+        self.expr_generation += 1
 
     def evolve_stats(self, event_type: str, rng: random.Random) -> None:
         drift = 0.03
