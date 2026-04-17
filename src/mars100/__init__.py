@@ -53,6 +53,13 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences, compute_risk_tolerance,
 )
+from src.mars100.genetics import (
+    Genome, create_genome_from_stats, create_random_genome,
+    crossover, compute_inbreeding_coefficient,
+    inbreeding_death_modifier, inbreeding_learning_modifier,
+    genetic_distance, colony_diversity,
+    MUTATION_RATE, NUM_ALLELES, STAT_NAMES as GENETIC_STAT_NAMES,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -87,4 +94,8 @@ __all__ = [
     "BehaviorProfile", "BehaviorTickResult", "ContagionDelta",
     "compute_action_perturbation", "compute_social_contagion",
     "update_learned_preferences", "compute_risk_tolerance",
+    "Genome", "create_genome_from_stats", "create_random_genome",
+    "crossover", "compute_inbreeding_coefficient",
+    "inbreeding_death_modifier", "inbreeding_learning_modifier",
+    "genetic_distance", "colony_diversity",
 ]

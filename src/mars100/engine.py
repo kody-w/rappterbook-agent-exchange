@@ -50,6 +50,12 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences,
 )
+from src.mars100.genetics import (
+    Genome, create_genome_from_stats, create_random_genome,
+    colony_diversity, compute_inbreeding_coefficient,
+    inbreeding_death_modifier, inbreeding_learning_modifier,
+    DIVERSITY_WARNING_THRESHOLD,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,6 +92,7 @@ class YearResult:
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
+    genetic_diversity: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +116,7 @@ class YearResult:
             "economics": self.economics,
             "psychology": self.psychology,
             "behavior": self.behavior,
+            "genetic_diversity": round(self.genetic_diversity, 6),
         }
 
 
@@ -137,10 +145,12 @@ class SimulationResult:
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
+    final_genetic_diversity: float = 0.0
+    genetic_diversity_trend: str = "stable"
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "9.0",
+            "_meta": {"engine": "mars-100", "version": "10.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -166,6 +176,8 @@ class SimulationResult:
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
+            "final_genetic_diversity": round(self.final_genetic_diversity, 6),
+            "genetic_diversity_trend": self.genetic_diversity_trend,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -195,9 +207,16 @@ class Mars100Engine:
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
         self.behavior_map: dict[str, BehaviorProfile] = {}
+        self.genetics_rng = random.Random(seed + 11213)
+        self.pedigree: dict[str, list[str]] = {}  # colonist_id -> [parent_ids]
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
+        # Back-fit genomes to founding colonists (preserves v9 phenotypes)
+        for c in self.colonists:
+            c.genome = create_genome_from_stats(c.stats.to_dict(),
+                                                 self.genetics_rng)
+            self.pedigree[c.id] = []
 
     def _active_colonists(self) -> list[Colonist]:
         return [c for c in self.colonists if c.is_active()]
@@ -285,6 +304,15 @@ class Mars100Engine:
             if r <= cumulative:
                 return action
         return "rest"
+
+    def _apply_inbreeding_learning(self, colonist: Colonist,
+                                    skill_gain: float) -> float:
+        """Apply inbreeding-based skill learning penalty."""
+        if colonist.parent_ids and len(colonist.parent_ids) >= 2:
+            f_coeff = compute_inbreeding_coefficient(
+                colonist.parent_ids, self.pedigree)
+            return skill_gain * inbreeding_learning_modifier(f_coeff)
+        return skill_gain
 
     def _compute_skill_bonuses(self, actions: dict[str, str]) -> dict[str, float]:
         bonuses: dict[str, float] = {name: 0.0 for name in RESOURCE_NAMES}
@@ -389,8 +417,11 @@ class Mars100Engine:
             if self.rng.random() < birth_prob:
                 child_id = f"child-{self.next_id}"
                 self.next_id += 1
-                child = create_child(parent_a, parent_b, child_id, self.year, self.rng)
+                child = create_child(parent_a, parent_b, child_id,
+                                     self.year, self.rng,
+                                     genetics_rng=self.genetics_rng)
                 self.colonists.append(child)
+                self.pedigree[child.id] = [parent_a.id, parent_b.id]
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
                 births.append({
@@ -409,6 +440,11 @@ class Mars100Engine:
             rate *= death_rate_modifier(psych.morale)
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
         rate *= death_rate_mult
+        # Genetics: inbreeding depression increases death rate
+        if colonist.parent_ids and len(colonist.parent_ids) >= 2:
+            f_coeff = compute_inbreeding_coefficient(
+                colonist.parent_ids, self.pedigree)
+            rate *= inbreeding_death_modifier(f_coeff)
         critical_resources: list[str] = []
         for name in RESOURCE_NAMES:
             val = getattr(self.resources, name)
@@ -841,6 +877,8 @@ class Mars100Engine:
                 imm_id = f"imm-{self.next_id}"
                 self.next_id += 1
                 immigrant = create_immigrant(imm_id, self.year, self.earth_rng)
+                immigrant.genome = create_random_genome(self.genetics_rng)
+                self.pedigree[immigrant.id] = []
                 econ_endow_immigrant(immigrant)
                 self.colonists.append(immigrant)
                 active_ids_now = [c.id for c in self._active_colonists()]
@@ -865,6 +903,11 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # --- genetics: compute colony genetic diversity ---
+        active_genomes = [c.genome for c in self._active_colonists()
+                          if c.genome is not None]
+        gen_diversity = colony_diversity(active_genomes)
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -886,6 +929,7 @@ class Mars100Engine:
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
+            genetic_diversity=gen_diversity,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -927,6 +971,9 @@ class Mars100Engine:
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
+            final_genetic_diversity=colony_diversity(
+                [c.genome for c in self.colonists if c.is_active() and c.genome]),
+            genetic_diversity_trend=self._compute_diversity_trend(years),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
@@ -945,4 +992,18 @@ class Mars100Engine:
             return "converging"
         elif diff < -0.1:
             return "diverging"
+        return "stable"
+
+    def _compute_diversity_trend(self, years: list[YearResult]) -> str:
+        """Classify genetic diversity trend across the simulation."""
+        divs = [y.genetic_diversity for y in years]
+        if len(divs) < 10:
+            return "insufficient_data"
+        early = sum(divs[:10]) / 10
+        late = sum(divs[-10:]) / 10
+        diff = late - early
+        if diff < -0.05:
+            return "declining"
+        elif diff > 0.05:
+            return "increasing"
         return "stable"

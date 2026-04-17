@@ -127,6 +127,14 @@ class Wallet:
         )
 
 
+def _parse_genome(raw: dict | None = None) -> Any:
+    """Parse genome dict if present. Deferred import to avoid circular dependency."""
+    if raw is None:
+        return None
+    from src.mars100.genetics import Genome
+    return Genome.from_dict(raw)
+
+
 @dataclass
 class Colonist:
     """A Mars-100 colonist."""
@@ -147,6 +155,8 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    genome: Any = None  # Genome | None; using Any to avoid circular import
+    parent_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -163,6 +173,10 @@ class Colonist:
             d["death_cause"] = self.death_cause
         if self.exile_year is not None:
             d["exile_year"] = self.exile_year
+        if self.genome is not None:
+            d["genome"] = self.genome.to_dict()
+        if self.parent_ids:
+            d["parent_ids"] = list(self.parent_ids)
         return d
 
     @classmethod
@@ -179,6 +193,8 @@ class Colonist:
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
             wallet=wallet,
+            genome=_parse_genome(d.get("genome")),
+            parent_ids=d.get("parent_ids", []),
         )
 
     def is_active(self) -> bool:
@@ -230,6 +246,11 @@ class Colonist:
         bindings["alive"] = self.alive
         bindings["memory-count"] = len(self.memories)
         bindings["wealth"] = self.wallet.total_wealth()
+        if self.genome is not None:
+            bindings["genetic-diversity"] = sum(
+                abs(self.genome.alleles[i*2] - self.genome.alleles[i*2+1])
+                for i in range(6)) / 6.0
+        bindings["inbred"] = len(self.parent_ids) >= 2
         return bindings
 
 
@@ -293,21 +314,41 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
 
 
 def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
-                 birth_year: int, rng: random.Random) -> Colonist:
+                 birth_year: int, rng: random.Random,
+                 genetics_rng: random.Random | None = None) -> Colonist:
     """Create a child colonist by blending two parents' stats/skills with mutation.
 
-    Stats are averaged from parents with gaussian noise.  Skills start near zero
-    (children must learn).  Element is randomly inherited from one parent.
+    If both parents have genomes and genetics_rng is provided, uses genetic
+    crossover for stats.  Otherwise falls back to stat averaging (v9 behavior).
+    Skills always start near zero (children must learn).
+    Element is randomly inherited from one parent.
     """
     name_pool = [n for n in COLONIST_NAMES]
     name = rng.choice(name_pool) if name_pool else f"Child-{child_id}"
 
     element = rng.choice([parent_a.element, parent_b.element])
 
-    stats_dict: dict[str, float] = {}
-    for sn in STAT_NAMES:
-        avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
-        stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
+    # Genetics path: crossover when both parents have genomes
+    child_genome = None
+    child_parent_ids: list[str] = [parent_a.id, parent_b.id]
+    if (parent_a.genome is not None and parent_b.genome is not None
+            and genetics_rng is not None):
+        from src.mars100.genetics import crossover
+        child_genome = crossover(parent_a.genome, parent_b.genome,
+                                  child_id, genetics_rng)
+        child_genome.parent_ids = child_parent_ids
+        # Derive stats from genome baselines + small environmental noise
+        baselines = child_genome.stat_baselines()
+        stats_dict: dict[str, float] = {}
+        for sn in STAT_NAMES:
+            base = baselines[sn]
+            stats_dict[sn] = max(0.0, min(1.0, base + rng.gauss(0, 0.05)))
+    else:
+        # Legacy path: stat averaging (v9 compatible)
+        stats_dict = {}
+        for sn in STAT_NAMES:
+            avg = (getattr(parent_a.stats, sn) + getattr(parent_b.stats, sn)) / 2
+            stats_dict[sn] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
 
     skills_dict: dict[str, float] = {}
     for sk in SKILL_NAMES:
@@ -321,6 +362,7 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
+        genome=child_genome, parent_ids=child_parent_ids,
     )
 
 
