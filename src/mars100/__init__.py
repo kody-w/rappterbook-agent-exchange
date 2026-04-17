@@ -48,6 +48,11 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.medicine import (
+    HealthState, Disease, ColonistMedContext, MedicineTickResult,
+    tick_medicine, disease_death_check, get_top_contacts,
+    DISEASE_TYPES, DISEASE_DEATH_HEALTH_THRESHOLD,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
