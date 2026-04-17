@@ -33,6 +33,11 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure,
 )
+from src.mars100.prophecy import (
+    ProphecyState, PROPHECY_INTERVAL,
+    select_prophet, generate_prophecy, resolve_prophecy,
+    compute_prophecy_influence,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -62,6 +67,7 @@ class YearResult:
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
+    prophecy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +85,7 @@ class YearResult:
             "births": self.births,
             "infrastructure": self.infrastructure,
             "culture": self.culture,
+            "prophecy": self.prophecy,
         }
 
 
@@ -100,10 +107,11 @@ class SimulationResult:
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
     final_culture: dict = field(default_factory=dict)
+    prophecy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "5.0",
+            "_meta": {"engine": "mars-100", "version": "6.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -122,6 +130,7 @@ class SimulationResult:
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
+            "prophecy": self.prophecy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -144,6 +153,9 @@ class Mars100Engine:
         self.infra = InfrastructureState()
         self.culture = CulturalMemory()
         self.culture_rng = random.Random(seed + 7919)
+        self.prophecy_state = ProphecyState()
+        self.prophecy_rng = random.Random(seed + 9973)
+        self.year_summaries: list[dict] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -211,6 +223,12 @@ class Mars100Engine:
         # Cultural pressure from colony memory
         cultural_pressure = compute_cultural_pressure(self.culture)
         for act, delta in cultural_pressure.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
+        # Prophecy influence from active predictions
+        prophecy_pressure = compute_prophecy_influence(
+            self.prophecy_state, self.year)
+        for act, delta in prophecy_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
         total = sum(weights.values())
@@ -465,6 +483,71 @@ class Mars100Engine:
             "status": "proposed",
         }
 
+    # ---- Prophecy helpers ---------------------------------------------------
+
+    def _generate_prophecy(self, subsim_log: list[SubSimResult]) -> dict | None:
+        """Generate a prophecy if this is a prophecy year."""
+        if self.year % PROPHECY_INTERVAL != 0:
+            return None
+        active = self._active_colonists()
+        if not active:
+            return None
+        prophet = select_prophet(
+            active, self.prophecy_state.track_record, self.prophecy_rng)
+        if prophet is None:
+            return None
+        prophecy = generate_prophecy(
+            prophet, self.year, self.year_summaries,
+            self.resources.to_dict(), self.total_years,
+            subsim_log, self.prophecy_rng)
+        if prophecy is None:
+            return None
+        self.prophecy_state.prophecies.append(prophecy)
+        return prophecy.to_dict()
+
+    def _resolve_prophecies(self, deaths: list[dict],
+                             governance: dict | None,
+                             infra: dict) -> list[dict]:
+        """Resolve any prophecies targeting this year."""
+        resolved: list[dict] = []
+        pending = self.prophecy_state.pending_for_year(self.year)
+        if not pending:
+            return resolved
+        current_summary = {
+            "year": self.year,
+            "resources_after": self.resources.to_dict(),
+            "deaths": deaths,
+            "governance": governance,
+            "infrastructure": infra,
+        }
+        prev_summary = self.year_summaries[-1] if self.year_summaries else None
+        for prophecy in pending:
+            outcome = resolve_prophecy(prophecy, current_summary, prev_summary)
+            self.prophecy_state.record_outcome(prophecy.prophet_id, outcome)
+            resolved.append({"prophecy": prophecy.to_dict(), "outcome": outcome})
+        self.prophecy_state._update_influence()
+        return resolved
+
+    def _current_year_summary(self) -> dict:
+        """Build a summary dict of the current year state for resolution."""
+        return {
+            "year": self.year,
+            "resources_after": self.resources.to_dict(),
+            "deaths": [],
+            "governance": None,
+            "infrastructure": self.infra.to_dict(),
+        }
+
+    def _store_year_summary(self, result: YearResult) -> None:
+        """Store a compact year summary for prophecy trend analysis."""
+        self.year_summaries.append({
+            "year": result.year,
+            "resources_after": result.resources_after,
+            "deaths": result.deaths,
+            "governance": result.governance,
+            "infrastructure": result.infrastructure,
+        })
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
@@ -614,10 +697,21 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
-        return YearResult(
+        # --- prophecy: resolve pending, then generate new ---
+        gov_dict = gov_proposal.to_dict() if gov_proposal else None
+        prophecy_resolved = self._resolve_prophecies(
+            deaths, gov_dict, self.infra.to_dict())
+        prophecy_generated = self._generate_prophecy(subsim_log)
+        prophecy_summary = self.prophecy_state.summary()
+        if prophecy_resolved:
+            prophecy_summary["resolved_this_year"] = prophecy_resolved
+        if prophecy_generated:
+            prophecy_summary["generated_this_year"] = prophecy_generated
+
+        year_result = YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
-            governance=gov_proposal.to_dict() if gov_proposal else None,
+            governance=gov_dict,
             resources_before=resources_before,
             resources_after=self.resources.to_dict(),
             resource_delta=resource_delta, deaths=deaths, exiles=exiles,
@@ -629,7 +723,10 @@ class Mars100Engine:
             births=year_births,
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
+            prophecy=prophecy_summary,
         )
+        self._store_year_summary(year_result)
+        return year_result
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
@@ -662,6 +759,7 @@ class Mars100Engine:
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
+            prophecy=self.prophecy_state.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

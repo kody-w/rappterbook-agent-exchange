@@ -30,6 +30,11 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure, transmit_to_child,
 )
+from src.mars100.prophecy import (
+    Prophecy, ProphecyState, PROPHECY_INTERVAL, PREDICTION_TYPES,
+    select_prophet, generate_prophecy, resolve_prophecy,
+    compute_prophecy_influence,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -49,4 +54,7 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "Prophecy", "ProphecyState", "PROPHECY_INTERVAL", "PREDICTION_TYPES",
+    "select_prophet", "generate_prophecy", "resolve_prophecy",
+    "compute_prophecy_influence",
 ]
