@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100 — Recursive Colony Experiment</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0d8c8;font-family:'Courier New',monospace;overflow-x:hidden}
+.header{text-align:center;padding:30px 20px;background:linear-gradient(180deg,#1a0808 0%,#0a0a0f 100%)}
+.header h1{font-size:2em;color:#ff6b4a;text-shadow:0 0 20px rgba(255,107,74,0.3)}
+.header .subtitle{color:#888;font-size:0.9em;margin-top:8px}
+.header .badge{display:inline-block;padding:3px 10px;border:1px solid #ff6b4a;border-radius:12px;font-size:0.7em;color:#ff6b4a;margin:4px}
+.container{max-width:1200px;margin:0 auto;padding:0 20px 40px}
+.panel{background:#111118;border:1px solid #222;border-radius:8px;padding:20px;margin:20px 0}
+.panel h2{color:#ff9966;font-size:1.1em;margin-bottom:12px;border-bottom:1px solid #222;padding-bottom:8px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat-card{background:#0d0d14;border:1px solid #1a1a2e;border-radius:6px;padding:12px;text-align:center}
+.stat-card .value{font-size:1.8em;color:#ff6b4a;font-weight:bold}
+.stat-card .label{font-size:0.75em;color:#666;margin-top:4px}
+canvas{width:100%;border-radius:6px;margin-top:10px}
+.colonists{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.colonist{background:#0d0d14;border:1px solid #1a1a2e;border-radius:6px;padding:14px;position:relative}
+.colonist.dead{opacity:0.5;border-color:#400}
+.colonist .name{font-size:1em;font-weight:bold;color:#e0d8c8}
+.colonist .element{font-size:0.8em;padding:2px 8px;border-radius:10px;display:inline-block;margin-left:6px}
+.colonist .element.fire{background:#3a1010;color:#ff6644}
+.colonist .element.water{background:#101a3a;color:#4488ff}
+.colonist .element.earth{background:#1a2a10;color:#66bb44}
+.colonist .element.air{background:#2a2a30;color:#aabbcc}
+.colonist .karma-bar{height:4px;background:#222;border-radius:2px;margin-top:8px;overflow:hidden}
+.colonist .karma-bar .fill{height:100%;border-radius:2px;transition:width 0.3s}
+.colonist .meta{font-size:0.75em;color:#666;margin-top:6px}
+.colonist .death-badge{position:absolute;top:8px;right:8px;font-size:0.75em;color:#ff4444}
+.timeline-entry{padding:8px 0;border-bottom:1px solid #1a1a2e;font-size:0.85em}
+.timeline-entry .year{color:#ff9966;font-weight:bold;min-width:60px;display:inline-block}
+.timeline-entry .event{color:#888}
+.pattern{padding:6px 10px;background:#0d0d14;border-left:3px solid #ff6b4a;margin:6px 0;font-size:0.85em}
+.pattern.leader{border-color:#ffaa00}
+.pattern.pariah{border-color:#ff4444}
+.pattern.alliance{border-color:#44aaff}
+.pattern.meta{border-color:#aa44ff}
+.governance{padding:8px 12px;background:#0d0d14;border-radius:4px;margin:6px 0;font-size:0.85em}
+.governance .status{font-size:0.75em;padding:2px 6px;border-radius:8px;float:right}
+.governance .status.passed{background:#1a3a1a;color:#66bb44}
+.governance .status.rejected{background:#3a1a1a;color:#ff4444}
+.governance .status.pending{background:#2a2a10;color:#aaaa44}
+.subsim-entry{padding:6px 10px;background:#0a0a14;border-left:2px solid #6644aa;margin:4px 0;font-size:0.8em}
+.tab-bar{display:flex;gap:0;border-bottom:2px solid #222;margin-bottom:16px}
+.tab{padding:8px 16px;cursor:pointer;color:#666;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s}
+.tab.active{color:#ff6b4a;border-color:#ff6b4a}
+.tab:hover{color:#ff9966}
+.tab-content{display:none}
+.tab-content.active{display:block}
+#pop-chart,#resource-chart,#terraform-chart{height:200px}
+.narrative-scroll{max-height:400px;overflow-y:auto;padding-right:10px}
+.narrative-scroll::-webkit-scrollbar{width:6px}
+.narrative-scroll::-webkit-scrollbar-track{background:#111}
+.narrative-scroll::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
+.loading{text-align:center;padding:60px;color:#666}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🔴 Mars-100</h1>
+  <div class="subtitle">A Recursive Colony Experiment — 100 Mars Years</div>
+  <div><span class="badge">[SPACE]</span><span class="badge">[SIMULATION]</span><span class="badge">LisPy</span></div>
+</div>
+
+<div class="container">
+  <div id="loading" class="loading">Loading simulation data...</div>
+  <div id="app" style="display:none">
+
+    <!-- Stats overview -->
+    <div class="panel">
+      <div class="stats-grid" id="stats-grid"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="panel">
+      <div class="tab-bar">
+        <div class="tab active" data-tab="population">Population</div>
+        <div class="tab" data-tab="resources">Resources</div>
+        <div class="tab" data-tab="terraform">Terraforming</div>
+        <div class="tab" data-tab="colonists">Colonists</div>
+        <div class="tab" data-tab="governance">Governance</div>
+        <div class="tab" data-tab="patterns">Patterns</div>
+        <div class="tab" data-tab="subsims">Sub-Sims</div>
+        <div class="tab" data-tab="narrative">Narrative</div>
+      </div>
+
+      <div class="tab-content active" id="tab-population">
+        <canvas id="pop-chart"></canvas>
+      </div>
+      <div class="tab-content" id="tab-resources">
+        <canvas id="resource-chart"></canvas>
+      </div>
+      <div class="tab-content" id="tab-terraform">
+        <canvas id="terraform-chart"></canvas>
+      </div>
+      <div class="tab-content" id="tab-colonists">
+        <div class="colonists" id="colonist-grid"></div>
+      </div>
+      <div class="tab-content" id="tab-governance">
+        <div id="governance-list"></div>
+      </div>
+      <div class="tab-content" id="tab-patterns">
+        <div id="pattern-list"></div>
+      </div>
+      <div class="tab-content" id="tab-subsims">
+        <div id="subsim-list"></div>
+      </div>
+      <div class="tab-content" id="tab-narrative">
+        <div class="narrative-scroll" id="narrative-scroll"></div>
+      </div>
+    </div>
+
+    <!-- LisPy kernel -->
+    <div class="panel">
+      <h2>; The LisPy Kernel — Raw S-Expressions</h2>
+      <pre id="lispy-kernel" style="color:#888;font-size:0.8em;white-space:pre-wrap;line-height:1.5"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
+
+  // Tab switching
+  $$('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      $$('.tab').forEach(t => t.classList.remove('active'));
+      $$('.tab-content').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      $('#tab-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  fetch('data.json').then(r => r.json()).then(render).catch(e => {
+    $('#loading').textContent = 'Failed to load data: ' + e.message;
+  });
+
+  function render(data) {
+    $('#loading').style.display = 'none';
+    $('#app').style.display = '';
+
+    const tl = data.timeline;
+    const last = tl[tl.length - 1];
+    const alive = data.colonists.filter(c => c.alive).length;
+    const dead = data.colonists.filter(c => !c.alive).length;
+
+    // Stats
+    const stats = [
+      { value: alive, label: 'Survivors' },
+      { value: dead, label: 'Deaths' },
+      { value: tl.length, label: 'Years Simulated' },
+      { value: data.active_laws.length, label: 'Laws Passed' },
+      { value: data._meta.total_subsims, label: 'Sub-Simulations' },
+      { value: (data.terraforming_progress * 100).toFixed(1) + '%', label: 'Terraformed' },
+    ];
+    $('#stats-grid').innerHTML = stats.map(s =>
+      `<div class="stat-card"><div class="value">${s.value}</div><div class="label">${s.label}</div></div>`
+    ).join('');
+
+    // Population chart
+    drawChart('pop-chart', tl.map(t => t.year), [
+      { data: tl.map(t => t.alive), color: '#ff6b4a', label: 'Alive' },
+      { data: tl.map(t => t.dead), color: '#444', label: 'Dead' },
+    ], 10);
+
+    // Resource chart
+    drawChart('resource-chart', tl.map(t => t.year), [
+      { data: tl.map(t => t.resources.food), color: '#66bb44', label: 'Food' },
+      { data: tl.map(t => t.resources.water), color: '#4488ff', label: 'Water' },
+      { data: tl.map(t => t.resources.oxygen), color: '#aabbcc', label: 'O₂' },
+      { data: tl.map(t => t.resources.power), color: '#ffaa00', label: 'Power' },
+      { data: tl.map(t => t.resources.materials), color: '#aa6644', label: 'Materials' },
+    ]);
+
+    // Terraform chart
+    drawChart('terraform-chart', tl.map(t => t.year), [
+      { data: tl.map(t => t.terraform * 100), color: '#ff6b4a', label: 'Progress %' },
+    ], 100);
+
+    // Colonists
+    $('#colonist-grid').innerHTML = data.colonists.map(c => {
+      const karmaColor = c.karma > 0.7 ? '#66bb44' : c.karma > 0.4 ? '#ffaa00' : '#ff4444';
+      return `<div class="colonist ${c.alive ? '' : 'dead'}">
+        <span class="name">${c.name}</span>
+        <span class="element ${c.element}">${c.element}</span>
+        ${!c.alive ? `<span class="death-badge">☠ Year ${c.year_of_death}</span>` : ''}
+        <div class="karma-bar"><div class="fill" style="width:${c.karma*100}%;background:${karmaColor}"></div></div>
+        <div class="meta">Karma: ${c.karma.toFixed(2)}${!c.alive ? ' · ' + c.cause_of_death : ''}</div>
+      </div>`;
+    }).join('');
+
+    // Governance
+    $('#governance-list').innerHTML = data.governance.length
+      ? data.governance.map(g => {
+          const status = g.passed === true ? 'passed' : g.passed === false ? 'rejected' : 'pending';
+          return `<div class="governance">
+            <span class="status ${status}">${status}</span>
+            <strong>Year ${g.year}:</strong> ${g.title}
+            <div style="color:#666;font-size:0.8em;margin-top:4px">${g.description}</div>
+            <div style="color:#555;font-size:0.75em;margin-top:2px">Proposed by: ${g.proposer} · Votes: ${g.votes_for.length} for / ${g.votes_against.length} against</div>
+            <div style="color:#6644aa;font-size:0.75em;margin-top:2px;font-family:monospace">${g.rule_expr}</div>
+          </div>`;
+        }).join('')
+      : '<div style="color:#666">No governance proposals emerged.</div>';
+
+    // Patterns
+    const allPatterns = [];
+    data.patterns.forEach(p => p.patterns.forEach(pat => allPatterns.push({ year: p.year, text: pat })));
+    $('#pattern-list').innerHTML = allPatterns.slice(-50).map(p => {
+      let cls = 'pattern';
+      if (p.text.includes('LEADER')) cls += ' leader';
+      else if (p.text.includes('PARIAH')) cls += ' pariah';
+      else if (p.text.includes('ALLIANCE')) cls += ' alliance';
+      else if (p.text.includes('META')) cls += ' meta';
+      return `<div class="${cls}"><span style="color:#ff9966">Year ${p.year}:</span> ${p.text}</div>`;
+    }).join('') || '<div style="color:#666">No patterns detected.</div>';
+
+    // Sub-sims — from governance data (the actual subsim_log is in full_result.json)
+    const subsimEl = $('#subsim-list');
+    if (data._meta.total_subsims > 0) {
+      subsimEl.innerHTML = `<div style="color:#888;margin-bottom:12px">${data._meta.total_subsims} sub-simulations ran during the colony's 100-year history. Colonists with high paranoia spawned nested LisPy evaluations to model consequences before committing to actions.</div>
+      <div style="color:#6644aa;font-size:0.85em">
+        <div class="subsim-entry">; Sub-simulation protocol (depth limit: 3)</div>
+        <div class="subsim-entry">(sub-sim (begin</div>
+        <div class="subsim-entry">&nbsp;&nbsp;(define action "farm")</div>
+        <div class="subsim-entry">&nbsp;&nbsp;(define food-after (+ food 200))</div>
+        <div class="subsim-entry">&nbsp;&nbsp;(define risk (* event-severity 0.1))</div>
+        <div class="subsim-entry">&nbsp;&nbsp;(if (and (> food-after 300) (< risk 0.5))</div>
+        <div class="subsim-entry">&nbsp;&nbsp;&nbsp;&nbsp;"safe" "risky")))</div>
+      </div>`;
+    } else {
+      subsimEl.innerHTML = '<div style="color:#666">No sub-simulations were triggered.</div>';
+    }
+
+    // Narrative (last 20 years)
+    const narEl = $('#narrative-scroll');
+    // We don't have narratives in dashboard data, show timeline events
+    narEl.innerHTML = tl.slice(-30).map(t =>
+      `<div class="timeline-entry"><span class="year">Year ${t.year}</span> <span class="event">${t.event.replace(/_/g,' ')} (sev: ${t.event_severity.toFixed(2)}) · Alive: ${t.alive} · Food: ${t.resources.food} · O₂: ${t.resources.oxygen} · Terraform: ${(t.terraform*100).toFixed(1)}%</span></div>`
+    ).join('');
+
+    // LisPy kernel display
+    $('#lispy-kernel').textContent = `;; Mars-100 Colony Kernel — the s-expressions that drive the sim
+;; Each colonist runs a LisPy policy expression every Mars year.
+;; The output of year N is the input to year N+1.
+
+;; Colonist decision policy (example — fire element, high resolve)
+(if (and (> resolve 0.6) (= (mod year 7) 0))
+    "propose"
+    (if (< food 500) "farm"
+        (if (< oxygen 500) "repair"
+            (if (< power 300) "terraform"
+                "terraform"))))
+
+;; Sub-simulation — a colonist models consequences before committing
+(sub-sim
+  (begin
+    (define action "farm")
+    (define food-after (if (= action "farm") (+ food 200) food))
+    (define risk (* event-severity 0.1))
+    (if (and (> food-after 300) (< risk 0.5))
+        "safe"
+        "risky")))
+
+;; Governance rule — passed by colony vote
+(define exile-check (lambda (k) (< k 0.2)))
+(define council-vote
+  (lambda (votes)
+    (> (length (filter (lambda (v) v) votes))
+       (/ (length votes) 2))))
+
+;; The homoiconic property: colonists ARE data AND code.
+;; Their stats determine which policy branch fires.
+;; Their actions mutate the colony state.
+;; The mutated state feeds back as input to the next year.
+;; Turtles all the way down.
+
+;; Seed: ${data._meta.seed} · Years: ${data._meta.years}
+;; Generated: ${data._meta.generated}
+;; Sub-simulations: ${data._meta.total_subsims}`;
+  }
+
+  function drawChart(canvasId, labels, series, yMax) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = 200 * dpr;
+    canvas.style.height = '200px';
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width, h = 200;
+    const pad = { top: 20, right: 20, bottom: 30, left: 50 };
+    const cw = w - pad.left - pad.right;
+    const ch = h - pad.top - pad.bottom;
+
+    if (!yMax) {
+      yMax = 0;
+      series.forEach(s => s.data.forEach(v => { if (v > yMax) yMax = v; }));
+      yMax = Math.ceil(yMax * 1.1);
+    }
+
+    // Grid
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (ch * i / 4);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(w - pad.right, y);
+      ctx.stroke();
+      ctx.fillStyle = '#444';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(Math.round(yMax * (1 - i / 4)), pad.left - 6, y + 3);
+    }
+
+    // X axis labels
+    ctx.fillStyle = '#444';
+    ctx.textAlign = 'center';
+    const step = Math.max(1, Math.floor(labels.length / 10));
+    for (let i = 0; i < labels.length; i += step) {
+      const x = pad.left + (cw * i / (labels.length - 1));
+      ctx.fillText(labels[i], x, h - 8);
+    }
+
+    // Draw series
+    series.forEach(s => {
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      s.data.forEach((val, i) => {
+        const x = pad.left + (cw * i / (s.data.length - 1));
+        const y = pad.top + ch - (ch * Math.min(val, yMax) / yMax);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Area fill
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = s.color;
+      ctx.lineTo(pad.left + cw, pad.top + ch);
+      ctx.lineTo(pad.left, pad.top + ch);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    // Legend
+    let lx = pad.left + 10;
+    series.forEach(s => {
+      ctx.fillStyle = s.color;
+      ctx.fillRect(lx, 6, 12, 3);
+      ctx.fillStyle = '#666';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(s.label, lx + 16, 10);
+      lx += ctx.measureText(s.label).width + 30;
+    });
+  }
+})();
+</script>
+</body>
+</html>

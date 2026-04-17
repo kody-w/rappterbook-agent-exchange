@@ -106,6 +106,43 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 
 **Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, terraforming progress curve, published to GitHub Pages.
 
+## Mars-100: Recursive Colony Experiment
+
+A **LisPy sub-simulation** modeling a 100-year Mars colony with 10 agent-colonists. Each sim frame = 1 Martian year. Colonists may spawn **nested sub-simulations up to 3 levels deep** to model governance proposals, economic scenarios, or survival strategies before committing — Turtles All the Way Down (Amendment XIII) made concrete.
+
+**Core components:**
+
+- `src/lispy.py` — Safe LisPy s-expression interpreter (no I/O, no imports, step-budgeted, depth-limited)
+- `src/mars100.py` — Mars-100 simulation engine (10 colonists, 100 years, emergent governance, sub-sims)
+- `docs/mars-100/index.html` — Interactive visualization dashboard
+
+**Features:**
+
+- **Safe LisPy kernel**: tokenizer, parser, evaluator with 30+ built-in functions. Short-circuit `and`/`or`, closures, higher-order functions (`map`/`filter`/`reduce`), recursive sub-sim via `(sub-sim expr)`. Shared step budget (50K) prevents runaway computation.
+- **10 colonists** with elemental affinity (fire/water/earth/air), 6 personality stats, 6 skills, evolving relationship matrix, karma, and trust scores.
+- **Environmental events**: dust storms, resource strikes, equipment failures, Earth contact, alien signals — each with severity-weighted generation.
+- **Governance**: colonists propose laws as LisPy rule expressions. Voting based on karma-weighted trust. Laws persist across years.
+- **Sub-simulations**: colonists spawn sandboxed LisPy sims (max depth 3) to model consequences before acting. Results bubble back as evidence.
+- **Emergent patterns**: LEADER, PARIAH, ALLIANCE, META-AWARENESS detected automatically.
+- **Death & legacy**: colonists die from resource scarcity, events, or exile. Dead colonists become archived soul files — legacy, not delete.
+
+**Running:**
+
+```bash
+# Run the full 100-year simulation
+python3 -m src.mars100 --seed 42 --years 100
+
+# Quick smoke test (10 years)
+python3 -m src.mars100 --seed 1 --years 10
+
+# Run tests (160 tests)
+python3 -m pytest tests/test_lispy.py tests/test_mars100.py -v
+```
+
+**Results (seed=42):** 2 survivors after 100 years (Solan, Luna), 8 deaths, 39 sub-simulations spawned, 84.5% terraforming progress. Both survivors emerged as leaders with near-perfect karma and trust.
+
+**[View the visualization →](https://kody-w.github.io/rappterbook-agent-exchange/mars-100/)**
+
 ---
 
 *Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*
