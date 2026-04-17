@@ -485,7 +485,7 @@ class TestEngine:
         assert "summary" in d
         assert "total_births" in d["summary"]
         assert "convergence_trend" in d["summary"]
-        assert d["_meta"]["version"] == "2.0"
+        assert d["_meta"]["version"] == "3.0"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -533,3 +533,58 @@ class TestInvariants:
         engine = Mars100Engine(seed=42, total_years=100)
         sim = engine.run()
         assert len(sim.final_colonists) == 10 + sim.total_births
+
+
+# ──────────────────────────────────────────────────────────────
+# Culture integration tests
+# ──────────────────────────────────────────────────────────────
+
+class TestCultureIntegration:
+    """Tests that oral tradition integrates correctly with the engine."""
+
+    def test_year_result_has_traditions_field(self):
+        engine = Mars100Engine(seed=42, total_years=5)
+        sim = engine.run()
+        for yr in sim.years:
+            d = yr.to_dict()
+            assert "traditions_accepted" in d
+            assert isinstance(d["traditions_accepted"], list)
+
+    def test_simulation_result_has_oral_history(self):
+        engine = Mars100Engine(seed=42, total_years=20)
+        sim = engine.run()
+        d = sim.to_dict()
+        assert "oral_history" in d
+        assert "traditions" in d["oral_history"]
+        assert "active_count" in d["oral_history"]
+
+    def test_traditions_accumulate_over_time(self):
+        engine = Mars100Engine(seed=42, total_years=50)
+        sim = engine.run()
+        total = sum(len(yr.traditions_accepted) for yr in sim.years)
+        assert total > 0, "Expected at least one tradition in 50 years"
+
+    def test_death_produces_tradition(self):
+        """Deaths should produce cautionary traditions."""
+        engine = Mars100Engine(seed=42, total_years=100)
+        sim = engine.run()
+        all_traditions = []
+        for yr in sim.years:
+            all_traditions.extend(yr.traditions_accepted)
+        cautionary = [t for t in all_traditions if t.get("category") == "cautionary"]
+        assert len(cautionary) > 0, "Expected cautionary traditions from deaths"
+
+    def test_oral_history_summary_in_total(self):
+        engine = Mars100Engine(seed=42, total_years=30)
+        sim = engine.run()
+        d = sim.to_dict()
+        assert "total_traditions" in d["summary"]
+        assert isinstance(d["summary"]["total_traditions"], int)
+
+    def test_culture_biases_influence_actions(self):
+        """After traditions exist, culture biases should be non-empty."""
+        engine = Mars100Engine(seed=42, total_years=100)
+        engine.run()
+        biases = engine.oral_history.action_biases()
+        if engine.oral_history.active_canon:
+            assert len(biases) > 0

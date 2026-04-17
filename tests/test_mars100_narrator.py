@@ -127,3 +127,36 @@ class TestFinalReport:
         report = generate_final_report(SAMPLE_SIM_RESULT)
         assert "Seren" in report
         assert "radiation" in report
+
+
+class TestNarrateTraditions:
+    def test_traditions_section_appears(self):
+        year_with_traditions = {**SAMPLE_YEAR, "traditions_accepted": [
+            {"category": "cautionary", "text": "Remember the dust storm of year 5",
+             "trust_rating": 0.7, "citations": 1},
+        ]}
+        text = narrate_year(year_with_traditions, random.Random(42))
+        assert "Oral Traditions" in text
+        assert "cautionary" in text
+
+    def test_no_traditions_no_section(self):
+        text = narrate_year(SAMPLE_YEAR, random.Random(42))
+        assert "Oral Traditions" not in text
+
+    def test_final_report_oral_history(self):
+        sim_with_culture = {**SAMPLE_SIM_RESULT, "oral_history": {
+            "traditions": [
+                {"category": "survival", "text": "Hoard oxygen",
+                 "trust_rating": 0.8, "citations": 5, "archived": False},
+                {"category": "governance", "text": "Council works",
+                 "trust_rating": 0.6, "citations": 3, "archived": False},
+                {"category": "technical", "text": "old data",
+                 "trust_rating": 0.1, "citations": 1, "archived": True},
+            ],
+            "active_count": 2,
+            "archive_count": 1,
+        }}
+        report = generate_final_report(sim_with_culture)
+        assert "Oral Tradition" in report
+        assert "Active traditions:" in report
+        assert "survival" in report

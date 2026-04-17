@@ -18,6 +18,10 @@ from src.mars100.colony import (
     Resources, SocialGraph, tick_resources, RESOURCE_NAMES,
     compute_value_convergence,
 )
+from src.mars100.culture import (
+    OralHistory, tradition_from_death, tradition_from_governance,
+    tradition_from_subsim, tradition_from_crisis, tradition_from_meta,
+)
 from src.mars100.events import Event, generate_events
 from src.mars100.governance import (
     GovernanceProposal, GovernanceState, apply_governance,
@@ -25,6 +29,9 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.economy import (
+    ColonyEconomy, EconomySnapshot, tick_economy,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +59,8 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    economy_snapshot: dict = field(default_factory=dict)
+    traditions_accepted: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +76,8 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "economy": self.economy_snapshot,
+            "traditions_accepted": self.traditions_accepted,
         }
 
 
@@ -86,10 +97,14 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    final_gini: float = 0.0
+    total_theft: float = 0.0
+    total_tax_collected: float = 0.0
+    oral_history: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,11 +116,16 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "final_gini": round(self.final_gini, 4),
+                "total_theft": round(self.total_theft, 4),
+                "total_tax_collected": round(self.total_tax_collected, 4),
+                "total_traditions": len(self.oral_history.get("traditions", [])),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
+            "oral_history": self.oral_history,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -121,13 +141,20 @@ class Mars100Engine:
         self.resources = Resources()
         self.social = SocialGraph()
         self.governance = GovernanceState()
+        self.oral_history = OralHistory()
+        self.economy = ColonyEconomy()
+        self.lineage: dict[str, list[str]] = {}  # parent_id → [child_ids]
         self.year = 0
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self._tradition_counter = 0
+        self._culture_biases: dict[str, float] = {}  # recomputed each tick
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
+        for cid in active_ids:
+            self.economy.ensure_wallet(cid)
 
     def _active_colonists(self) -> list[Colonist]:
         return [c for c in self.colonists if c.is_active()]
@@ -139,8 +166,10 @@ class Mars100Engine:
         """Choose an action for a colonist based on personality and events."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
+            bindings = colonist.lispy_bindings()
+            bindings["wealth"] = self.economy.wealth_of(colonist.id)
             score = lispy_run(colonist.decision_expr,
-                              extra_bindings=colonist.lispy_bindings(),
+                              extra_bindings=bindings,
                               max_steps=1000)
             if not isinstance(score, (int, float)):
                 score = 0.5
@@ -185,6 +214,9 @@ class Mars100Engine:
                     w += 1.5
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
+            # Oral tradition biases (institutional memory)
+            culture_bias = self._culture_biases.get(action, 0.0)
+            w += culture_bias
             weights[action] = max(0.01, w)
 
         total = sum(weights.values())
@@ -347,7 +379,8 @@ class Mars100Engine:
     def _check_meta_awareness(self, colonist: Colonist) -> dict | None:
         prob = (META_AWARENESS_BASE * self.year +
                 colonist.stats.faith * 0.005 +
-                colonist.stats.improvisation * 0.003)
+                colonist.stats.improvisation * 0.003 +
+                self.oral_history.meta_awareness_boost())
         if 45 <= self.year <= 55:
             prob *= 3.0
         if self.rng.random() < prob:
@@ -387,6 +420,8 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Oral tradition modifies governance votes
+        score += self.oral_history.governance_modifier(proposal.gov_type)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -437,11 +472,72 @@ class Mars100Engine:
             "status": "proposed",
         }
 
+    def _next_tid(self) -> int:
+        """Return and increment the tradition counter."""
+        self._tradition_counter += 1
+        return self._tradition_counter
+
+    def _collect_traditions(
+        self,
+        deaths: list[dict],
+        subsim_log: list[SubSimResult],
+        gov_proposal: GovernanceProposal | None,
+        meta_events: list[dict],
+        events: list[Event],
+    ) -> list[dict]:
+        """Collect tradition candidates from this tick's events, then commit.
+
+        Two-phase: propose candidates → commit → drift trust.
+        Returns list of accepted tradition dicts.
+        """
+        # Deaths → cautionary traditions (legacy, not delete)
+        for death in deaths:
+            t = tradition_from_death(
+                death["id"], death["name"], death["year"],
+                death["cause"], self._next_tid())
+            self.oral_history.propose(t)
+
+        # Passed governance → governance traditions
+        if gov_proposal and gov_proposal.passed:
+            t = tradition_from_governance(
+                self.year, gov_proposal.gov_type,
+                gov_proposal.proposer_id, self._next_tid())
+            self.oral_history.propose(t)
+
+        # Deep sub-sims → technical/spiritual traditions
+        for ss in subsim_log:
+            if ss.depth >= 2 and ss.succeeded:
+                summary = str(ss.result)[:80] if ss.result is not None else "inconclusive"
+                t = tradition_from_subsim(
+                    self.year, ss.colonist_id, ss.depth, summary, self._next_tid())
+                self.oral_history.propose(t)
+
+        # Resource crises → survival traditions
+        for name in self.resources.critical():
+            event_names = ", ".join(e.name for e in events) if events else "unknown"
+            t = tradition_from_crisis(self.year, f"{name} ({event_names})", self._next_tid())
+            self.oral_history.propose(t)
+
+        # Meta-awareness → spiritual traditions
+        for meta in meta_events:
+            t = tradition_from_meta(
+                self.year, meta["colonist_id"],
+                meta["insight"], self._next_tid())
+            self.oral_history.propose(t)
+
+        # Commit all candidates + drift existing trust
+        accepted = self.oral_history.commit(self.rng)
+        self.oral_history.drift_trust(self.rng)
+        return [t.to_dict() for t in accepted]
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
         active = self._active_colonists()
         active_ids = [c.id for c in active]
+
+        # Culture biases from PREVIOUS tick's committed traditions
+        self._culture_biases = self.oral_history.action_biases()
 
         events = generate_events(self.year, self.rng)
         resources_before = self.resources.to_dict()
@@ -504,6 +600,13 @@ class Mars100Engine:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
         year_births = self._check_births()
+        # Track lineage and init wallets for newborns
+        for birth in year_births:
+            child_id = birth["id"]
+            parent_list = birth.get("parents", [])
+            for pid in parent_list:
+                self.lineage.setdefault(pid, []).append(child_id)
+            self.economy.ensure_wallet(child_id)
 
         deaths: list[dict] = []
         exiles: list[dict] = []
@@ -524,6 +627,25 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        # ── Economy phase: income, theft, tax, inheritance ──
+        econ_snapshot = tick_economy(
+            economy=self.economy,
+            actions=actions,
+            colonists=self.colonists,
+            active_ids=self._active_ids(),
+            gov_type=self.governance.gov_type,
+            year=self.year,
+            social=self.social,
+            rng=self.rng,
+            deaths=deaths,
+            lineage=self.lineage,
+            resources=self.resources,
+        )
+
+        # ── Culture phase: collect tradition candidates ──
+        traditions_accepted = self._collect_traditions(
+            deaths, subsim_log, gov_proposal, meta_events, events)
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
@@ -541,12 +663,15 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            economy_snapshot=econ_snapshot.to_dict(),
+            traditions_accepted=traditions_accepted,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_theft = total_tax = 0.0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -559,8 +684,14 @@ class Mars100Engine:
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
+            total_theft += result.economy_snapshot.get("total_theft", 0.0)
+            total_tax += result.economy_snapshot.get("total_tax", 0.0)
             if callback:
                 callback(result)
+
+        from src.mars100.economy import compute_gini
+        final_gini = compute_gini(self.economy, self._active_ids())
+
         return SimulationResult(
             years=years, final_colonists=[c.to_dict() for c in self.colonists],
             final_resources=self.resources.to_dict(),
@@ -572,6 +703,10 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            final_gini=final_gini,
+            total_theft=total_theft,
+            total_tax_collected=total_tax,
+            oral_history=self.oral_history.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
