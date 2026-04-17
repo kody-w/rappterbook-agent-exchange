@@ -50,6 +50,11 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences,
 )
+from src.mars100.politics import (
+    PoliticalState, PoliticalTickResult,
+    tick_politics, compute_faction_pressure, compute_voting_bloc,
+    check_amendment_promotion, total_grievance,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,6 +91,7 @@ class YearResult:
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
+    politics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +115,7 @@ class YearResult:
             "economics": self.economics,
             "psychology": self.psychology,
             "behavior": self.behavior,
+            "politics": self.politics,
         }
 
 
@@ -137,10 +144,11 @@ class SimulationResult:
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
+    final_politics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "9.0",
+            "_meta": {"engine": "mars-100", "version": "10.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -166,6 +174,7 @@ class SimulationResult:
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
+            "final_politics": self.final_politics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -195,6 +204,8 @@ class Mars100Engine:
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
         self.behavior_map: dict[str, BehaviorProfile] = {}
+        self.politics = PoliticalState()
+        self.politics_rng = random.Random(seed + 11213)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -270,10 +281,13 @@ class Mars100Engine:
             psych.purpose if psych else 0.5,
             profile, ACTIONS,
         ) if psych else {}
+        faction_pressure = compute_faction_pressure(
+            self.politics.factions, colonist.id)
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
-                        + behavior_pressure.get(act, 0.0))
+                        + behavior_pressure.get(act, 0.0)
+                        + faction_pressure.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -502,6 +516,11 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Faction/alliance voting bloc bias
+        bloc_bias = compute_voting_bloc(
+            self.politics.factions, self.politics.alliances,
+            colonist.id, proposal.proposer_id)
+        score += bloc_bias
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -861,6 +880,49 @@ class Mars100Engine:
         # Final clamp — multiple subsystems may have nudged resources
         self.resources.clamp()
 
+        # --- politics: factions, grievances, crisis proposals ---
+        from src.mars100.economics import compute_gini as econ_compute_gini
+        gini = econ_compute_gini(self.colonists)
+        recent_deaths_count = len(deaths)
+        politics_result = tick_politics(
+            state=self.politics,
+            colonists=self.colonists,
+            social_graph=self.social,
+            resources_avg=self.resources.average(),
+            gini=gini,
+            recent_deaths=recent_deaths_count,
+            gov_type=self.governance.gov_type,
+            year=self.year,
+            rng=self.politics_rng,
+        )
+
+        # Politics-driven crisis governance proposal
+        if politics_result.crisis_proposal and self._active_colonists():
+            crisis_active = self._active_colonists()
+            crisis_proposer = self.politics_rng.choice(crisis_active)
+            crisis_prop = generate_proposal(
+                self.year, crisis_proposer.id, self.governance, self.politics_rng)
+            for c in crisis_active:
+                if c.id == crisis_prop.proposer_id:
+                    crisis_prop.votes_for.append(c.id)
+                elif self._vote_on_proposal(c, crisis_prop):
+                    crisis_prop.votes_for.append(c.id)
+                else:
+                    crisis_prop.votes_against.append(c.id)
+            crisis_prop.passed = resolve_vote(crisis_prop, len(crisis_active))
+            if crisis_prop.passed:
+                apply_governance(crisis_prop, self.governance,
+                                 [c.id for c in crisis_active], self.politics_rng)
+            if gov_proposal is None:
+                gov_proposal = crisis_prop
+
+        # Politics-driven amendment promotion from sub-sim insights
+        amendment = check_amendment_promotion(
+            self.politics, self.insight_queue, self.year)
+        if amendment:
+            self.politics.amendments.append(amendment)
+            self.promoted_insights.append(amendment)
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
@@ -886,6 +948,7 @@ class Mars100Engine:
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
+            politics=politics_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -927,6 +990,7 @@ class Mars100Engine:
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
+            final_politics=self.politics.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),

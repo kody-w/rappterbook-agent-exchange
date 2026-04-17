@@ -368,7 +368,7 @@ class TestEngineIntegration:
         from src.mars100.engine import Mars100Engine
         engine = Mars100Engine(seed=42, total_years=5)
         sim = engine.run()
-        assert sim.to_dict()["_meta"]["version"] == "9.0"
+        assert sim.to_dict()["_meta"]["version"] == "10.0"
 
     def test_earth_contact_events_filtered(self):
         """Earth organ should filter random earth_contact events."""

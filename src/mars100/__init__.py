@@ -53,6 +53,13 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences, compute_risk_tolerance,
 )
+from src.mars100.politics import (
+    Faction, Alliance, Grievance, PoliticalState, PoliticalTickResult,
+    compute_affinity, detect_factions, form_alliances,
+    accumulate_grievances, decay_grievances, total_grievance,
+    should_crisis_propose, compute_faction_pressure, compute_voting_bloc,
+    check_amendment_promotion, tick_politics,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -87,4 +94,9 @@ __all__ = [
     "BehaviorProfile", "BehaviorTickResult", "ContagionDelta",
     "compute_action_perturbation", "compute_social_contagion",
     "update_learned_preferences", "compute_risk_tolerance",
+    "Faction", "Alliance", "Grievance", "PoliticalState", "PoliticalTickResult",
+    "compute_affinity", "detect_factions", "form_alliances",
+    "accumulate_grievances", "decay_grievances", "total_grievance",
+    "should_crisis_propose", "compute_faction_pressure", "compute_voting_bloc",
+    "check_amendment_promotion", "tick_politics",
 ]
