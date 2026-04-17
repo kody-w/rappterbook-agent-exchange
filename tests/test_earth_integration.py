@@ -73,7 +73,7 @@ class TestEngineEarthIntegration:
         r = e.run()
         d = r.to_dict()
         assert "final_earth" in d
-        assert d["_meta"]["version"] == "9.0"
+        assert d["_meta"]["version"] == "10.0"
         assert "total_immigrants" in d["summary"]
 
     def test_earth_state_evolves(self) -> None:
