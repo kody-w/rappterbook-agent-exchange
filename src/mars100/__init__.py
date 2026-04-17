@@ -61,6 +61,13 @@ from src.mars100.ecology import (
     outdoor_habitable, has_greenhouse_tech,
     BIOME_NAMES,
 )
+from src.mars100.diplomacy import (
+    Faction, Alliance, Rivalry,
+    DiplomacyState, DiplomacyYearContext, DiplomacyTickResult,
+    tick_diplomacy, compute_ideology, ideology_distance,
+    compute_power_balance, compute_governance_pressure,
+    compute_psych_modifiers,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -101,4 +108,9 @@ __all__ = [
     "compute_nature_stress_reduction", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
+    "Faction", "Alliance", "Rivalry",
+    "DiplomacyState", "DiplomacyYearContext", "DiplomacyTickResult",
+    "tick_diplomacy", "compute_ideology", "ideology_distance",
+    "compute_power_balance", "compute_governance_pressure",
+    "compute_psych_modifiers",
 ]

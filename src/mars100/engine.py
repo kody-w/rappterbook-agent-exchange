@@ -55,6 +55,10 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyYearContext, DiplomacyTickResult,
+    tick_diplomacy,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -92,6 +96,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    factions: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -116,6 +121,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "factions": self.factions,
         }
 
 
@@ -207,6 +213,8 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.diplomacy_state = DiplomacyState()
+        self.diplomacy_rng = random.Random(seed + 13331)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -791,6 +799,37 @@ class Mars100Engine:
             for ps in self.psych_map.values():
                 ps.stress = max(0.0, ps.stress - nature_reduction)
 
+        # --- diplomacy: factional politics (dedicated RNG stream) ---
+        diplo_trusts: dict[str, dict[str, float]] = {}
+        for cid in active_ids:
+            diplo_trusts[cid] = {}
+            for oid in active_ids:
+                if oid != cid:
+                    diplo_trusts[cid][oid] = self.social.get(cid, oid).trust
+        diplo_stats = {
+            c.id: c.stats.to_dict()
+            for c in active
+        }
+        diplo_ctx = DiplomacyYearContext(
+            year=self.year,
+            active_colonist_ids=active_ids,
+            colonist_stats=diplo_stats,
+            social_trusts=diplo_trusts,
+            governance_type=self.governance.gov_type,
+            resource_avg=self.resources.average())
+        diplomacy_result = tick_diplomacy(
+            self.diplomacy_state, diplo_ctx, self.diplomacy_rng)
+
+        # Diplomacy -> psychology: faction membership modifiers
+        for cid, mod in diplomacy_result.loneliness_modifiers.items():
+            ps = self.psych_map.get(cid)
+            if ps is not None:
+                ps.loneliness = max(0.0, min(1.0, ps.loneliness + mod))
+        for cid, mod in diplomacy_result.purpose_modifiers.items():
+            ps = self.psych_map.get(cid)
+            if ps is not None:
+                ps.purpose = max(0.0, min(1.0, ps.purpose + mod))
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -929,6 +968,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            factions=diplomacy_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
