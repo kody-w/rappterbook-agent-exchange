@@ -17,6 +17,10 @@ from src.mars100.governance import (
     generate_proposal, resolve_vote, should_propose, apply_governance,
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult, Faction, Treaty,
+    tick_diplomacy, faction_vote_modifier, compute_treaty_effects,
+)
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
 from src.mars100.infrastructure import (
@@ -45,4 +49,6 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "DiplomacyState", "DiplomacyTickResult", "Faction", "Treaty",
+    "tick_diplomacy", "faction_vote_modifier", "compute_treaty_effects",
 ]
