@@ -37,6 +37,10 @@ from src.mars100.earth import (
     EarthState, tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, tick_economics, compute_economic_pressure,
+    liquidate_estate, endow_immigrant as econ_endow_immigrant,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -70,6 +74,7 @@ class YearResult:
     earth: dict = field(default_factory=dict)
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
+    economics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +95,7 @@ class YearResult:
             "earth": self.earth,
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
+            "economics": self.economics,
         }
 
 
@@ -114,10 +120,11 @@ class SimulationResult:
     final_earth: dict = field(default_factory=dict)
     total_immigrants: int = 0
     total_ships: int = 0
+    final_economics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "6.0",
+            "_meta": {"engine": "mars-100", "version": "7.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -139,6 +146,7 @@ class SimulationResult:
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
             "final_earth": self.final_earth,
+            "final_economics": self.final_economics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -163,6 +171,8 @@ class Mars100Engine:
         self.culture_rng = random.Random(seed + 7919)
         self.earth = EarthState()
         self.earth_rng = random.Random(seed + 6151)
+        self.economics = EconomicState()
+        self.econ_rng = random.Random(seed + 8191)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -232,6 +242,13 @@ class Mars100Engine:
         for act, delta in cultural_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Economic pressure from personal wealth
+        econ_pressure = compute_economic_pressure(colonist)
+        for act, delta in econ_pressure.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
+
         total = sum(weights.values())
         r = self.rng.random() * total
         cumulative = 0.0
@@ -600,20 +617,56 @@ class Mars100Engine:
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
 
+        # --- economics: labor income → trade → taxation → inequality ---
+        econ_result = tick_economics(
+            colonists=self.colonists, actions=actions,
+            gov_type=self.governance.gov_type, social=self.social,
+            resources=self.resources, economic_state=self.economics,
+            year=self.year, rng=self.econ_rng)
+
+        # Economic revolt: force governance re-election next year
+        if self.economics.pending_revolt:
+            self.economics.pending_revolt = False
+            if active:
+                proposer = self.econ_rng.choice(active)
+                revolt_proposal = generate_proposal(
+                    self.year, proposer.id, self.governance, self.econ_rng)
+                revolt_proposal.subsim_result = {"revolt": True}
+                for c in active:
+                    if c.id == revolt_proposal.proposer_id:
+                        revolt_proposal.votes_for.append(c.id)
+                    elif self._vote_on_proposal(c, revolt_proposal):
+                        revolt_proposal.votes_for.append(c.id)
+                    else:
+                        revolt_proposal.votes_against.append(c.id)
+                revolt_proposal.passed = resolve_vote(revolt_proposal, len(active))
+                if revolt_proposal.passed:
+                    apply_governance(revolt_proposal, self.governance,
+                                     active_ids, self.econ_rng)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
         exiles: list[dict] = []
+        estates: list[dict] = []
         for colonist in list(active):
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
+                estate = liquidate_estate(colonist, self.resources)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
+                if estate:
+                    estates.append({"id": colonist.id, "type": "death", "estate": estate})
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
+                estate = liquidate_estate(colonist, self.resources)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
+                if estate:
+                    estates.append({"id": colonist.id, "type": "exile", "estate": estate})
+
+        econ_result.estates_liquidated = estates
 
         # --- cultural memory evolution ---
         death_records = [
@@ -683,6 +736,7 @@ class Mars100Engine:
                 imm_id = f"imm-{self.next_id}"
                 self.next_id += 1
                 immigrant = create_immigrant(imm_id, self.year, self.earth_rng)
+                econ_endow_immigrant(immigrant)
                 self.colonists.append(immigrant)
                 active_ids_now = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(immigrant.id, active_ids_now,
@@ -698,6 +752,9 @@ class Mars100Engine:
             meta = self._check_meta_awareness(colonist)
             if meta:
                 meta_events.append(meta)
+
+        # Final clamp — multiple subsystems may have nudged resources
+        self.resources.clamp()
 
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
@@ -721,6 +778,7 @@ class Mars100Engine:
             earth=self.earth.to_dict(),
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
+            economics=econ_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -759,6 +817,7 @@ class Mars100Engine:
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
             final_earth=self.earth.to_dict(),
+            final_economics=self.economics.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

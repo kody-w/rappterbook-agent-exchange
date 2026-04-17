@@ -76,6 +76,58 @@ class MemoryEntry:
 
 
 @dataclass
+class Wallet:
+    """Personal resource stockpile for a colonist (economics organ).
+
+    Holdings are unbounded nonneg floats in abstract resource-token units.
+    Separate from colony-level resources.
+    """
+    holdings: dict[str, float] = field(default_factory=lambda: {
+        "food": 0.0, "water": 0.0, "power": 0.0, "air": 0.0, "medicine": 0.0,
+    })
+    total_earned: float = 0.0
+    total_traded: float = 0.0
+    total_taxed: float = 0.0
+
+    def total_wealth(self) -> float:
+        return sum(self.holdings.values())
+
+    def deposit(self, resource: str, amount: float) -> None:
+        if amount < 0:
+            return
+        self.holdings[resource] = self.holdings.get(resource, 0.0) + amount
+
+    def withdraw(self, resource: str, amount: float) -> float:
+        if amount <= 0:
+            return 0.0
+        available = self.holdings.get(resource, 0.0)
+        actual = min(available, amount)
+        self.holdings[resource] = available - actual
+        return actual
+
+    def to_dict(self) -> dict:
+        return {
+            "holdings": dict(self.holdings),
+            "total_earned": round(self.total_earned, 6),
+            "total_traded": round(self.total_traded, 6),
+            "total_taxed": round(self.total_taxed, 6),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Wallet:
+        if not d:
+            return cls()
+        res_names = ("food", "water", "power", "air", "medicine")
+        holdings = {n: d.get("holdings", {}).get(n, 0.0) for n in res_names}
+        return cls(
+            holdings=holdings,
+            total_earned=d.get("total_earned", 0.0),
+            total_traded=d.get("total_traded", 0.0),
+            total_taxed=d.get("total_taxed", 0.0),
+        )
+
+
+@dataclass
 class Colonist:
     """A Mars-100 colonist."""
     id: str
@@ -94,6 +146,7 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    wallet: Wallet = field(default_factory=Wallet)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -103,6 +156,7 @@ class Colonist:
             "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
+            "wallet": self.wallet.to_dict(),
         }
         if self.death_year is not None:
             d["death_year"] = self.death_year
@@ -114,6 +168,7 @@ class Colonist:
     @classmethod
     def from_dict(cls, d: dict) -> Colonist:
         memories = [MemoryEntry(m["year"], m["event"], m["valence"]) for m in d.get("memories", [])]
+        wallet = Wallet.from_dict(d.get("wallet", {}))
         return cls(
             id=d["id"], name=d["name"], element=d["element"], archetype=d["archetype"],
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
@@ -123,6 +178,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            wallet=wallet,
         )
 
     def is_active(self) -> bool:
@@ -173,6 +229,7 @@ class Colonist:
         bindings["element"] = self.element
         bindings["alive"] = self.alive
         bindings["memory-count"] = len(self.memories)
+        bindings["wealth"] = self.wallet.total_wealth()
         return bindings
 
 

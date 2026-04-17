@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from src.mars100.colonist import (
-    Colonist, ColonistStats, ColonistSkills, MemoryEntry,
+    Colonist, ColonistStats, ColonistSkills, MemoryEntry, Wallet,
     ELEMENTS, STAT_NAMES, SKILL_NAMES, COLONIST_NAMES,
     create_founding_ten, create_child, create_immigrant,
     IMMIGRANT_ARCHETYPES,
@@ -36,10 +36,16 @@ from src.mars100.earth import (
     tick_earth, compute_maintenance_modifier,
     check_independence_conditions, declare_independence,
 )
+from src.mars100.economics import (
+    EconomicState, EconomicTickResult, TradeRecord,
+    allocate_labor_income, find_trades, apply_taxation,
+    compute_gini, compute_economic_pressure, liquidate_estate,
+    endow_immigrant, tick_economics,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
-    "Colonist", "ColonistStats", "ColonistSkills", "MemoryEntry",
+    "Colonist", "ColonistStats", "ColonistSkills", "MemoryEntry", "Wallet",
     "ELEMENTS", "STAT_NAMES", "SKILL_NAMES", "COLONIST_NAMES",
     "create_founding_ten", "create_child", "create_immigrant",
     "IMMIGRANT_ARCHETYPES",
@@ -59,4 +65,8 @@ __all__ = [
     "EarthState", "EarthMessage", "EarthTickResult", "SupplyShip",
     "tick_earth", "compute_maintenance_modifier",
     "check_independence_conditions", "declare_independence",
+    "EconomicState", "EconomicTickResult", "TradeRecord",
+    "allocate_labor_income", "find_trades", "apply_taxation",
+    "compute_gini", "compute_economic_pressure", "liquidate_estate",
+    "endow_immigrant", "tick_economics",
 ]
