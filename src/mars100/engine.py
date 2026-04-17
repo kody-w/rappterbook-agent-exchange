@@ -45,6 +45,10 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.ecology import (
+    EcologyState, tick_ecology, compute_ecology_production_modifiers,
+    get_milestone_label,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -52,6 +56,7 @@ ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
 META_AWARENESS_BASE = 0.001
 BASE_DEATH_RATE = 0.005
 RESOURCE_DEATH_MULTIPLIER = 3.0
+MORALE_PERTURBATION_THRESHOLD = 0.35
 
 
 @dataclass
@@ -80,6 +85,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +108,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "ecology": self.ecology,
         }
 
 
@@ -129,10 +136,12 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_ecology: dict = field(default_factory=dict)
+    ecology_milestones: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +156,7 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "ecology_milestones": len(self.ecology_milestones),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +167,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_ecology": self.final_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +196,8 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.ecology = EcologyState()
+        self.ecology_rng = random.Random(seed + 10007)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -260,6 +273,20 @@ class Mars100Engine:
         for act, delta in econ_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Psychology v9: morale perturbation — stressed colonists choose poorly
+        psych = self.psych_map.get(colonist.id)
+        if psych and psych.morale < MORALE_PERTURBATION_THRESHOLD:
+            distress = MORALE_PERTURBATION_THRESHOLD - psych.morale
+            uniform_w = sum(weights.values()) / len(weights)
+            for act in weights:
+                # Flatten toward uniform: interpolate between current and uniform
+                weights[act] = weights[act] * (1.0 - distress) + uniform_w * distress
+            # Boost rest and pray when distressed
+            weights["rest"] = max(0.01, weights.get("rest", 1.0) + distress * 2.0)
+            weights["pray"] = max(0.01, weights.get("pray", 1.0) + distress * 1.0)
+        # Consume a fixed psych_rng draw to keep RNG stream consistent
+        self.psych_rng.random()
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -595,9 +622,13 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # Ecology: compute production modifiers from planetary state
+        ecology_mods = compute_ecology_production_modifiers(self.ecology)
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
-                                        infra_modifiers=infra_mods)
+                                        infra_modifiers=infra_mods,
+                                        ecology_modifiers=ecology_mods)
 
         # Infrastructure: deduct operating costs
         op_costs = compute_operating_costs(self.infra.completed)
@@ -632,6 +663,13 @@ class Mars100Engine:
                 victim = self.rng.choice(active_ids) if active_ids else None
                 if victim and victim != cid:
                     self.social.update_from_conflict(cid, victim, self.rng)
+
+        # --- ecology: planetary transformation from colonist actions ---
+        ecology_result = tick_ecology(
+            state=self.ecology, actions=actions,
+            population=len(active),
+            infra_completed=list(self.infra.completed),
+            year=self.year, rng=self.ecology_rng)
 
         # --- economics: labor income → trade → taxation → inequality ---
         econ_result = tick_economics(
@@ -692,6 +730,7 @@ class Mars100Engine:
                 subsim_ran=ran_subsim,
                 resolve=c.stats.resolve, empathy=c.stats.empathy,
                 faith=c.stats.faith, paranoia=c.stats.paranoia,
+                habitability=self.ecology.habitability,
             ))
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
@@ -744,7 +783,8 @@ class Mars100Engine:
             subsim_count=len(subsim_log),
             action_counts=action_counts,
             resources=self.resources.to_dict(),
-            colonists=[c.to_dict() for c in self._active_colonists()])
+            colonists=[c.to_dict() for c in self._active_colonists()],
+            ecology_milestones=ecology_result.new_milestones)
         evolve_culture(self.culture, culture_ctx, self.culture_rng)
 
         # --- Earth Protocol ---
@@ -832,6 +872,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            ecology=ecology_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -875,6 +916,8 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_ecology=self.ecology.to_dict(),
+            ecology_milestones=list(self.ecology.milestones_achieved),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

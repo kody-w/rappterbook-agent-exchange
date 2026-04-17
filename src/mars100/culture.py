@@ -56,6 +56,7 @@ class YearContext:
     action_counts: dict
     resources: dict
     colonists: list
+    ecology_milestones: list = field(default_factory=list)
 
 
 class CulturalMemory:
@@ -158,6 +159,17 @@ def evolve_culture(culture, ctx, rng):
         age = ctx.year - t.source_year
         if age > 20:
             t.importance *= 0.98
+
+    # Ecology milestones become traditions
+    for ms_id in getattr(ctx, "ecology_milestones", []):
+        ms_name = "Ecology: {}".format(ms_id.replace("_", " ").title())
+        if ms_name not in existing:
+            culture.traditions.append(Tradition(
+                name=ms_name, source_year=ctx.year,
+                source_type="ecology", importance=0.9,
+                description="Planetary milestone in year {}".format(ctx.year),
+            ))
+
     _enforce_bounds(culture)
 
 
