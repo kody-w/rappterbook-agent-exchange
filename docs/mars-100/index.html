@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: Recursive Colony Simulation</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --panel: #12121a;
+  --border: #2a2a3a;
+  --text: #c8c8d8;
+  --dim: #666680;
+  --accent: #e85d3a;
+  --accent2: #3a8ee8;
+  --green: #3ae87a;
+  --yellow: #e8d83a;
+  --red: #e83a3a;
+  --water: #3a8ee8;
+  --food: #3ae87a;
+  --power: #e8d83a;
+  --air: #a8b8e8;
+  --med: #e83a8e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.header {
+  text-align: center;
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.header h1 {
+  font-size: 24px;
+  color: var(--accent);
+  letter-spacing: 2px;
+}
+.header .subtitle {
+  color: var(--dim);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.stats-bar {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.stat {
+  text-align: center;
+}
+.stat .val {
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--accent);
+}
+.stat .lbl {
+  font-size: 10px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  margin: 1px;
+}
+@media (max-width: 800px) {
+  .grid { grid-template-columns: 1fr; }
+}
+.panel {
+  background: var(--panel);
+  padding: 16px;
+}
+.panel h2 {
+  font-size: 14px;
+  color: var(--accent);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+canvas {
+  width: 100%;
+  height: 200px;
+  display: block;
+  border-radius: 4px;
+}
+.colonist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.colonist-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+  font-size: 11px;
+}
+.colonist-card .name { font-weight: bold; color: var(--text); }
+.colonist-card .role { color: var(--dim); font-size: 10px; }
+.colonist-card .status {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  margin-top: 4px;
+}
+.status-alive { background: rgba(58,232,122,0.2); color: var(--green); }
+.status-dead { background: rgba(232,58,58,0.2); color: var(--red); }
+.status-exiled { background: rgba(232,216,58,0.2); color: var(--yellow); }
+.timeline-entry {
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(42,42,58,0.5);
+  font-size: 11px;
+}
+.timeline-entry .year {
+  color: var(--accent);
+  font-weight: bold;
+  display: inline-block;
+  width: 50px;
+}
+.gov-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  margin: 2px;
+}
+.gov-anarchy { background: rgba(168,184,232,0.2); color: var(--air); }
+.gov-council { background: rgba(58,142,232,0.2); color: var(--water); }
+.gov-dictator { background: rgba(232,58,58,0.2); color: var(--red); }
+.gov-lottery { background: rgba(232,216,58,0.2); color: var(--yellow); }
+.gov-consensus { background: rgba(58,232,122,0.2); color: var(--green); }
+.gov-ai_governor { background: rgba(232,93,58,0.2); color: var(--accent); }
+.diary-entry {
+  padding: 8px;
+  margin: 4px 0;
+  background: rgba(255,255,255,0.02);
+  border-left: 2px solid var(--accent2);
+  border-radius: 0 4px 4px 0;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.meta-insight {
+  padding: 6px 8px;
+  margin: 3px 0;
+  background: rgba(232,93,58,0.08);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  font-size: 11px;
+  font-style: italic;
+}
+.subsim-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0;
+  font-size: 10px;
+}
+.subsim-bar .bar {
+  height: 8px;
+  background: var(--accent2);
+  border-radius: 2px;
+  opacity: 0.7;
+}
+.full-width {
+  grid-column: 1 / -1;
+}
+#loading {
+  text-align: center;
+  padding: 60px;
+  color: var(--dim);
+  font-size: 16px;
+}
+.scroll-panel {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.scroll-panel::-webkit-scrollbar { width: 4px; }
+.scroll-panel::-webkit-scrollbar-track { background: transparent; }
+.scroll-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.lispy-expr {
+  font-family: 'SF Mono', monospace;
+  font-size: 10px;
+  color: var(--accent);
+  background: rgba(232,93,58,0.08);
+  padding: 8px;
+  border-radius: 4px;
+  margin: 8px 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.amendment-box {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  background: rgba(232,93,58,0.05);
+}
+.amendment-box h3 {
+  color: var(--accent);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.amendment-box blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>MARS-100</h1>
+  <div class="subtitle">Recursive Colony Simulation &mdash; Turtles All the Way Down</div>
+</div>
+<div id="loading">Loading simulation data...</div>
+<div id="app" style="display:none">
+  <div class="stats-bar" id="stats-bar"></div>
+  <div class="grid">
+    <div class="panel full-width">
+      <h2>Resource Timeline</h2>
+      <canvas id="resource-chart" height="200"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Social Cohesion</h2>
+      <canvas id="cohesion-chart" height="200"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Sub-Simulations by Year</h2>
+      <canvas id="subsim-chart" height="200"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Colonist Roster</h2>
+      <div id="colonist-roster" class="colonist-grid"></div>
+    </div>
+    <div class="panel">
+      <h2>Governance History</h2>
+      <div id="gov-timeline" class="scroll-panel"></div>
+    </div>
+    <div class="panel full-width">
+      <h2>Meta-Awareness Events</h2>
+      <div id="meta-timeline" class="scroll-panel"></div>
+    </div>
+    <div class="panel">
+      <h2>Death Timeline</h2>
+      <div id="death-timeline" class="scroll-panel"></div>
+    </div>
+    <div class="panel">
+      <h2>Diary Entries (sample)</h2>
+      <div id="diary-entries" class="scroll-panel"></div>
+    </div>
+    <div class="panel full-width">
+      <h2>Proposed Constitutional Amendment</h2>
+      <div id="amendment"></div>
+    </div>
+  </div>
+</div>
+<script>
+const COLORS = {food:'#3ae87a',water:'#3a8ee8',power:'#e8d83a',air:'#a8b8e8',medicine:'#e83a8e'};
+const GOV_COLORS = {anarchy:'#a8b8e8',council:'#3a8ee8',dictator:'#e83a3a',lottery:'#e8d83a',consensus:'#3ae87a',ai_governor:'#e85d3a'};
+
+let DATA = null;
+
+async function loadData() {
+  try {
+    const resp = await fetch('data.json');
+    DATA = await resp.json();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    render();
+  } catch (e) {
+    document.getElementById('loading').textContent = 'Error loading data: ' + e.message;
+  }
+}
+
+function render() {
+  renderStats();
+  renderResourceChart();
+  renderCohesionChart();
+  renderSubsimChart();
+  renderColonists();
+  renderGovTimeline();
+  renderMetaTimeline();
+  renderDeathTimeline();
+  renderDiaryEntries();
+  renderAmendment();
+}
+
+function renderStats() {
+  const m = DATA._meta;
+  const s = DATA.summary;
+  const bar = document.getElementById('stats-bar');
+  const stats = [
+    ['Years', `${m.completed_years}/${m.requested_years}`],
+    ['Extinction', m.extinction_year > 0 ? `Y${m.extinction_year}` : 'N/A'],
+    ['Deaths', s.total_deaths],
+    ['Exiles', s.total_exiles],
+    ['Sub-Sims', s.total_subsims],
+    ['Gov Changes', s.governance_changes],
+    ['Meta Events', s.meta_awareness_events],
+    ['Final Gov', DATA.final_governance.gov_type],
+  ];
+  bar.innerHTML = stats.map(([l,v]) => `<div class="stat"><div class="val">${v}</div><div class="lbl">${l}</div></div>`).join('');
+}
+
+function drawChart(canvasId, datasets, labels) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t: 10, r: 10, b: 25, l: 35};
+  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = '#1a1a2a';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (ch * i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cw, y); ctx.stroke();
+    ctx.fillStyle = '#444466';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText((1 - i/4).toFixed(1), pad.l - 4, y + 3);
+  }
+
+  // X-axis labels
+  const maxX = labels.length;
+  for (let i = 0; i < maxX; i += Math.max(1, Math.floor(maxX / 8))) {
+    const x = pad.l + (cw * i / Math.max(1, maxX - 1));
+    ctx.fillStyle = '#444466';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(labels[i], x, H - 4);
+  }
+
+  // Lines
+  for (const ds of datasets) {
+    ctx.strokeStyle = ds.color;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    for (let i = 0; i < ds.data.length; i++) {
+      const x = pad.l + (cw * i / Math.max(1, ds.data.length - 1));
+      const y = pad.t + ch * (1 - Math.max(0, Math.min(1, ds.data[i])));
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawBarChart(canvasId, data, color) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t: 10, r: 10, b: 25, l: 35};
+  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+  const maxVal = Math.max(1, ...data.map(d => d.val));
+
+  ctx.clearRect(0, 0, W, H);
+  const barW = Math.max(2, cw / data.length - 1);
+  for (let i = 0; i < data.length; i++) {
+    const x = pad.l + (cw * i / data.length);
+    const h = (data[i].val / maxVal) * ch;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(x, pad.t + ch - h, barW, h);
+    ctx.globalAlpha = 1;
+  }
+
+  // X labels
+  for (let i = 0; i < data.length; i += Math.max(1, Math.floor(data.length / 8))) {
+    const x = pad.l + (cw * i / data.length) + barW/2;
+    ctx.fillStyle = '#444466';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(data[i].label, x, H - 4);
+  }
+
+  // Y max
+  ctx.fillStyle = '#444466';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(maxVal, pad.l - 4, pad.t + 10);
+}
+
+function renderResourceChart() {
+  const rt = DATA.resource_timeline;
+  const labels = rt.map(r => 'Y' + r.year);
+  const datasets = ['food','water','power','air','medicine'].map(name => ({
+    color: COLORS[name],
+    data: rt.map(r => r[name] || 0),
+  }));
+  drawChart('resource-chart', datasets, labels);
+}
+
+function renderCohesionChart() {
+  const ct = DATA.cohesion_timeline;
+  const labels = ct.map(c => 'Y' + c.year);
+  drawChart('cohesion-chart', [{color:'#e85d3a', data: ct.map(c => c.cohesion)}], labels);
+}
+
+function renderSubsimChart() {
+  const ss = DATA.subsim_by_year;
+  drawBarChart('subsim-chart', ss.map(s => ({label: 'Y'+s.year, val: s.count})), '#3a8ee8');
+}
+
+function renderColonists() {
+  const el = document.getElementById('colonist-roster');
+  el.innerHTML = DATA.colonists.map(c => {
+    const status = c.exiled ? 'exiled' : c.alive ? 'alive' : 'dead';
+    const statusText = c.exiled ? `Exiled Y${c.exile_year}` : c.alive ? 'Alive' : `Dead Y${c.death_year}`;
+    const extra = !c.alive ? ` (${c.death_cause})` : '';
+    return `<div class="colonist-card">
+      <div class="name">${c.name}</div>
+      <div class="role">${c.element} / ${c.archetype}</div>
+      <div class="status status-${status}">${statusText}${extra}</div>
+      <div style="color:var(--dim);font-size:9px;margin-top:4px">
+        Meta: ${(c.meta_awareness * 100).toFixed(0)}% | Sims: ${c.subsims_spawned}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderGovTimeline() {
+  const el = document.getElementById('gov-timeline');
+  const history = DATA.final_governance.history || [];
+  if (history.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim)">No governance changes</div>';
+    return;
+  }
+  el.innerHTML = history.map(h =>
+    `<div class="timeline-entry">
+      <span class="year">Y${h.year}</span>
+      <span class="gov-chip gov-${h.from}">${h.from}</span> &rarr;
+      <span class="gov-chip gov-${h.to}">${h.to}</span>
+    </div>`
+  ).join('');
+}
+
+function renderMetaTimeline() {
+  const el = document.getElementById('meta-timeline');
+  const events = DATA.meta_timeline || [];
+  if (events.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim)">No meta-awareness events</div>';
+    return;
+  }
+  el.innerHTML = events.slice(0, 30).map(m =>
+    `<div class="meta-insight">
+      <strong>Y${m.year} ${m.colonist_name}</strong> (awareness: ${(m.awareness_level * 100).toFixed(0)}%)<br>
+      "${m.insight}"
+    </div>`
+  ).join('');
+}
+
+function renderDeathTimeline() {
+  const el = document.getElementById('death-timeline');
+  const deaths = DATA.death_timeline || [];
+  if (deaths.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim)">No deaths</div>';
+    return;
+  }
+  el.innerHTML = deaths.map(d =>
+    `<div class="timeline-entry">
+      <span class="year">Y${d.year}</span>
+      <strong>${d.name}</strong> &mdash; ${d.cause}
+    </div>`
+  ).join('');
+}
+
+function renderDiaryEntries() {
+  const el = document.getElementById('diary-entries');
+  const entries = DATA.diary_entries || [];
+  if (entries.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim)">No diary entries</div>';
+    return;
+  }
+  // Show first 15 entries
+  el.innerHTML = entries.slice(0, 15).map(e =>
+    `<div class="diary-entry">${e.text}</div>`
+  ).join('');
+}
+
+function renderAmendment() {
+  const el = document.getElementById('amendment');
+  el.innerHTML = `
+    <div class="amendment-box">
+      <h3>Amendment XVIII &mdash; The Recursive Governance Principle</h3>
+      <blockquote>
+        Any governance proposal affecting more than 3 agents must be modeled in a sandboxed
+        sub-simulation before being put to vote. Simulation results become part of the proposal
+        public record. Governance decisions without simulation evidence are advisory only.
+        <br><br>
+        <em>Rationale: Mars-100 demonstrated that sub-simulated governance proposals had higher
+        adoption rates and longer stability. Over ${DATA.summary.total_subsims} sub-simulations
+        were spawned across ${DATA._meta.completed_years} years, with ${DATA.summary.governance_changes}
+        governance transitions. The colony's recursive self-modeling produced governance insights
+        that no single colonist could have reached alone.</em>
+      </blockquote>
+    </div>
+    <div class="lispy-expr">; The LisPy expression that models a governance proposal
+; Each colonist runs this before voting
+(let ((need (if (&lt; food 0.3) (quote food)
+  (if (&lt; water 0.3) (quote water) (quote power)))))
+  (if (&gt; cohesion 0.6)
+    (list (quote council) 5)
+    (if (&lt; cohesion 0.3)
+      (list (quote dictator) 10)
+      (list (quote lottery) 2))))
+    </div>
+  `;
+}
+
+window.addEventListener('resize', () => { if (DATA) render(); });
+loadData();
+</script>
+</body>
+</html>
