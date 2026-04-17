@@ -33,6 +33,11 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure,
 )
+from src.mars100.earth import (
+    EarthState, tick_earth, compute_maintenance_modifier,
+    check_independence_conditions, declare_independence,
+)
+from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -62,6 +67,9 @@ class YearResult:
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
+    earth: dict = field(default_factory=dict)
+    diplomacy: list[dict] = field(default_factory=list)
+    immigrants: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +87,9 @@ class YearResult:
             "births": self.births,
             "infrastructure": self.infrastructure,
             "culture": self.culture,
+            "earth": self.earth,
+            "diplomacy": self.diplomacy,
+            "immigrants": self.immigrants,
         }
 
 
@@ -100,10 +111,13 @@ class SimulationResult:
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
     final_culture: dict = field(default_factory=dict)
+    final_earth: dict = field(default_factory=dict)
+    total_immigrants: int = 0
+    total_ships: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "5.0",
+            "_meta": {"engine": "mars-100", "version": "6.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +128,8 @@ class SimulationResult:
                 "final_cohesion": self.final_cohesion,
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
+                "total_immigrants": self.total_immigrants,
+                "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
             },
             "final_colonists": self.final_colonists,
@@ -122,6 +138,7 @@ class SimulationResult:
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
+            "final_earth": self.final_earth,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -144,6 +161,8 @@ class Mars100Engine:
         self.infra = InfrastructureState()
         self.culture = CulturalMemory()
         self.culture_rng = random.Random(seed + 7919)
+        self.earth = EarthState()
+        self.earth_rng = random.Random(seed + 6151)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -341,15 +360,34 @@ class Mars100Engine:
         rate = BASE_DEATH_RATE
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
         rate *= death_rate_mult
+        critical_resources: list[str] = []
         for name in RESOURCE_NAMES:
             val = getattr(self.resources, name)
             if val < 0.1:
                 rate += RESOURCE_DEATH_MULTIPLIER * (0.1 - val)
+                critical_resources.append(name)
         if colonist.stats.paranoia > 0.8:
             rate += 0.005
         if self.rng.random() < rate:
+            resource_causes = {
+                "air": "asphyxiation", "food": "starvation",
+                "water": "dehydration", "power": "hypothermia",
+                "medicine": "untreated illness",
+            }
+            if critical_resources:
+                weights = [(r, 0.1 - getattr(self.resources, r))
+                           for r in critical_resources]
+                total_w = sum(w for _, w in weights)
+                roll = self.rng.random() * total_w
+                cumul = 0.0
+                for res, w in weights:
+                    cumul += w
+                    if roll <= cumul:
+                        return resource_causes.get(res, "resource deprivation")
+                return resource_causes.get(critical_resources[0],
+                                           "resource deprivation")
             causes = ["equipment malfunction", "radiation exposure",
-                      "medical emergency", "habitat breach", "resource deprivation"]
+                      "medical emergency", "habitat breach"]
             if colonist.stats.paranoia > 0.7:
                 causes.append("suspicious accident")
             return self.rng.choice(causes)
@@ -604,6 +642,57 @@ class Mars100Engine:
             colonists=[c.to_dict() for c in self._active_colonists()])
         evolve_culture(self.culture, culture_ctx, self.culture_rng)
 
+        # --- Earth Protocol ---
+        earth_result = tick_earth(
+            self.earth, self.year,
+            death_count=len(deaths),
+            resource_avg=self.resources.average(),
+            population=len(self._active_colonists()),
+            rng=self.earth_rng)
+
+        # Apply maintenance modifier to infrastructure operating costs
+        maint_mod = earth_result.maintenance_modifier
+        if maint_mod != 1.0:
+            for res_name, cost in op_costs.items():
+                if res_name in RESOURCE_NAMES:
+                    current = getattr(self.resources, res_name)
+                    adjustment = cost * (maint_mod - 1.0)
+                    setattr(self.resources, res_name,
+                            max(0.0, current - adjustment))
+
+        # Check independence
+        if check_independence_conditions(
+                self.year, len(self._active_colonists()),
+                self.resources.average(), self.earth):
+            active_now = self._active_colonists()
+            votes_for = sum(1 for c in active_now
+                            if c.stats.resolve > 0.5 or c.stats.paranoia > 0.6)
+            if votes_for > len(active_now) / 2:
+                declare_independence(self.earth, self.year)
+                earth_result.independence_declared = True
+
+        # Process immigrants from Earth
+        year_immigrants: list[dict] = []
+        if not self.earth.independent:
+            resources_avg = self.resources.average()
+            if (self.earth.funding > 0.3
+                    and resources_avg > 0.4
+                    and getattr(self.resources, "air", 0) > 0.3
+                    and len(self._active_colonists()) < 40
+                    and self.earth_rng.random() < 0.15 * self.earth.funding):
+                imm_id = f"imm-{self.next_id}"
+                self.next_id += 1
+                immigrant = create_immigrant(imm_id, self.year, self.earth_rng)
+                self.colonists.append(immigrant)
+                active_ids_now = [c.id for c in self._active_colonists()]
+                self.social.add_colonist(immigrant.id, active_ids_now,
+                                         self.earth_rng)
+                year_immigrants.append({
+                    "id": immigrant.id, "name": immigrant.name,
+                    "year": self.year, "archetype": immigrant.archetype,
+                    "element": immigrant.element,
+                })
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -629,12 +718,16 @@ class Mars100Engine:
             births=year_births,
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
+            earth=self.earth.to_dict(),
+            diplomacy=[earth_result.to_dict()],
+            immigrants=year_immigrants,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_immigrants = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -644,6 +737,7 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_immigrants += len(result.immigrants)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -660,8 +754,11 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_immigrants=total_immigrants,
+            total_ships=self.earth.ships_launched,
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
+            final_earth=self.earth.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

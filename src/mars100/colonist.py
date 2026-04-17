@@ -265,3 +265,52 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
     )
+
+
+# --- Immigrant archetypes (adults arriving from Earth) ---
+
+IMMIGRANT_ARCHETYPES = [
+    {"archetype": "engineer", "bias": {"coding": 0.6, "terraforming": 0.4},
+     "stat_bias": {"resolve": 0.6, "improvisation": 0.5}},
+    {"archetype": "medic", "bias": {"mediation": 0.5, "hydroponics": 0.3},
+     "stat_bias": {"empathy": 0.7, "faith": 0.4}},
+    {"archetype": "scientist", "bias": {"coding": 0.7, "terraforming": 0.3},
+     "stat_bias": {"improvisation": 0.7, "paranoia": 0.3}},
+    {"archetype": "diplomat", "bias": {"mediation": 0.7, "prayer": 0.2},
+     "stat_bias": {"empathy": 0.6, "resolve": 0.5}},
+    {"archetype": "pioneer", "bias": {"terraforming": 0.6, "hydroponics": 0.4},
+     "stat_bias": {"resolve": 0.7, "hoarding": 0.4}},
+]
+
+
+def create_immigrant(immigrant_id: str, arrival_year: int,
+                     rng: random.Random) -> Colonist:
+    """Create an adult immigrant colonist arriving from Earth.
+
+    Unlike children (blended from parents), immigrants arrive with
+    adult-level skills and a randomly chosen archetype.
+    """
+    template = rng.choice(IMMIGRANT_ARCHETYPES)
+    name = rng.choice([n for n in COLONIST_NAMES])
+    element = rng.choice(list(ELEMENTS))
+
+    stats_dict: dict[str, float] = {}
+    for sn in STAT_NAMES:
+        base = template["stat_bias"].get(sn, 0.5)
+        stats_dict[sn] = max(0.0, min(1.0, base + rng.gauss(0, 0.08)))
+
+    skills_dict: dict[str, float] = {}
+    for sk in SKILL_NAMES:
+        base = template["bias"].get(sk, 0.1)
+        skills_dict[sk] = max(0.0, min(1.0, base + rng.gauss(0, 0.06)))
+
+    decision_expr = "(+ (* resolve improvisation) (* empathy 0.3))"
+
+    return Colonist(
+        id=immigrant_id, name=name, element=element,
+        archetype=template["archetype"],
+        stats=ColonistStats.from_dict(stats_dict),
+        skills=ColonistSkills.from_dict(skills_dict),
+        decision_expr=decision_expr, birth_year=arrival_year,
+    )
+

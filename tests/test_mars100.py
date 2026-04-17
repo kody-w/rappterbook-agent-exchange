@@ -485,7 +485,7 @@ class TestEngine:
         assert "summary" in d
         assert "total_births" in d["summary"]
         assert "convergence_trend" in d["summary"]
-        assert d["_meta"]["version"] == "5.0"
+        assert d["_meta"]["version"] == "6.0"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -532,4 +532,4 @@ class TestInvariants:
         """Total colonists = founding 10 + births."""
         engine = Mars100Engine(seed=42, total_years=100)
         sim = engine.run()
-        assert len(sim.final_colonists) == 10 + sim.total_births
+        assert len(sim.final_colonists) == 10 + sim.total_births + sim.total_immigrants
