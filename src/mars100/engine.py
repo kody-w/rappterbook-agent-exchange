@@ -45,6 +45,11 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.politics import (
+    PoliticalState, Faction, PoliticsContext, PoliticsTickResult,
+    tick_politics, compute_action_modifiers,
+    LEGITIMACY_INITIAL,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +85,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    politics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -129,10 +135,13 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_politics: dict = field(default_factory=dict)
+    final_factions: list[dict] = field(default_factory=list)
+    final_legitimacy: float = LEGITIMACY_INITIAL
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -157,6 +166,9 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_politics": self.final_politics,
+            "final_factions": self.final_factions,
+            "final_legitimacy": self.final_legitimacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +197,10 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.politics_map: dict[str, PoliticalState] = {}
+        self.politics_rng = random.Random(seed + 12889)
+        self.factions: list[Faction] = []
+        self.legitimacy: float = LEGITIMACY_INITIAL
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -260,6 +276,22 @@ class Mars100Engine:
         for act, delta in econ_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
+
+        # Political pressure from faction membership + legitimacy
+        pol_state = self.politics_map.get(colonist.id)
+        psych_state = self.psych_map.get(colonist.id)
+        if pol_state is not None or psych_state is not None:
+            stress = psych_state.stress if psych_state else 0.3
+            purpose = psych_state.purpose if psych_state else 0.5
+            morale = psych_state.morale if psych_state else 0.5
+            engagement = pol_state.engagement if pol_state else 0.0
+            faction_id = pol_state.faction_id if pol_state else None
+            pol_mods = compute_action_modifiers(
+                stress, purpose, morale, engagement,
+                self.legitimacy, faction_id)
+            for act, delta in pol_mods.items():
+                if act in weights:
+                    weights[act] = max(0.01, weights[act] + delta)
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -696,6 +728,62 @@ class Mars100Engine:
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
 
+        # --- politics tick (dedicated RNG stream) ---
+        politics_contexts: list[PoliticsContext] = []
+        for c in active:
+            trusts = [(oid, self.social.get(c.id, oid).trust)
+                      for oid in active_ids if oid != c.id]
+            trusted_pairs = [(oid, t) for oid, t in trusts if t > 0.3]
+            trusted_pairs.sort(key=lambda p: -p[1])
+            ps = self.psych_map.get(c.id)
+            had_crisis = (ps is not None and ps.morale < 0.15)
+            politics_contexts.append(PoliticsContext(
+                colonist_id=c.id,
+                stats={
+                    "resolve": c.stats.resolve,
+                    "paranoia": c.stats.paranoia,
+                    "empathy": c.stats.empathy,
+                    "hoarding": c.stats.hoarding,
+                    "improvisation": c.stats.improvisation,
+                    "faith": c.stats.faith,
+                },
+                trusted_ids=[p[0] for p in trusted_pairs],
+                trust_weights=[p[1] for p in trusted_pairs],
+                event_severity=events[0].severity if events else 0.0,
+                resource_avg=self.resources.average(),
+                resource_delta=(self.resources.average()
+                                - sum(resources_before.values())
+                                / max(1, len(resources_before))),
+                gov_type=self.governance.gov_type,
+                had_crisis=had_crisis,
+                action=actions.get(c.id, "rest"),
+            ))
+        politics_result = tick_politics(
+            self.politics_map, politics_contexts,
+            self.factions, self.legitimacy,
+            self.year, self.politics_rng)
+        self.factions = politics_result.factions
+        self.legitimacy = politics_result.legitimacy
+
+        # Low legitimacy may trigger governance proposal
+        if (politics_result.legitimacy < LEGITIMACY_INITIAL * 0.5
+                and gov_proposal is None and active):
+            low_leg_proposer = self.politics_rng.choice(active)
+            gov_proposal = generate_proposal(
+                self.year, low_leg_proposer.id,
+                self.governance, self.politics_rng)
+            for c in active:
+                if c.id == gov_proposal.proposer_id:
+                    gov_proposal.votes_for.append(c.id)
+                elif self._vote_on_proposal(c, gov_proposal):
+                    gov_proposal.votes_for.append(c.id)
+                else:
+                    gov_proposal.votes_against.append(c.id)
+            gov_proposal.passed = resolve_vote(gov_proposal, len(active))
+            if gov_proposal.passed:
+                apply_governance(gov_proposal, self.governance,
+                                 active_ids, self.politics_rng)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -832,6 +920,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            politics=politics_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -875,6 +964,9 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_politics={cid: p.to_dict() for cid, p in self.politics_map.items()},
+            final_factions=[f.to_dict() for f in self.factions],
+            final_legitimacy=self.legitimacy,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
