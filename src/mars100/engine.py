@@ -25,6 +25,9 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.factions import (
+    FactionState, faction_tick, faction_bloc_vote, action_weight_modifier,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +55,8 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    faction_events: list[dict] = field(default_factory=list)
+    faction_state: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +72,8 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "faction_events": self.faction_events,
+            "faction_state": self.faction_state,
         }
 
 
@@ -121,6 +128,7 @@ class Mars100Engine:
         self.resources = Resources()
         self.social = SocialGraph()
         self.governance = GovernanceState()
+        self.faction_state = FactionState()
         self.year = 0
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
@@ -185,7 +193,8 @@ class Mars100Engine:
                     w += 1.5
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
-            weights[action] = max(0.01, w)
+            weights[action] = max(0.01, w + action_weight_modifier(
+                colonist.id, action, self.faction_state))
 
         total = sum(weights.values())
         r = self.rng.random() * total
@@ -365,6 +374,10 @@ class Mars100Engine:
     def _vote_on_proposal(self, colonist: Colonist,
                           proposal: GovernanceProposal) -> bool:
         colonist.governance_votes += 1
+        bloc = faction_bloc_vote(colonist.id, proposal.gov_type,
+                                 self.faction_state, self.rng)
+        if bloc is not None:
+            return bloc
         score = 0.0
         if proposal.gov_type == "council":
             score += colonist.stats.empathy * 0.5 + colonist.stats.resolve * 0.3
@@ -524,6 +537,9 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        f_events = faction_tick(
+            self.colonists, self.social, self.faction_state, self.year, self.rng)
+
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
@@ -541,6 +557,8 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            faction_events=f_events,
+            faction_state=self.faction_state.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:

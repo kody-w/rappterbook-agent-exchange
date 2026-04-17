@@ -92,6 +92,7 @@ class Colonist:
     death_cause: str | None = None
     exile_year: int | None = None
     memories: list[MemoryEntry] = field(default_factory=list)
+    faction_id: str | None = None
     subsim_count: int = 0
     governance_votes: int = 0
 
@@ -101,6 +102,7 @@ class Colonist:
             "archetype": self.archetype, "stats": self.stats.to_dict(),
             "skills": self.skills.to_dict(), "decision_expr": self.decision_expr,
             "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
+            "faction_id": self.faction_id,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
         }
@@ -122,6 +124,7 @@ class Colonist:
             birth_year=d.get("birth_year", 0),
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
+            faction_id=d.get("faction_id"),
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
         )
 
