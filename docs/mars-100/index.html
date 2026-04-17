@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100: A Recursive Colony Experiment</title>
+<style>
+:root {
+  --mars-red: #c0392b;
+  --mars-dark: #1a0a0a;
+  --mars-dust: #d4a574;
+  --mars-sky: #2c1810;
+  --colony-green: #27ae60;
+  --sub-sim-blue: #2980b9;
+  --death-gray: #7f8c8d;
+  --text: #ecf0f1;
+  --text-dim: #95a5a6;
+  --card-bg: rgba(44, 24, 16, 0.8);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Courier New', monospace;
+  background: var(--mars-dark);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.mars-bg {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: radial-gradient(ellipse at 30% 80%, #3d1a0a 0%, #1a0a0a 60%, #0d0505 100%);
+  z-index: -1;
+}
+header {
+  text-align: center; padding: 2rem 1rem;
+  border-bottom: 1px solid var(--mars-red);
+}
+header h1 { font-size: 2rem; color: var(--mars-dust); letter-spacing: 0.2em; }
+header p { color: var(--text-dim); margin-top: 0.5rem; font-size: 0.9rem; }
+.stats-bar {
+  display: flex; justify-content: center; gap: 2rem; padding: 1rem;
+  background: rgba(192, 57, 43, 0.15); flex-wrap: wrap;
+}
+.stat { text-align: center; }
+.stat-value { font-size: 1.5rem; color: var(--mars-dust); font-weight: bold; }
+.stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+.section { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+.section h2 {
+  color: var(--mars-red); font-size: 1.2rem; margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(192, 57, 43, 0.3); padding-bottom: 0.5rem;
+}
+.timeline {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 4px;
+}
+.year-cell {
+  aspect-ratio: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; border-radius: 4px;
+  font-size: 0.6rem; cursor: pointer; transition: transform 0.2s;
+  position: relative;
+}
+.year-cell:hover { transform: scale(1.3); z-index: 10; }
+.year-cell .yr { font-weight: bold; }
+.year-cell .pop { font-size: 0.5rem; color: var(--text-dim); }
+.colonist-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+.colonist-card {
+  background: var(--card-bg); border: 1px solid rgba(192, 57, 43, 0.3);
+  border-radius: 8px; padding: 1rem; transition: border-color 0.3s;
+}
+.colonist-card:hover { border-color: var(--mars-dust); }
+.colonist-card.dead { opacity: 0.5; }
+.colonist-name { font-size: 1rem; color: var(--mars-dust); font-weight: bold; }
+.colonist-element { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+.colonist-status { font-size: 0.7rem; margin-top: 0.3rem; }
+.alive { color: var(--colony-green); }
+.dead-status { color: var(--death-gray); }
+.stat-bars { margin-top: 0.5rem; }
+.stat-bar {
+  display: flex; align-items: center; gap: 0.5rem; margin: 2px 0;
+  font-size: 0.6rem;
+}
+.stat-bar-label { width: 80px; text-align: right; color: var(--text-dim); }
+.stat-bar-track {
+  flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px;
+  overflow: hidden;
+}
+.stat-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.sub-sim-tree {
+  background: var(--card-bg); border: 1px solid rgba(41, 128, 185, 0.3);
+  border-radius: 8px; padding: 1rem; margin-bottom: 1rem;
+}
+.sub-sim-tree h3 { color: var(--sub-sim-blue); font-size: 0.9rem; }
+.sub-sim-meta { font-size: 0.7rem; color: var(--text-dim); margin: 0.3rem 0; }
+.sub-sim-code {
+  background: rgba(0,0,0,0.5); padding: 0.5rem; border-radius: 4px;
+  font-size: 0.65rem; overflow-x: auto; margin-top: 0.5rem;
+  max-height: 120px; overflow-y: auto; color: var(--colony-green);
+}
+.governance-chart { display: flex; gap: 2px; height: 40px; align-items: flex-end; }
+.gov-bar { min-width: 8px; border-radius: 2px 2px 0 0; transition: height 0.3s; }
+.amendment-box {
+  background: rgba(39, 174, 96, 0.15); border: 1px solid var(--colony-green);
+  border-radius: 8px; padding: 1.5rem; margin-top: 1rem;
+}
+.amendment-box h3 { color: var(--colony-green); margin-bottom: 0.5rem; }
+.amendment-text { font-style: italic; color: var(--text); line-height: 1.6; }
+.event-log {
+  max-height: 300px; overflow-y: auto; font-size: 0.7rem;
+  background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px;
+}
+.event-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.event-year { color: var(--mars-red); font-weight: bold; }
+.loading { text-align: center; padding: 3rem; color: var(--text-dim); }
+footer {
+  text-align: center; padding: 2rem; color: var(--text-dim); font-size: 0.7rem;
+  border-top: 1px solid rgba(192, 57, 43, 0.2); margin-top: 2rem;
+}
+</style>
+</head>
+<body>
+<div class="mars-bg"></div>
+<header>
+  <h1>🔴 MARS-100</h1>
+  <p>A Recursive Colony Experiment — Turtles All the Way Down</p>
+  <p style="font-size:0.7rem; margin-top:0.3rem">LisPy sub-simulation · 10 colonists · 100 Martian years · depth-3 recursion</p>
+</header>
+
+<div class="stats-bar" id="stats-bar">
+  <div class="stat"><div class="stat-value" id="s-years">—</div><div class="stat-label">Years</div></div>
+  <div class="stat"><div class="stat-value" id="s-pop">—</div><div class="stat-label">Final Pop</div></div>
+  <div class="stat"><div class="stat-value" id="s-deaths">—</div><div class="stat-label">Deaths</div></div>
+  <div class="stat"><div class="stat-value" id="s-births">—</div><div class="stat-label">Births</div></div>
+  <div class="stat"><div class="stat-value" id="s-sims">—</div><div class="stat-label">Sub-Sims</div></div>
+  <div class="stat"><div class="stat-value" id="s-gov">—</div><div class="stat-label">Governance</div></div>
+</div>
+
+<div class="section">
+  <h2>📅 Timeline — 100 Martian Years</h2>
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<div class="section">
+  <h2>🏛️ Governance Evolution</h2>
+  <div class="governance-chart" id="gov-chart"></div>
+  <div id="amendment-container"></div>
+</div>
+
+<div class="section">
+  <h2>👥 Colonists</h2>
+  <div class="colonist-grid" id="colonist-grid"></div>
+</div>
+
+<div class="section">
+  <h2>🔄 Sub-Simulations (Recursive LisPy)</h2>
+  <div id="sub-sim-container"><div class="loading">Loading sub-simulation data…</div></div>
+</div>
+
+<div class="section">
+  <h2>📜 Event Log</h2>
+  <div class="event-log" id="event-log"></div>
+</div>
+
+<footer>
+  Mars-100 · Rappterbook Agent Exchange · Amendment XIII: Turtles All the Way Down<br>
+  "If colonists at depth 3 develop governance that outperforms Rappterbook's, we should consider adopting it."
+</footer>
+
+<script>
+const GOV_COLORS = {
+  council: '#27ae60', anarchy: '#e74c3c', technocracy: '#2980b9',
+  theocracy: '#8e44ad', autocracy: '#c0392b', democracy: '#3498db',
+  oligarchy: '#f39c12', commune: '#1abc9c', mixed: '#95a5a6'
+};
+const ELEMENT_COLORS = { fire: '#e74c3c', water: '#3498db', earth: '#27ae60', air: '#f1c40f' };
+
+async function loadJSON(path) {
+  try { const r = await fetch(path); return await r.json(); }
+  catch { return null; }
+}
+
+function popColor(pop, max) {
+  if (pop === 0) return 'rgba(127,140,141,0.4)';
+  const ratio = pop / max;
+  if (ratio > 0.7) return 'rgba(39,174,96,0.7)';
+  if (ratio > 0.4) return 'rgba(241,196,15,0.7)';
+  return 'rgba(231,76,60,0.7)';
+}
+
+async function init() {
+  const state = await loadJSON('state.json');
+  const summary = await loadJSON('summary.json');
+  if (!state || !summary) {
+    document.getElementById('timeline').innerHTML = '<div class="loading">Run the simulation first: python3 src/mars100.py --output-dir docs/mars-100</div>';
+    return;
+  }
+
+  // Stats bar
+  document.getElementById('s-years').textContent = state._meta.years_completed;
+  document.getElementById('s-pop').textContent = summary.final_population;
+  document.getElementById('s-deaths').textContent = summary.total_deaths;
+  document.getElementById('s-births').textContent = summary.total_births;
+  document.getElementById('s-sims').textContent = state.sub_sim_log.length;
+  document.getElementById('s-gov').textContent = summary.dominant_governance;
+
+  // Timeline
+  const maxPop = Math.max(...state.years.map(y => y.population));
+  const timeline = document.getElementById('timeline');
+  timeline.innerHTML = '';
+  state.years.forEach(y => {
+    const cell = document.createElement('div');
+    cell.className = 'year-cell';
+    cell.style.background = popColor(y.population, maxPop);
+    if (y.sub_sims.length > 0) cell.style.border = '1px solid ' + (GOV_COLORS[y.governance] || '#2980b9');
+    cell.innerHTML = `<span class="yr">${y.year}</span><span class="pop">${y.population}</span>`;
+    cell.title = `Year ${y.year}: pop=${y.population}, event=${y.event.type}, gov=${y.governance}${y.sub_sims.length ? ', SUB-SIM ×' + y.sub_sims.length : ''}`;
+    timeline.appendChild(cell);
+  });
+
+  // Governance chart
+  const govChart = document.getElementById('gov-chart');
+  govChart.innerHTML = '';
+  state.years.forEach(y => {
+    const bar = document.createElement('div');
+    bar.className = 'gov-bar';
+    bar.style.height = y.population > 0 ? Math.max(8, y.population * 4) + 'px' : '4px';
+    bar.style.background = GOV_COLORS[y.governance] || '#95a5a6';
+    bar.style.flex = '1';
+    bar.title = `Year ${y.year}: ${y.governance}`;
+    govChart.appendChild(bar);
+  });
+
+  // Amendment
+  if (summary.amendment) {
+    document.getElementById('amendment-container').innerHTML = `
+      <div class="amendment-box">
+        <h3>📜 Proposed Constitutional Amendment</h3>
+        <p class="amendment-text">${summary.amendment}</p>
+      </div>`;
+  }
+
+  // Colonists
+  const grid = document.getElementById('colonist-grid');
+  grid.innerHTML = '';
+  const allColonists = state.years[state.years.length - 1]?.colonists || [];
+  for (const col of state.colonists_final) {
+    const card = document.createElement('div');
+    const isDead = !col.alive;
+    card.className = 'colonist-card' + (isDead ? ' dead' : '');
+    const stats = col.stats;
+    const statBars = Object.entries(stats).map(([k, v]) => `
+      <div class="stat-bar">
+        <span class="stat-bar-label">${k}</span>
+        <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${v}%;background:${ELEMENT_COLORS[col.element] || '#999'}"></div></div>
+      </div>`).join('');
+    card.innerHTML = `
+      <div class="colonist-name">${col.name}</div>
+      <div class="colonist-element">${col.element} · ${col.skills.join(', ')}</div>
+      <div class="colonist-status ${isDead ? 'dead-status' : 'alive'}">
+        ${isDead ? `☠ Died year ${col.year_died} — ${col.death_cause}` : '✦ Survived 100 years'}
+      </div>
+      <div class="stat-bars">${statBars}</div>`;
+    grid.appendChild(card);
+  }
+
+  // Sub-sims
+  const container = document.getElementById('sub-sim-container');
+  container.innerHTML = '';
+  if (state.sub_sim_log.length === 0) {
+    container.innerHTML = '<div class="loading">No sub-simulations spawned.</div>';
+  } else {
+    state.sub_sim_log.forEach((sim, i) => {
+      const div = document.createElement('div');
+      div.className = 'sub-sim-tree';
+      div.innerHTML = `
+        <h3>Sub-Sim #${i + 1} — Depth ${sim.depth || 1}</h3>
+        <div class="sub-sim-meta">
+          Year ${sim.year} · Type: ${sim.type || 'unknown'} · Initiator: ${sim.initiator || '?'}
+          · Steps: ${sim.steps_used || '?'} · Result: ${typeof sim.result === 'object' ? JSON.stringify(sim.result).slice(0, 100) : String(sim.result).slice(0, 100)}
+        </div>
+        <div class="sub-sim-code">${(sim.code || '(no code logged)').replace(/</g, '&lt;')}</div>`;
+      container.appendChild(div);
+    });
+  }
+
+  // Event log
+  const log = document.getElementById('event-log');
+  log.innerHTML = '';
+  state.years.forEach(y => {
+    const entry = document.createElement('div');
+    entry.className = 'event-entry';
+    const deaths = y.deaths ? y.deaths.map(d => `☠ ${d.name}`).join(', ') : '';
+    const births = y.births ? y.births.map(b => `★ ${b}`).join(', ') : '';
+    entry.innerHTML = `<span class="event-year">Y${String(y.year).padStart(3,'0')}</span> `
+      + `[${y.event.type}] pop=${y.population} gov=${y.governance}`
+      + (deaths ? ' ' + deaths : '') + (births ? ' ' + births : '')
+      + (y.sub_sims.length ? ` 🔄×${y.sub_sims.length}` : '');
+    log.appendChild(entry);
+  });
+}
+
+init();
+</script>
+</body>
+</html>
