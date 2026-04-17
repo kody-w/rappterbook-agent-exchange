@@ -33,6 +33,9 @@ from src.mars100.culture import (
     CulturalMemory, YearContext as CultureYearContext,
     evolve_culture, compute_cultural_pressure,
 )
+from src.mars100.earth import (
+    EarthRelations, tick_earth_pre, tick_earth_post,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -62,6 +65,8 @@ class YearResult:
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
+    earth: dict = field(default_factory=dict)
+    diplo_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +84,8 @@ class YearResult:
             "births": self.births,
             "infrastructure": self.infrastructure,
             "culture": self.culture,
+            "earth": self.earth,
+            "diplo_events": self.diplo_events,
         }
 
 
@@ -100,10 +107,11 @@ class SimulationResult:
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
     final_culture: dict = field(default_factory=dict)
+    final_earth: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "5.0",
+            "_meta": {"engine": "mars-100", "version": "6.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -122,6 +130,7 @@ class SimulationResult:
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
             "final_culture": self.final_culture,
+            "final_earth": self.final_earth,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -144,6 +153,8 @@ class Mars100Engine:
         self.infra = InfrastructureState()
         self.culture = CulturalMemory()
         self.culture_rng = random.Random(seed + 7919)
+        self.earth = EarthRelations()
+        self.earth_rng = random.Random(seed + 6151)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -518,6 +529,14 @@ class Mars100Engine:
                 if k in RESOURCE_NAMES:
                     event_effects[k] = event_effects.get(k, 0.0) + v
 
+        # Earth Protocol: pre-resource supply effects
+        earth_supply = tick_earth_pre(
+            self.earth, [e.to_dict() for e in events],
+            self.year, self.earth_rng)
+        for res_name, bonus in earth_supply.items():
+            if res_name in RESOURCE_NAMES:
+                skill_bonuses[res_name] = skill_bonuses.get(res_name, 0.0) + bonus
+
         # Infrastructure: compute resource modifiers from completed techs
         infra_mods = compute_resource_modifiers(self.infra.completed)
         event_damage_mult = infra_mods.pop("event_damage_mult", 1.0)
@@ -604,6 +623,13 @@ class Mars100Engine:
             colonists=[c.to_dict() for c in self._active_colonists()])
         evolve_culture(self.culture, culture_ctx, self.culture_rng)
 
+        # Earth Protocol: post-tick diplomacy
+        diplo_events = tick_earth_post(
+            self.earth, self.year,
+            {"resources_after": self.resources.to_dict()},
+            [c.to_dict() for c in self._active_colonists()],
+            self.governance.gov_type, self.earth_rng)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -629,6 +655,8 @@ class Mars100Engine:
             births=year_births,
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
+            earth=self.earth.to_dict(),
+            diplo_events=diplo_events,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -662,6 +690,7 @@ class Mars100Engine:
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
             final_culture=self.culture.to_dict(),
+            final_earth=self.earth.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
