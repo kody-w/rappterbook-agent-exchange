@@ -14,11 +14,13 @@ from src.mars100.economics import (
     EconomicState, EconomicTickResult, TradeRecord,
     allocate_labor_income, find_trades, apply_taxation,
     compute_gini, compute_economic_pressure,
-    liquidate_estate, endow_immigrant,
+    liquidate_estate, endow_immigrant, endow_child,
     tick_economics,
+    should_propose_tax_change, generate_economic_proposal,
     LABOR_INCOME_FRACTION, TAX_RATES, TRADE_TRUST_THRESHOLD,
     GINI_UNREST_THRESHOLD, GINI_REVOLT_THRESHOLD,
-    IMMIGRANT_ENDOWMENT,
+    IMMIGRANT_ENDOWMENT, ECONOMIC_PROPOSAL_COOLDOWN,
+    GINI_PROPOSAL_THRESHOLD,
 )
 from src.mars100.governance import GovernanceState
 
@@ -480,7 +482,7 @@ class TestEngineWithEconomics:
         engine = Mars100Engine(seed=42, total_years=100)
         result = engine.run()
         d = result.to_dict()
-        assert d["_meta"]["version"] == "7.0"
+        assert d["_meta"]["version"] == "8.0"
         assert "final_economics" in d
         assert d["final_economics"]["total_trades"] >= 0
         assert len(d["final_economics"]["gini_history"]) > 0
@@ -518,3 +520,180 @@ class TestEngineWithEconomics:
         ginis = [yr.economics.get("gini", 0) for yr in result.years]
         # Not all the same
         assert len(set(round(g, 4) for g in ginis)) > 1
+
+
+# ── Birth endowment tests ──────────────────────────────────────────────────
+
+class TestEndowChild:
+    """Tests for endow_child() — parents share wealth with newborns."""
+
+    def _make_colonist(self, cid: str, holdings: dict[str, float] | None = None) -> Colonist:
+        rng = random.Random(42)
+        ten = create_founding_ten(rng)
+        c = ten[0]
+        c.id = cid
+        c.wallet = Wallet()
+        if holdings:
+            for res, amt in holdings.items():
+                c.wallet.deposit(res, amt)
+                c.wallet.total_earned += amt
+        return c
+
+    def test_basic_endowment(self) -> None:
+        """Each parent gives 10% of each resource to the child."""
+        parent_a = self._make_colonist("pa", {"food": 1.0, "water": 0.5})
+        parent_b = self._make_colonist("pb", {"food": 0.6, "water": 0.0})
+        child = self._make_colonist("child")
+
+        transferred = endow_child(child, parent_a, parent_b)
+
+        # Parent A gives 10% of food (0.1) + Parent B gives 10% of food (0.06) = 0.16
+        assert abs(child.wallet.holdings.get("food", 0) - 0.16) < 1e-6
+        # Parent A gives 10% of water (0.05) + Parent B gives nothing
+        assert abs(child.wallet.holdings.get("water", 0) - 0.05) < 1e-6
+        # Parents lost their contributions
+        assert abs(parent_a.wallet.holdings.get("food", 0) - 0.9) < 1e-6
+        assert abs(parent_b.wallet.holdings.get("food", 0) - 0.54) < 1e-6
+        # Transfer log only includes non-zero resources
+        assert "food" in transferred
+        assert "water" in transferred
+        assert transferred["food"] == pytest.approx(0.16, abs=1e-5)
+
+    def test_empty_wallet_parents(self) -> None:
+        """No crash when parents have empty wallets."""
+        parent_a = self._make_colonist("pa")
+        parent_b = self._make_colonist("pb")
+        child = self._make_colonist("child")
+
+        transferred = endow_child(child, parent_a, parent_b)
+
+        assert transferred == {}
+        assert child.wallet.total_wealth() == pytest.approx(0.0)
+
+    def test_conservation(self) -> None:
+        """Total wealth before == total wealth after (conservation law)."""
+        rng = random.Random(99)
+        parent_a = self._make_colonist("pa")
+        parent_b = self._make_colonist("pb")
+        for res in RESOURCE_NAMES:
+            amt_a = rng.uniform(0, 0.5)
+            amt_b = rng.uniform(0, 0.5)
+            parent_a.wallet.deposit(res, amt_a)
+            parent_b.wallet.deposit(res, amt_b)
+        child = self._make_colonist("child")
+
+        total_before = parent_a.wallet.total_wealth() + parent_b.wallet.total_wealth()
+        endow_child(child, parent_a, parent_b)
+        total_after = (parent_a.wallet.total_wealth()
+                       + parent_b.wallet.total_wealth()
+                       + child.wallet.total_wealth())
+
+        assert total_before == pytest.approx(total_after, abs=1e-9)
+
+
+# ── Economic governance proposal tests ──────────────────────────────────────
+
+class TestShouldProposeTaxChange:
+    """Tests for should_propose_tax_change()."""
+
+    def test_no_history_returns_false(self) -> None:
+        state = EconomicState()
+        assert should_propose_tax_change(state, 10, random.Random(42)) is False
+
+    def test_cooldown_respected(self) -> None:
+        """Cannot propose if last proposal was < COOLDOWN years ago."""
+        state = EconomicState(gini_history=[0.6], last_proposal_year=8)
+        # Year 12, cooldown is 5, so 12-8=4 < 5 → blocked
+        assert should_propose_tax_change(state, 12, random.Random(42)) is False
+
+    def test_high_gini_eventually_proposes(self) -> None:
+        """With high Gini (~50% chance), should eventually return True."""
+        state = EconomicState(gini_history=[0.7])
+        found_true = False
+        for seed in range(100):
+            if should_propose_tax_change(state, 200, random.Random(seed)):
+                found_true = True
+                break
+        assert found_true, "Expected at least one proposal with high Gini in 100 trials"
+
+    def test_low_gini_sometimes_proposes(self) -> None:
+        """With low Gini (~8% chance), should sometimes return True."""
+        state = EconomicState(gini_history=[0.2])
+        found_true = False
+        for seed in range(200):
+            if should_propose_tax_change(state, 200, random.Random(seed)):
+                found_true = True
+                break
+        assert found_true, "Expected at least one proposal with low Gini in 200 trials"
+
+
+class TestGenerateEconomicProposal:
+    """Tests for generate_economic_proposal()."""
+
+    def test_high_gini_proposes_increase(self) -> None:
+        state = EconomicState(gini_history=[0.6])
+        proposal = generate_economic_proposal(state, "council", "col-1", 20, random.Random(42))
+        assert proposal["direction"] == "increase"
+        assert proposal["proposed_rate"] > proposal["current_rate"]
+        assert state.last_proposal_year == 20
+
+    def test_low_gini_proposes_decrease(self) -> None:
+        state = EconomicState(gini_history=[0.3])
+        proposal = generate_economic_proposal(state, "council", "col-2", 30, random.Random(42))
+        assert proposal["direction"] == "decrease"
+        assert proposal["proposed_rate"] < proposal["current_rate"]
+
+    def test_proposed_rate_bounded(self) -> None:
+        """Tax rate should stay between 0.05 and 0.50."""
+        for seed in range(50):
+            rng = random.Random(seed)
+            state = EconomicState(gini_history=[rng.uniform(0.1, 0.8)])
+            proposal = generate_economic_proposal(
+                state, "dictator", "col-1", 100, rng)
+            assert 0.05 <= proposal["proposed_rate"] <= 0.50
+
+    def test_proposal_has_required_fields(self) -> None:
+        state = EconomicState(gini_history=[0.5])
+        proposal = generate_economic_proposal(state, "council", "col-3", 50, random.Random(1))
+        for key in ("type", "proposer_id", "year", "current_rate", "proposed_rate", "direction", "reason"):
+            assert key in proposal, f"Missing field: {key}"
+
+
+class TestEconomicProposalInTickResult:
+    """Tests that economic proposals flow through the EconomicTickResult."""
+
+    def test_tick_result_serializes_proposal(self) -> None:
+        result = EconomicTickResult(
+            year=10, gini=0.5, trades=[], tax_collected=0.1,
+            labor_income_total=0.5, economic_proposal={"type": "economic_tax_change"})
+        d = result.to_dict()
+        assert "economic_proposal" in d
+        assert d["economic_proposal"]["type"] == "economic_tax_change"
+
+    def test_tick_result_omits_none_proposal(self) -> None:
+        result = EconomicTickResult(
+            year=10, gini=0.5, trades=[], tax_collected=0.1,
+            labor_income_total=0.5)
+        d = result.to_dict()
+        assert "economic_proposal" not in d
+
+
+class TestBirthEndowmentIntegration:
+    """Integration test: births in engine include economic endowment."""
+
+    def test_births_with_endowment(self) -> None:
+        """Run engine long enough for births; verify endowment field."""
+        from src.mars100.engine import Mars100Engine
+        engine = Mars100Engine(seed=42, total_years=80)
+        result = engine.run()
+        births_with_endowment = [
+            b for yr in result.years for b in yr.births
+            if "endowment" in b
+        ]
+        # At least one birth should have endowment data over 80 years
+        # (births require year >= 10, resources > 0.4, pair trust > 1.4)
+        if any(yr.births for yr in result.years):
+            # If there were births, they should have the endowment field
+            all_births = [b for yr in result.years for b in yr.births]
+            for birth in all_births:
+                assert "endowment" in birth, f"Birth missing endowment: {birth}"

@@ -42,6 +42,12 @@ from src.mars100.economics import (
     compute_gini, compute_economic_pressure, liquidate_estate,
     endow_immigrant, tick_economics,
 )
+from src.mars100.psychology import (
+    PsychState, CrisisEvent, PsychTickResult,
+    ColonistPsychContext, tick_psychology,
+    death_rate_modifier, compute_colony_morale,
+    compute_bottom_quartile_morale,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -69,4 +75,8 @@ __all__ = [
     "allocate_labor_income", "find_trades", "apply_taxation",
     "compute_gini", "compute_economic_pressure", "liquidate_estate",
     "endow_immigrant", "tick_economics",
+    "PsychState", "CrisisEvent", "PsychTickResult",
+    "ColonistPsychContext", "tick_psychology",
+    "death_rate_modifier", "compute_colony_morale",
+    "compute_bottom_quartile_morale",
 ]

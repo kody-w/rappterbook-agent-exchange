@@ -86,6 +86,7 @@ class EconomicState:
     pending_revolt: bool = False
     revolution_count: int = 0
     total_tax_collected: float = 0.0
+    last_proposal_year: int = -100
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +97,7 @@ class EconomicState:
             "pending_revolt": self.pending_revolt,
             "revolution_count": self.revolution_count,
             "total_tax_collected": round(self.total_tax_collected, 4),
+            "last_proposal_year": self.last_proposal_year,
         }
 
     @classmethod
@@ -109,6 +111,7 @@ class EconomicState:
             pending_revolt=d.get("pending_revolt", False),
             revolution_count=d.get("revolution_count", 0),
             total_tax_collected=d.get("total_tax_collected", 0.0),
+            last_proposal_year=d.get("last_proposal_year", -100),
         )
 
 
@@ -122,9 +125,10 @@ class EconomicTickResult:
     labor_income_total: float
     revolt_triggered: bool = False
     estates_liquidated: list[dict] = field(default_factory=list)
+    economic_proposal: dict | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "year": self.year, "gini": round(self.gini, 4),
             "trades": self.trades,
             "tax_collected": round(self.tax_collected, 4),
@@ -132,6 +136,9 @@ class EconomicTickResult:
             "revolt_triggered": self.revolt_triggered,
             "estates_liquidated": self.estates_liquidated,
         }
+        if self.economic_proposal:
+            d["economic_proposal"] = self.economic_proposal
+        return d
 
 
 # -- core functions ----------------------------------------------------------
@@ -376,6 +383,101 @@ def endow_immigrant(colonist: Colonist) -> None:
     for res in RESOURCE_NAMES:
         colonist.wallet.deposit(res, IMMIGRANT_ENDOWMENT)
         colonist.wallet.total_earned += IMMIGRANT_ENDOWMENT
+
+
+def endow_child(
+    child: Colonist,
+    parent_a: Colonist,
+    parent_b: Colonist,
+) -> dict[str, float]:
+    """Parents each contribute a fraction of their wealth to the child.
+
+    Each parent gives 10% of each resource holding to the child.
+    Returns a dict of total resources transferred for logging.
+    """
+    CHILD_ENDOWMENT_FRACTION = 0.10
+    transferred: dict[str, float] = {}
+    for res in RESOURCE_NAMES:
+        total = 0.0
+        for parent in (parent_a, parent_b):
+            held = parent.wallet.holdings.get(res, 0.0)
+            gift = held * CHILD_ENDOWMENT_FRACTION
+            actual = parent.wallet.withdraw(res, gift)
+            if actual > 0:
+                child.wallet.deposit(res, actual)
+                child.wallet.total_earned += actual
+                total += actual
+        if total > 0:
+            transferred[res] = round(total, 6)
+    return transferred
+
+
+# -- economic governance proposals -------------------------------------------
+
+ECONOMIC_PROPOSAL_COOLDOWN = 5   # years between economic proposals
+GINI_PROPOSAL_THRESHOLD = 0.45  # Gini above this triggers tax-change proposals
+
+
+def should_propose_tax_change(
+    economic_state: EconomicState,
+    year: int,
+    rng: random.Random,
+) -> bool:
+    """Check whether an economic governance proposal should be generated.
+
+    High inequality -> high chance of tax increase proposal.
+    Low inequality -> small chance of tax decrease proposal.
+    """
+    if not economic_state.gini_history:
+        return False
+    last_proposal = getattr(economic_state, "last_proposal_year", -100)
+    if year - last_proposal < ECONOMIC_PROPOSAL_COOLDOWN:
+        return False
+    current_gini = economic_state.gini_history[-1]
+    if current_gini > GINI_PROPOSAL_THRESHOLD:
+        return rng.random() < 0.5
+    return rng.random() < 0.08
+
+
+def generate_economic_proposal(
+    economic_state: EconomicState,
+    gov_type: str,
+    proposer_id: str,
+    year: int,
+    rng: random.Random,
+) -> dict[str, Any]:
+    """Generate a tax-change proposal based on current economic conditions."""
+    current_gini = economic_state.gini_history[-1] if economic_state.gini_history else 0.0
+    current_rate = TAX_RATES.get(gov_type, DEFAULT_TAX_RATE)
+
+    economic_state.last_proposal_year = year
+
+    if current_gini > GINI_PROPOSAL_THRESHOLD:
+        # High inequality -> propose tax increase
+        increase = rng.uniform(0.03, 0.10)
+        new_rate = min(0.50, current_rate + increase)
+        return {
+            "type": "economic_tax_change",
+            "proposer_id": proposer_id,
+            "year": year,
+            "current_rate": round(current_rate, 3),
+            "proposed_rate": round(new_rate, 3),
+            "direction": "increase",
+            "reason": f"Inequality (Gini={current_gini:.2f}) requires higher taxation.",
+        }
+    else:
+        # Low inequality -> propose tax decrease
+        decrease = rng.uniform(0.02, 0.06)
+        new_rate = max(0.05, current_rate - decrease)
+        return {
+            "type": "economic_tax_change",
+            "proposer_id": proposer_id,
+            "year": year,
+            "current_rate": round(current_rate, 3),
+            "proposed_rate": round(new_rate, 3),
+            "direction": "decrease",
+            "reason": f"Colony stable (Gini={current_gini:.2f}). Lower taxes boost growth.",
+        }
 
 
 def tick_economics(
