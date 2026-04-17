@@ -52,6 +52,10 @@ canvas{width:100%;height:200px}
   <div class="card"><h2>👥 Colonists</h2><div id="colonists" class="colonist-grid"></div></div>
   <div class="card"><h2>🐢 Sub-Simulations</h2><div id="subsims"></div><p id="subsim-count" style="color:var(--muted);font-size:0.85em;margin-top:8px"></p></div>
 </div>
+<div class="grid">
+  <div class="card"><h2>🌱 Terraforming</h2><div id="terraform-vitals"></div><h3>Progress</h3><canvas id="terraformChart"></canvas></div>
+  <div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
+</div>
 <div class="card"><h2>📜 Timeline</h2><div id="timeline" class="timeline"></div></div>
 <div class="card"><h2>🏛️ Governance Log</h2><div id="governance" class="timeline"></div></div>
 <div class="card"><h2>💀 Memorial</h2><div id="memorial"></div></div>
@@ -119,7 +123,28 @@ document.getElementById('governance').innerHTML=govE.length===0?'<p style="color
 govE.map(d=>`<div class="year-entry"><span class="year-label">Year ${d.year}</span>${d.governance_results.map(g=>'<div><span class="tag tag-proposal">'+g+'</span></div>').join('')}</div>`).join('');
 const dead=data.colony.dead_souls||[];
 document.getElementById('memorial').innerHTML=dead.length===0?'<p style="color:var(--muted)">No casualties. The colony endures.</p>':
-dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('')}
+dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('');
+// --- Terraform panel (v3.0 engine data) ---
+const tf=data.final_terraform||data.summary&&{milestone:data.summary.final_terraform_milestone,terraforming_score:data.summary.final_terraform_score};
+const tfEl=document.getElementById('terraform-vitals');
+if(tf&&tfEl){const ms=tf.milestone||'barren',sc=tf.terraforming_score||0;
+tfEl.innerHTML=`<div class="stat-row"><span class="stat-label">Milestone</span><span style="color:var(--green)">${ms.toUpperCase()}</span></div>
+<div class="stat-row"><span class="stat-label">Score</span><span>${(sc*100).toFixed(1)}%</span></div>
+<div class="stat-row"><span class="stat-label">Pressure</span><span>${(tf.pressure_atm||0).toFixed(4)} atm</span></div>
+<div class="stat-row"><span class="stat-label">Temperature</span><span>${(tf.temperature_c||-60).toFixed(1)}°C</span></div>
+<div class="stat-row"><span class="stat-label">Water</span><span>${((tf.water_access||0)*100).toFixed(1)}%</span></div>
+<div class="stat-row"><span class="stat-label">Soil</span><span>${((tf.soil_fertility||0)*100).toFixed(1)}%</span></div>
+<div class="stat-row"><span class="stat-label">Radiation</span><span>${(tf.radiation_rel||0.67).toFixed(2)}</span></div>
+<div class="stat-row"><span class="stat-label">Effort</span><span>${(tf.cumulative_effort||0).toFixed(1)}</span></div>`;
+// Draw terraform progress chart from year data
+const yrs=data.years||[];
+if(yrs.length>0){const scores=yrs.map(y=>(y.terraform_state||{}).terraforming_score||0);
+const pressures=yrs.map(y=>(y.terraform_state||{}).pressure_atm||0.006);
+drawChart(document.getElementById('terraformChart'),[
+{data:scores.map(s=>s*100),color:'#44ff88',label:'Score%'},
+{data:pressures.map(p=>p*1000),color:'#ffaa44',label:'Press(mbar)'}],
+yrs.map(y=>'Y'+y.year))}
+}else if(tfEl){tfEl.innerHTML='<p style="color:var(--muted)">No terraform data (engine < v3.0)</p>'}}
 fetch('data.json').then(r=>r.json()).then(render).catch(err=>{
 document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p><p style="color:var(--muted)">Run: python3 src/mars100_engine.py --years 100</p>'})
 </script>

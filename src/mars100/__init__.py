@@ -19,6 +19,11 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.terraform import (
+    TerraformState, TerraformDelta,
+    tick_terraform, event_severity_modifier, resource_production_bonus,
+    subsim_bindings as terraform_subsim_bindings,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -33,4 +38,7 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "TerraformState", "TerraformDelta",
+    "tick_terraform", "event_severity_modifier", "resource_production_bonus",
+    "terraform_subsim_bindings",
 ]

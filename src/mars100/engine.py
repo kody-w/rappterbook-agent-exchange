@@ -25,6 +25,19 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.terraform import (
+    TerraformState, TerraformDelta,
+    tick_terraform, event_severity_modifier, resource_production_bonus,
+    subsim_bindings as terraform_subsim_bindings,
+)
+from src.mars100.oral_history import (
+    OralHistory,
+    action_modifiers as oral_action_modifiers,
+    on_birth as oral_on_birth,
+    on_death as oral_on_death,
+    subsim_bindings as oral_subsim_bindings,
+    tick_year as oral_tick_year,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +65,9 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    terraform_state: dict = field(default_factory=dict)
+    terraform_delta: dict = field(default_factory=dict)
+    oral_history: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +83,9 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "terraform_state": self.terraform_state,
+            "terraform_delta": self.terraform_delta,
+            "oral_history": self.oral_history,
         }
 
 
@@ -86,10 +105,11 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    final_terraform: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,10 +121,13 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "final_terraform_milestone": self.final_terraform.get("milestone", "barren"),
+                "final_terraform_score": self.final_terraform.get("terraforming_score", 0.0),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
+            "final_terraform": self.final_terraform,
             "promoted_insights": self.promoted_insights,
             "years": [y.to_dict() for y in self.years],
         }
@@ -121,11 +144,13 @@ class Mars100Engine:
         self.resources = Resources()
         self.social = SocialGraph()
         self.governance = GovernanceState()
+        self.terraform = TerraformState()
         self.year = 0
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self.oral_history = OralHistory()
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -187,6 +212,12 @@ class Mars100Engine:
                     w += 1.0
             weights[action] = max(0.01, w)
 
+        # Oral-history myth influence on action weights
+        myth_mods = oral_action_modifiers(self.oral_history, colonist.id)
+        for action, bonus in myth_mods.items():
+            if action in weights:
+                weights[action] = max(0.01, weights[action] + bonus)
+
         total = sum(weights.values())
         r = self.rng.random() * total
         cumulative = 0.0
@@ -232,6 +263,7 @@ class Mars100Engine:
         expr = self._generate_subsim_expression(colonist, events)
         bindings = colonist.lispy_bindings()
         bindings.update({name: getattr(self.resources, name) for name in RESOURCE_NAMES})
+        bindings.update(terraform_subsim_bindings(self.terraform))
         result = spawn_subsim(expression=expr, colonist_id=colonist.id,
                               year=self.year, bindings=bindings,
                               depth=1, budget=budget, log=log)
@@ -484,11 +516,28 @@ class Mars100Engine:
                 apply_governance(gov_proposal, self.governance, active_ids, self.rng)
 
         skill_bonuses = self._compute_skill_bonuses(actions)
+
+        # --- Terraform phase: advance Mars environment ---
+        colonist_terra_skills = {
+            c.id: c.skills.terraforming for c in active
+        }
+        tf_delta = tick_terraform(
+            self.terraform, actions, colonist_terra_skills, self.rng
+        )
+        self.resources.power = max(0.0, self.resources.power - tf_delta.power_cost)
+        self.resources.water = max(0.0, self.resources.water - tf_delta.water_cost)
+        tf_bonuses = resource_production_bonus(self.terraform)
+        for name in RESOURCE_NAMES:
+            skill_bonuses[name] = skill_bonuses.get(name, 0.0) + tf_bonuses.get(name, 0.0)
+
+        # --- Event effects (with terraform severity modifiers) ---
+        sev_mods = event_severity_modifier(self.terraform)
         event_effects: dict[str, float] = {}
         for ev in events:
+            mod = sev_mods.get(ev.name, 1.0)
             for k, v in ev.effects.items():
                 if k in RESOURCE_NAMES:
-                    event_effects[k] = event_effects.get(k, 0.0) + v
+                    event_effects[k] = event_effects.get(k, 0.0) + v * mod
         resource_delta = tick_resources(self.resources, len(active), skill_bonuses, event_effects)
 
         if events:
@@ -541,6 +590,8 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            terraform_state=self.terraform.to_dict(),
+            terraform_delta=tf_delta.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -572,6 +623,7 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            final_terraform=self.terraform.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

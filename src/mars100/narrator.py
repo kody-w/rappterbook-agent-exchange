@@ -43,6 +43,14 @@ def narrate_year(year_result: dict, rng: random.Random) -> str:
         res_strs.append(f"{name}:{val:.0%}[{tag}]")
     lines.append(f"**Resources:** {' | '.join(res_strs)}")
     lines.append(f"**Cohesion:** {cohesion:.0%}")
+    terraform = year_result.get("terraform_state", {})
+    if terraform:
+        ms = terraform.get("milestone", "barren")
+        ts = terraform.get("terraforming_score", 0.0)
+        lines.append(f"**Terraform:** {ms} ({ts:.0%})")
+        tf_delta = year_result.get("terraform_delta", {})
+        if tf_delta and tf_delta.get("milestone_changed"):
+            lines.append(f"\n🌱 **MILESTONE: {tf_delta['milestone_before']} → {tf_delta['milestone_after']}**")
     if subsims:
         lines.append(f"\n### Sub-simulations ({len(subsims)})")
         for ss in subsims[:3]:
@@ -150,6 +158,31 @@ def generate_final_report(sim_result: dict) -> str:
     for c in alive:
         lines.append(f"- **{c['name']}** ({c['element']}/{c['archetype']})")
     lines.append("")
+
+    # Terraform arc
+    tf = sim_result.get("final_terraform", {})
+    if tf:
+        lines.extend(["## Terraforming Arc", "",
+                       f"- **Final milestone:** {tf.get('milestone', 'barren')}",
+                       f"- **Terraform score:** {tf.get('terraforming_score', 0):.0%}",
+                       f"- **Pressure:** {tf.get('pressure_atm', 0):.4f} atm",
+                       f"- **Temperature:** {tf.get('temperature_c', -60):.1f}°C",
+                       f"- **Water access:** {tf.get('water_access', 0):.1%}",
+                       f"- **Soil fertility:** {tf.get('soil_fertility', 0):.1%}",
+                       f"- **Radiation:** {tf.get('radiation_rel', 0):.2f} (relative)",
+                       f"- **Cumulative effort:** {tf.get('cumulative_effort', 0):.1f}", ""])
+        # Track milestone transitions
+        milestone_years = []
+        prev_ms = "barren"
+        for y in years_data:
+            yd = y if isinstance(y, dict) else y.to_dict()
+            td = yd.get("terraform_delta", {})
+            if td and td.get("milestone_changed"):
+                milestone_years.append(
+                    f"- Year {yd['year']}: {td['milestone_before']} → {td['milestone_after']}"
+                )
+        if milestone_years:
+            lines.extend(["### Milestone Timeline", ""] + milestone_years + [""])
     if dead:
         lines.append(f"### Fallen ({len(dead)})")
         for c in dead:

@@ -1,85 +1,812 @@
 {
   "year": 4,
-  "population": 11,
-  "event": {
-    "id": "meteorite",
-    "desc": "Small meteorite impacts near colony",
-    "severity": 0.5
+  "events": [
+    {
+      "name": "solar_flare",
+      "category": "cosmic",
+      "severity": 0.9666854899751987,
+      "description": "Electronics damaged by electromagnetic pulse from solar event.",
+      "effects": {
+        "power": -0.14666854899751988,
+        "medicine": -0.14666854899751988,
+        "morale": -0.22000282349627978
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "pray",
+    "fen-marsh": "code",
+    "rust-vega": "terraform",
+    "aura-kai": "rest",
+    "dax-iron": "hoard",
+    "luna-tide": "mediate",
+    "grove-ash": "farm",
+    "zeph-wind": "rest",
+    "ora-flame": "hoard",
+    "pax-stone": "rest"
   },
-  "event_effects": [
-    "Meteorite impact: materials -20"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 26.6)"
+      "depth": 1,
+      "colonist_id": "kira-sol",
+      "year": 4,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.5319621461794588,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 19.6)"
+      "depth": 1,
+      "colonist_id": "fen-marsh",
+      "year": 4,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.41173135174415043,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 28.0)"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 4,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": -0.06308985738236661,
+      "steps_used": 0
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 24.7)"
+      "depth": 1,
+      "colonist_id": "dax-iron",
+      "year": 4,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "dax-iron",
+          "year": 4,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 22.3)"
+      "depth": 2,
+      "colonist_id": "dax-iron",
+      "year": 4,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     },
     {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 27.0)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 4,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.6389154417074607,
+      "steps_used": 0
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 23.1)"
+      "depth": 1,
+      "colonist_id": "grove-ash",
+      "year": 4,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "grove-ash",
+          "year": 4,
+          "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 30.2)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 25.5)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 23.5)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 23.1)"
+      "depth": 2,
+      "colonist_id": "grove-ash",
+      "year": 4,
+      "expression": "(let ((parent-result 1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": null,
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.010000000000000009,
+    "power": 0.020000000000000018,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.589940487260221,
+  "governance_state": {
+    "gov_type": "anarchy",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": null,
+    "ai_program": null,
+    "constitution": [
+      "Year 7: governance changed to council",
+      "Year 15: governance changed to anarchy",
+      "Year 33: governance changed to lottery",
+      "Year 36: governance changed to consensus",
+      "Year 57: governance changed to lottery",
+      "Year 58: governance changed to anarchy",
+      "Year 60: governance changed to lottery",
+      "Year 62: governance changed to council",
+      "Year 68: governance changed to lottery",
+      "Year 71: governance changed to council",
+      "Year 77: governance changed to lottery",
+      "Year 80: governance changed to council",
+      "Year 81: governance changed to lottery",
+      "Year 83: governance changed to consensus",
+      "Year 89: governance changed to lottery",
+      "Year 90: governance changed to consensus",
+      "Year 93: governance changed to lottery",
+      "Year 97: governance changed to anarchy"
+    ],
+    "history": [
+      {
+        "year": 7,
+        "from": "anarchy",
+        "to": "council",
+        "proposal_id": "prop-y7-council"
+      },
+      {
+        "year": 15,
+        "from": "council",
+        "to": "anarchy",
+        "proposal_id": "prop-y15-anarchy"
+      },
+      {
+        "year": 33,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y33-lottery"
+      },
+      {
+        "year": 36,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y36-consensus"
+      },
+      {
+        "year": 57,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y57-lottery"
+      },
+      {
+        "year": 58,
+        "from": "lottery",
+        "to": "anarchy",
+        "proposal_id": "prop-y58-anarchy"
+      },
+      {
+        "year": 60,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y60-lottery"
+      },
+      {
+        "year": 62,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y62-council"
+      },
+      {
+        "year": 68,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y68-lottery"
+      },
+      {
+        "year": 71,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y71-council"
+      },
+      {
+        "year": 77,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y77-lottery"
+      },
+      {
+        "year": 80,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y80-council"
+      },
+      {
+        "year": 81,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y81-lottery"
+      },
+      {
+        "year": 83,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y83-consensus"
+      },
+      {
+        "year": 89,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y89-lottery"
+      },
+      {
+        "year": 90,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y90-consensus"
+      },
+      {
+        "year": 93,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y93-lottery"
+      },
+      {
+        "year": 97,
+        "from": "lottery",
+        "to": "anarchy",
+        "proposal_id": "prop-y97-anarchy"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9473727122810286,
+        "improvisation": 0.4676294287048777,
+        "empathy": 0.4333639637984801,
+        "hoarding": 0.2639353805159069,
+        "faith": 0.12140495239083521,
+        "paranoia": 0.4649865588023618
+      },
+      "skills": {
+        "terraforming": 0.7082330006974364,
+        "hydroponics": 0.2,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.011537708576607967,
+        "sabotage": 0.12611415300051435
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.31173135174415045,
+        "improvisation": 0.5619291524276308,
+        "empathy": 0.9618269944962858,
+        "hoarding": 0.1446383882604253,
+        "faith": 0.6796355678503205,
+        "paranoia": 0.11049195712980402
+      },
+      "skills": {
+        "terraforming": 0.11391886699682904,
+        "hydroponics": 0.8,
+        "mediation": 0.7078995196335816,
+        "coding": 0.12069209326070857,
+        "prayer": 0.5,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.5671127886236524,
+        "improvisation": 0.6156422222036793,
+        "empathy": 0.3534335735711198,
+        "hoarding": 0.5824421600401365,
+        "faith": 0.11238266639389141,
+        "paranoia": 0.6204322776466482
+      },
+      "skills": {
+        "terraforming": 0.9038501593285416,
+        "hydroponics": 0.3,
+        "mediation": 0.1,
+        "coding": 0.8051813819966115,
+        "prayer": 0.0,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.2631882205045726,
+        "improvisation": 0.8586405495413951,
+        "empathy": 0.6959981026564842,
+        "hoarding": 0.14026010523453675,
+        "faith": 0.7572959078760192,
+        "paranoia": 0.24626835949508552
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.9012865029806841,
+        "coding": 0.5,
+        "prayer": 0.8,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.8504938843252219,
+        "improvisation": 0.32862989057613107,
+        "empathy": 0.2493481785042987,
+        "hoarding": 0.6246289161151499,
+        "faith": 0.011912190239233022,
+        "paranoia": 0.7852932938003226
+      },
+      "skills": {
+        "terraforming": 0.5124096905911842,
+        "hydroponics": 0.1,
+        "mediation": 0.021706592505557086,
+        "coding": 0.2,
+        "prayer": 0.0,
+        "sabotage": 0.7
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.5389154417074608,
+        "improvisation": 0.8809206888525447,
+        "empathy": 0.3850617059100835,
+        "hoarding": 0.2678705623077708,
+        "faith": 0.27496508603671493,
+        "paranoia": 0.2688624827697698
+      },
+      "skills": {
+        "terraforming": 0.6082438615092715,
+        "hydroponics": 0.6,
+        "mediation": 0.3353587213277509,
+        "coding": 0.9,
+        "prayer": 0.11064236331328889,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7406642069457748,
+        "improvisation": 0.40592506261467065,
+        "empathy": 0.6034885895386917,
+        "hoarding": 0.8437561290068317,
+        "faith": 0.45901997704239916,
+        "paranoia": 0.2630421145874561
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.9011481040783531,
+        "mediation": 0.4237153995102989,
+        "coding": 0.1,
+        "prayer": 0.2,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.37868103528344527,
+        "improvisation": 0.8581262666524321,
+        "empathy": 0.20536238416161462,
+        "hoarding": 0.464039385687256,
+        "faith": 0.2855338806821714,
+        "paranoia": 0.7128742270912014
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.2,
+        "mediation": 0.2,
+        "coding": 0.6086447178699096,
+        "prayer": 0.1,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.6537293404475327,
+        "improvisation": 0.3547343631139163,
+        "empathy": 0.7911858741082874,
+        "hoarding": 0.14767553470651232,
+        "faith": 0.9197514494874659,
+        "paranoia": 0.7046312759995479
+      },
+      "skills": {
+        "terraforming": 0.2175451400798039,
+        "hydroponics": 0.3077365235699573,
+        "mediation": 0.6,
+        "coding": 0.0,
+        "prayer": 0.9,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.6123905437789097,
+        "improvisation": 0.29764376122192415,
+        "empathy": 0.7140111285649369,
+        "hoarding": 0.3566061112935623,
+        "faith": 0.5497411704890282,
+        "paranoia": 0.42702615549914513
+      },
+      "skills": {
+        "terraforming": 0.30814214138544677,
+        "hydroponics": 0.3,
+        "mediation": 0.8,
+        "coding": 0.4,
+        "prayer": 0.31140324020038235,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06703618167924602
+        },
+        {
+          "year": 3,
+          "event": "Ice deposits discovered beneath the eastern ridge.",
+          "valence": 0.04831677296194891
+        },
+        {
+          "year": 4,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9666854899751987
+        }
+      ]
+    }
+  ],
+  "convergence": {
+    "resolve": 0.21324533612081803,
+    "improvisation": 0.21927943320469326,
+    "empathy": 0.23797449790192926,
+    "hoarding": 0.22721492076904518,
+    "faith": 0.2895936698775511,
+    "paranoia": 0.22352130464981837,
+    "convergence_score": 0.23513819375397585
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Selene-1",
-      "entry": "Population: 11. Small meteorite impacts near colony. I spent the year on mediation. Closest to Phobos."
-    },
-    {
-      "colonist": "Selene",
-      "entry": "The meteorite changed everything. I feel worried about our future here."
-    },
-    {
-      "colonist": "Demeter",
-      "entry": "Another year. Small meteorite impacts near colony. The colony feels hopeful. My empathy grows stronger."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1161.381169754654,
-    "water": 1414.0,
-    "power": 437.9117140002277,
-    "oxygen": 1012.6372167236025,
-    "materials": 613.3823300341614,
-    "morale": 84.66057882092578
+  "terraform_state": {
+    "pressure_atm": 0.011727,
+    "temperature_c": -51.34,
+    "radiation_rel": 0.6693,
+    "water_access": 0.05,
+    "soil_fertility": 0.02,
+    "cumulative_effort": 7.7415,
+    "terraforming_score": 0.045,
+    "milestone": "barren"
+  },
+  "terraform_delta": {
+    "pressure_delta": 0.000884,
+    "temperature_delta": 2.14,
+    "radiation_delta": -0.0004,
+    "water_delta": 0.0,
+    "soil_delta": 0.0,
+    "effort_this_year": 1.2678,
+    "power_cost": 0.02,
+    "water_cost": 0.01,
+    "milestone_before": "barren",
+    "milestone_after": "barren",
+    "milestone_changed": false
   }
 }
