@@ -152,6 +152,16 @@ class SocialGraph:
     def to_dict(self) -> dict:
         return {a: {b: r.to_dict() for b, r in rels.items()} for a, rels in self.edges.items()}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> SocialGraph:
+        """Reconstruct a SocialGraph from a serialized dict."""
+        graph = cls()
+        for a_id, rels in d.items():
+            graph.edges[a_id] = {
+                b_id: Relationship.from_dict(r) for b_id, r in rels.items()
+            }
+        return graph
+
 
 def tick_resources(resources: Resources, active_count: int,
                    skill_bonuses: dict[str, float],

@@ -129,6 +129,46 @@ class Mars100Engine:
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
+    # ------------------------------------------------------------------
+    # Snapshot / restore — for counterfactual timeline forking
+    # ------------------------------------------------------------------
+
+    def snapshot(self) -> dict:
+        """Capture the complete engine state for later restoration."""
+        return {
+            "seed": self.seed,
+            "total_years": self.total_years,
+            "year": self.year,
+            "next_id": self.next_id,
+            "rng_state": self.rng.getstate(),
+            "colonists": [c.to_dict() for c in self.colonists],
+            "resources": self.resources.to_dict(),
+            "social": self.social.to_dict(),
+            "governance": self.governance.to_dict(),
+            "insight_queue": list(self.insight_queue),
+            "promoted_insights": list(self.promoted_insights),
+            "births": list(self.births),
+        }
+
+    @classmethod
+    def from_snapshot(cls, snap: dict) -> Mars100Engine:
+        """Restore an engine from a snapshot without re-initializing."""
+        engine = object.__new__(cls)
+        engine.seed = snap["seed"]
+        engine.total_years = snap["total_years"]
+        engine.year = snap["year"]
+        engine.next_id = snap["next_id"]
+        engine.rng = random.Random()
+        engine.rng.setstate(snap["rng_state"])
+        engine.colonists = [Colonist.from_dict(d) for d in snap["colonists"]]
+        engine.resources = Resources.from_dict(snap["resources"])
+        engine.social = SocialGraph.from_dict(snap["social"])
+        engine.governance = GovernanceState.from_dict(snap["governance"])
+        engine.insight_queue = list(snap.get("insight_queue", []))
+        engine.promoted_insights = list(snap.get("promoted_insights", []))
+        engine.births = list(snap.get("births", []))
+        return engine
+
     def _active_colonists(self) -> list[Colonist]:
         return [c for c in self.colonists if c.is_active()]
 

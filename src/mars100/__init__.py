@@ -19,6 +19,11 @@ from src.mars100.governance import (
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError, LispyRuntimeError, run as lispy_run, make_env
 from src.mars100.narrator import narrate_year, generate_diary_entries, generate_final_report
+from src.mars100.counterfactual import (
+    HingePoint, AlternateTimeline, TimelineDivergence, CounterfactualAnalysis,
+    find_hinge_points, fork_timeline, compute_divergence,
+    run_counterfactual_analysis, propose_amendment,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -33,4 +38,7 @@ __all__ = [
     "SubSimBudget", "SubSimResult", "spawn_subsim",
     "LispyError", "LispyRuntimeError", "lispy_run", "make_env",
     "narrate_year", "generate_diary_entries", "generate_final_report",
+    "HingePoint", "AlternateTimeline", "TimelineDivergence",
+    "CounterfactualAnalysis", "find_hinge_points", "fork_timeline",
+    "compute_divergence", "run_counterfactual_analysis", "propose_amendment",
 ]

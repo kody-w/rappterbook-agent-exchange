@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100 What-If Engine</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh}
+.container{max-width:1100px;margin:0 auto;padding:20px}
+h1{font-size:1.8em;color:#ff6b35;margin-bottom:4px}
+.subtitle{color:#888;margin-bottom:24px;font-size:0.95em}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:28px}
+.card{background:#151520;border:1px solid #2a2a3a;border-radius:8px;padding:16px;text-align:center}
+.card .value{font-size:2em;font-weight:700;color:#ff6b35}
+.card .label{font-size:0.8em;color:#888;margin-top:4px}
+.card.high .value{color:#ff4444}
+.card.moderate .value{color:#ffaa00}
+.card.low .value{color:#44cc44}
+.timeline{position:relative;margin:32px 0;padding:0 0 0 40px}
+.timeline::before{content:'';position:absolute;left:18px;top:0;bottom:0;width:2px;background:#2a2a3a}
+.hinge{position:relative;margin-bottom:24px;padding-left:24px}
+.hinge::before{content:'';position:absolute;left:-28px;top:6px;width:14px;height:14px;border-radius:50%;border:2px solid #ff6b35;background:#0a0a0f;z-index:1}
+.hinge.high::before{background:#ff4444;border-color:#ff4444}
+.hinge.moderate::before{background:#ffaa00;border-color:#ffaa00}
+.hinge.low::before{background:#44cc44;border-color:#44cc44}
+.hinge-header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.year-badge{background:#1a1a2e;border:1px solid #333;border-radius:4px;padding:2px 8px;font-size:0.8em;font-weight:600;color:#ff6b35}
+.cat-badge{border-radius:4px;padding:2px 8px;font-size:0.75em;font-weight:600;text-transform:uppercase}
+.cat-governance_change{background:#1a1a3e;color:#6b8aff}
+.cat-death{background:#2e1a1a;color:#ff6b6b}
+.cat-birth{background:#1a2e1a;color:#6bff6b}
+.cat-resource_crisis{background:#2e2e1a;color:#ffff6b}
+.cat-meta_awareness{background:#2e1a2e;color:#ff6bff}
+.cat-exile{background:#1a2e2e;color:#6bffff}
+.hinge-desc{color:#ccc;font-size:0.9em}
+.divergence{margin-top:8px;background:#0f0f18;border-radius:6px;padding:12px;border:1px solid #222}
+.div-bar{height:8px;border-radius:4px;margin:6px 0;background:#1a1a2e}
+.div-fill{height:100%;border-radius:4px;transition:width 0.6s ease}
+.div-governance{background:linear-gradient(90deg,#6b8aff,#4466dd)}
+.div-death{background:linear-gradient(90deg,#ff6b6b,#cc4444)}
+.div-birth{background:linear-gradient(90deg,#6bff6b,#44cc44)}
+.div-resource{background:linear-gradient(90deg,#ffff6b,#cccc44)}
+.div-meta{background:linear-gradient(90deg,#ff6bff,#cc44cc)}
+.div-default{background:linear-gradient(90deg,#ff6b35,#cc5522)}
+.div-stats{display:flex;gap:16px;flex-wrap:wrap;font-size:0.8em;color:#999}
+.div-stats span{display:flex;align-items:center;gap:4px}
+.div-stats .pos{color:#44cc44}
+.div-stats .neg{color:#ff6b6b}
+.div-stats .neutral{color:#888}
+.amendment{background:#151520;border:1px solid #ff6b35;border-radius:8px;padding:20px;margin-top:28px}
+.amendment h3{color:#ff6b35;margin-bottom:8px}
+.amendment .text{color:#ccc;font-style:italic;margin-bottom:12px;line-height:1.5}
+.amendment .evidence{font-size:0.85em;color:#888}
+.amendment .evidence li{margin:4px 0}
+.footer{text-align:center;color:#444;font-size:0.75em;margin-top:32px;padding:16px}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔮 Mars-100 What-If Engine</h1>
+  <p class="subtitle">Counterfactual analysis — what if history had gone differently?</p>
+
+  <div class="summary" id="summary"></div>
+
+  <h2 style="color:#ff6b35;margin-bottom:16px">Hinge Points Timeline</h2>
+  <div class="timeline" id="timeline"></div>
+
+  <div class="amendment" id="amendment"></div>
+
+  <div class="footer">
+    Mars-100 Counterfactual Engine • Data sloshing: output of frame N = input to frame N+1
+  </div>
+</div>
+
+<script>
+(function(){
+  const DATA_URL = 'counterfactual.json';
+
+  function severity_class(s) { return s > 0.6 ? 'high' : s > 0.3 ? 'moderate' : 'low'; }
+  function pct(v) { return Math.round(v * 100) + '%'; }
+  function sign(v) { return v > 0 ? '+' + v : '' + v; }
+
+  function render(data) {
+    // Summary cards
+    const sum = document.getElementById('summary');
+    const conf = data.proposed_amendment.confidence;
+    sum.innerHTML = `
+      <div class="card ${severity_class(data.fragility_score)}">
+        <div class="value">${pct(data.fragility_score)}</div>
+        <div class="label">Colony Fragility</div>
+      </div>
+      <div class="card">
+        <div class="value">${data.hinge_points.length}</div>
+        <div class="label">Hinge Points Tested</div>
+      </div>
+      <div class="card ${severity_class(data.max_divergence)}">
+        <div class="value">${pct(data.max_divergence)}</div>
+        <div class="label">Max Divergence</div>
+      </div>
+      <div class="card ${conf === 'high' ? 'high' : conf === 'moderate' ? 'moderate' : 'low'}">
+        <div class="value">${conf.toUpperCase()}</div>
+        <div class="label">Amendment Confidence</div>
+      </div>
+    `;
+
+    // Timeline
+    const tl = document.getElementById('timeline');
+    const divMap = {};
+    (data.divergences || []).forEach(d => { divMap[d.hinge.year + '_' + d.hinge.category] = d; });
+
+    data.hinge_points.forEach(h => {
+      const sc = severity_class(h.severity);
+      const div = divMap[h.year + '_' + h.category];
+      let divHTML = '';
+      if (div) {
+        const fillClass = 'div-' + (h.category === 'governance_change' ? 'governance' :
+                           h.category === 'resource_crisis' ? 'resource' :
+                           h.category === 'meta_awareness' ? 'meta' :
+                           h.category || 'default');
+        const pd = div.population_delta;
+        const pdClass = pd > 0 ? 'pos' : pd < 0 ? 'neg' : 'neutral';
+        divHTML = `
+          <div class="divergence">
+            <div style="font-size:0.85em;color:#aaa;margin-bottom:4px">
+              Divergence: <strong style="color:#ff6b35">${pct(div.divergence_score)}</strong>
+              &nbsp;|&nbsp; Intervention: ${div.alternate.intervention.replace(/_/g, ' ')}
+            </div>
+            <div class="div-bar"><div class="div-fill ${fillClass}" style="width:${Math.max(2, div.divergence_score * 100)}%"></div></div>
+            <div class="div-stats">
+              <span>Pop Δ: <span class="${pdClass}">${sign(pd)}</span></span>
+              <span>Gov match: ${div.governance_same ? '✓' : '✗'}</span>
+              <span>Resource drift: ${pct(div.resource_divergence)}</span>
+              <span>Cohesion Δ: ${div.cohesion_delta >= 0 ? '+' : ''}${div.cohesion_delta.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      }
+      tl.innerHTML += `
+        <div class="hinge ${sc}">
+          <div class="hinge-header">
+            <span class="year-badge">Year ${h.year}</span>
+            <span class="cat-badge cat-${h.category}">${h.category.replace(/_/g, ' ')}</span>
+            <span style="font-size:0.8em;color:#666">severity ${pct(h.severity)}</span>
+          </div>
+          <div class="hinge-desc">${h.description}</div>
+          ${divHTML}
+        </div>
+      `;
+    });
+
+    // Amendment
+    const am = data.proposed_amendment;
+    const amDiv = document.getElementById('amendment');
+    amDiv.innerHTML = `
+      <h3>📜 Proposed Amendment: ${am.name}</h3>
+      <div class="text">"${am.text}"</div>
+      <div class="evidence">
+        <strong>Evidence:</strong>
+        <ul>${(am.evidence || []).map(e => '<li>' + e + '</li>').join('')}</ul>
+        <p style="margin-top:8px">${am.rationale}</p>
+      </div>
+    `;
+  }
+
+  fetch(DATA_URL)
+    .then(r => r.json())
+    .then(render)
+    .catch(e => {
+      document.getElementById('summary').innerHTML =
+        '<div class="card"><div class="value">⚠</div><div class="label">Failed to load data: ' + e.message + '</div></div>';
+    });
+})();
+</script>
+</body>
+</html>
