@@ -48,6 +48,13 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.ecology import (
+    EcologyState, EcologyMilestones, EcologyTickResult,
+    tick_ecology, compute_terraforming_contribution,
+    compute_event_ecology_effects, check_milestones,
+    compute_temperature, compute_dust_storm_modifier,
+    compute_ecology_modifiers,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +86,9 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "EcologyState", "EcologyMilestones", "EcologyTickResult",
+    "tick_ecology", "compute_terraforming_contribution",
+    "compute_event_ecology_effects", "check_milestones",
+    "compute_temperature", "compute_dust_storm_modifier",
+    "compute_ecology_modifiers",
 ]

@@ -45,6 +45,10 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.ecology import (
+    EcologyState, tick_ecology, compute_ecology_modifiers,
+    compute_dust_storm_modifier,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +84,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +107,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "ecology": self.ecology,
         }
 
 
@@ -129,10 +135,11 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -157,6 +164,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_ecology": self.final_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +193,8 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.ecology = EcologyState()
+        self.ecology_modifiers: dict[str, float] = {}  # delayed feedback
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -595,6 +605,10 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # Ecology: apply PREVIOUS year's ecology modifiers (delayed feedback)
+        for eco_key, eco_val in self.ecology_modifiers.items():
+            infra_mods[eco_key] = infra_mods.get(eco_key, 0.0) + eco_val
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
                                         infra_modifiers=infra_mods)
@@ -659,6 +673,20 @@ class Mars100Engine:
                 if revolt_proposal.passed:
                     apply_governance(revolt_proposal, self.governance,
                                      active_ids, self.econ_rng)
+
+        # --- ecology tick: terraforming feedback, milestones ---
+        action_counts: dict[str, int] = {}
+        for act_name in actions.values():
+            action_counts[act_name] = action_counts.get(act_name, 0) + 1
+        ecology_result = tick_ecology(
+            self.ecology,
+            action_counts=action_counts,
+            events=[e.to_dict() for e in events],
+            infra_completed=self.infra.completed,
+            year=self.year,
+        )
+        # Store modifiers for NEXT year's resource tick (delayed feedback)
+        self.ecology_modifiers = ecology_result.modifiers
 
         # --- psychology tick (dedicated RNG stream) ---
         event_sev = events[0].severity if events else 0.0
@@ -732,9 +760,6 @@ class Mars100Engine:
         if gov_proposal is not None:
             gov_records.append({"passed": gov_proposal.passed,
                                 "title": gov_proposal.gov_type})
-        action_counts = {}
-        for act_name in actions.values():
-            action_counts[act_name] = action_counts.get(act_name, 0) + 1
         culture_ctx = CultureYearContext(
             year=self.year,
             event_type=events[0].name if events else "none",
@@ -832,6 +857,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            ecology=ecology_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -875,6 +901,7 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_ecology=self.ecology.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
