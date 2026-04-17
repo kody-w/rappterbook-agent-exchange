@@ -48,6 +48,11 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.behavior import (
+    BehaviorProfile, BehaviorTickResult, ContagionDelta,
+    compute_action_perturbation, compute_social_contagion,
+    update_learned_preferences, compute_risk_tolerance,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +84,7 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "BehaviorProfile", "BehaviorTickResult", "ContagionDelta",
+    "compute_action_perturbation", "compute_social_contagion",
+    "update_learned_preferences", "compute_risk_tolerance",
 ]
