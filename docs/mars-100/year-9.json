@@ -1,85 +1,1265 @@
 {
   "year": 9,
-  "population": 11,
-  "event": {
-    "id": "earth_contact",
-    "desc": "Communication window with Earth opens",
-    "severity": 0.1
+  "events": [
+    {
+      "name": "solar_flare",
+      "category": "cosmic",
+      "severity": 0.908618382616786,
+      "description": "Severe radiation event \u2014 all colonists confined to shielded core.",
+      "effects": {
+        "power": -0.1408618382616786,
+        "medicine": -0.1408618382616786,
+        "morale": -0.21129275739251788
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "mediate",
+    "fen-marsh": "cooperate",
+    "rust-vega": "cooperate",
+    "aura-kai": "pray",
+    "dax-iron": "sabotage",
+    "luna-tide": "sabotage",
+    "grove-ash": "rest",
+    "zeph-wind": "explore",
+    "ora-flame": "pray",
+    "pax-stone": "mediate"
   },
-  "event_effects": [
-    "Morale +15 from Earth contact"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 22.1)"
+      "depth": 1,
+      "colonist_id": "kira-sol",
+      "year": 9,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 22.1)"
+      "depth": 1,
+      "colonist_id": "aura-kai",
+      "year": 9,
+      "expression": "(let ((risk (* paranoia 0.91))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "result": 0.9924806993447336,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "aura-kai",
+          "year": 9,
+          "expression": "(let ((parent-result 0.9924806993447336)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.091728769279207,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 22.2)"
+      "depth": 2,
+      "colonist_id": "aura-kai",
+      "year": 9,
+      "expression": "(let ((parent-result 0.9924806993447336)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.091728769279207,
+      "steps_used": 0
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 19.8)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 9,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 25.5)"
+      "depth": 1,
+      "colonist_id": "grove-ash",
+      "year": 9,
+      "expression": "(let ((surplus (- food (* 10 0.06)))) (if (> surplus 0) (+ resolve 0.1) (- resolve 0.2)))",
+      "result": 0.843271978580396,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "grove-ash",
+          "year": 9,
+          "expression": "(let ((parent-result 0.843271978580396)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 0.9275991764384357,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 22.1)"
+      "depth": 2,
+      "colonist_id": "grove-ash",
+      "year": 9,
+      "expression": "(let ((parent-result 0.843271978580396)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 0.9275991764384357,
+      "steps_used": 0
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 24.8)"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 9,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "zeph-wind",
+          "year": 9,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 29.0)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 27.2)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 21.8)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 24.7)"
+      "depth": 2,
+      "colonist_id": "zeph-wind",
+      "year": 9,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": {
+    "id": "prop-y9-consensus",
+    "year": 9,
+    "proposer_id": "kira-sol",
+    "gov_type": "consensus",
+    "parameters": {
+      "quorum_fraction": 0.75
+    },
+    "rationale": "All decisions require 75% agreement.",
+    "subsim_result": null,
+    "votes_for": [
+      "kira-sol",
+      "fen-marsh",
+      "aura-kai",
+      "grove-ash"
+    ],
+    "votes_against": [
+      "rust-vega",
+      "dax-iron",
+      "luna-tide",
+      "zeph-wind",
+      "ora-flame",
+      "pax-stone"
+    ],
+    "passed": false
+  },
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": 0.0,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.7092407189892261,
+  "governance_state": {
+    "gov_type": "lottery",
+    "leader_id": "dax-iron",
+    "council_ids": [],
+    "term_end_year": 7,
+    "ai_program": null,
+    "constitution": [
+      "Year 5: governance changed to lottery",
+      "Year 13: governance changed to consensus",
+      "Year 25: governance changed to lottery",
+      "Year 28: governance changed to council",
+      "Year 35: governance changed to consensus",
+      "Year 37: governance changed to ai_governor",
+      "Year 50: governance changed to anarchy",
+      "Year 59: governance changed to dictator",
+      "Year 79: governance changed to council",
+      "Year 92: governance changed to lottery",
+      "Year 95: governance changed to consensus"
+    ],
+    "history": [
+      {
+        "year": 5,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y5-lottery"
+      },
+      {
+        "year": 13,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y13-consensus"
+      },
+      {
+        "year": 25,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y25-lottery"
+      },
+      {
+        "year": 28,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y28-council"
+      },
+      {
+        "year": 35,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y35-consensus"
+      },
+      {
+        "year": 37,
+        "from": "consensus",
+        "to": "ai_governor",
+        "proposal_id": "prop-y37-ai_governor"
+      },
+      {
+        "year": 50,
+        "from": "ai_governor",
+        "to": "anarchy",
+        "proposal_id": "prop-y50-anarchy"
+      },
+      {
+        "year": 59,
+        "from": "anarchy",
+        "to": "dictator",
+        "proposal_id": "prop-y59-dictator"
+      },
+      {
+        "year": 79,
+        "from": "dictator",
+        "to": "council",
+        "proposal_id": "prop-y79-council"
+      },
+      {
+        "year": 92,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y92-lottery"
+      },
+      {
+        "year": 95,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y95-consensus"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9051121406326331,
+        "improvisation": 0.42312357678401946,
+        "empathy": 0.4239289996089246,
+        "hoarding": 0.31928710717356773,
+        "faith": 0.07966152399103124,
+        "paranoia": 0.44311532029018275
+      },
+      "skills": {
+        "terraforming": 0.7172325073750652,
+        "hydroponics": 0.2,
+        "mediation": 0.5080665308667459,
+        "coding": 0.3,
+        "prayer": 0.0,
+        "sabotage": 0.10900730691455118
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7113942946986312,
+        "grief": 0.09425506354135886,
+        "fear": 0.13117882822268467,
+        "anger": 0.19529677201352774,
+        "hope": 0.5473039846828616,
+        "despair": 0.09719185715713365
+      }
+    },
+    {
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.43657631672453784,
+        "improvisation": 0.6622815720071408,
+        "empathy": 0.9848210962423309,
+        "hoarding": 0.15338996071274968,
+        "faith": 0.6108343246702066,
+        "paranoia": 0.09183258394057942
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.8093498359691258,
+        "mediation": 0.7086468570698243,
+        "coding": 0.12324991524154379,
+        "prayer": 0.5254574865163638,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7189485667179148,
+        "grief": 0.09397771865420006,
+        "fear": 0.11988992900047953,
+        "anger": 0.19870333351137115,
+        "hope": 0.5394609785191589,
+        "despair": 0.10286223461917841
+      }
+    },
+    {
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.7728352820885852,
+        "improvisation": 0.7329318744896945,
+        "empathy": 0.2723457759477104,
+        "hoarding": 0.7122441063924115,
+        "faith": 0.2565697092819854,
+        "paranoia": 0.48617595510191447
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.32034222682456576,
+        "mediation": 0.1,
+        "coding": 0.8111913241089831,
+        "prayer": 0.01884319598609615,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 4,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7369615236325306,
+        "grief": 0.09817363405024827,
+        "fear": 0.10821174025174742,
+        "anger": 0.19538511982776421,
+        "hope": 0.5145473167592569,
+        "despair": 0.08378586242477763
+      }
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.10911036816846767,
+        "improvisation": 0.9424806993447336,
+        "empathy": 0.8475468353678974,
+        "hoarding": 0.11358291132792436,
+        "faith": 0.9202824201410718,
+        "paranoia": 0.1426686568245723
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4134233906831187,
+        "mediation": 0.9035344776869529,
+        "coding": 0.5085428698864481,
+        "prayer": 0.8047972457691802,
+        "sabotage": 0.023850310707446136
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 3,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7205777291116612,
+        "grief": 0.09511742867530576,
+        "fear": 0.1251498861448292,
+        "anger": 0.20025773563848967,
+        "hope": 0.5480165516909802,
+        "despair": 0.09919089828811187
+      }
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.8585432847819121,
+        "improvisation": 0.3247950080396341,
+        "empathy": 0.27595799968314183,
+        "hoarding": 0.6072449329030423,
+        "faith": 0.14361377723920615,
+        "paranoia": 0.7665998677264616
+      },
+      "skills": {
+        "terraforming": 0.5077541414203476,
+        "hydroponics": 0.1,
+        "mediation": 0.0,
+        "coding": 0.22218263615585052,
+        "prayer": 0.0,
+        "sabotage": 0.7203617250841757
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7274264484055457,
+        "grief": 0.07425910634558393,
+        "fear": 0.11528719424840142,
+        "anger": 0.1833934573023382,
+        "hope": 0.5308281271245164,
+        "despair": 0.117401271118914
+      }
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.5923557115134558,
+        "improvisation": 0.8861961962242509,
+        "empathy": 0.3788373019304101,
+        "hoarding": 0.31678225494008716,
+        "faith": 0.3243828821672376,
+        "paranoia": 0.3162202731694354
+      },
+      "skills": {
+        "terraforming": 0.610456862773259,
+        "hydroponics": 0.6094751965952473,
+        "mediation": 0.33385002467806724,
+        "coding": 0.902970085197395,
+        "prayer": 0.1,
+        "sabotage": 0.12132216004075273
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 8,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7430789439249944,
+        "grief": 0.08722941826094478,
+        "fear": 0.12690770307989813,
+        "anger": 0.1922980060606144,
+        "hope": 0.5379169399056256,
+        "despair": 0.10457650804505854
+      }
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7432719785803961,
+        "improvisation": 0.4031609664948597,
+        "empathy": 0.514580461119025,
+        "hoarding": 0.883569344713269,
+        "faith": 0.43720640550587325,
+        "paranoia": 0.3722729710580912
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.902903999324905,
+        "mediation": 0.42476449167682834,
+        "coding": 0.14387004871269773,
+        "prayer": 0.2,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 5,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.724350636656553,
+        "grief": 0.10258961521415565,
+        "fear": 0.1366105461082099,
+        "anger": 0.21132103842911126,
+        "hope": 0.5325335368863622,
+        "despair": 0.10188855287680133
+      }
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.47778574895888665,
+        "improvisation": 0.9617927743373516,
+        "empathy": 0.3734077878600668,
+        "hoarding": 0.4806562878919245,
+        "faith": 0.18143203099246571,
+        "paranoia": 0.5835249655835679
+      },
+      "skills": {
+        "terraforming": 0.313653054676143,
+        "hydroponics": 0.23058392606539482,
+        "mediation": 0.22356657004144911,
+        "coding": 0.6202795905226007,
+        "prayer": 0.1181940738296675,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 6,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7272479032855711,
+        "grief": 0.0860833362928403,
+        "fear": 0.11209940820332277,
+        "anger": 0.18661349718448425,
+        "hope": 0.551932681452052,
+        "despair": 0.11288072672933042
+      }
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.6981999670005596,
+        "improvisation": 0.5487644554780514,
+        "empathy": 0.8428150430864307,
+        "hoarding": 0.16164957505401936,
+        "faith": 0.7312233556947141,
+        "paranoia": 0.5758859373869041
+      },
+      "skills": {
+        "terraforming": 0.22107817480488445,
+        "hydroponics": 0.3,
+        "mediation": 0.6203018816700986,
+        "coding": 0.0,
+        "prayer": 0.9054962044110455,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 4,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.7376607836049341,
+        "grief": 0.09401502373092363,
+        "fear": 0.12935218637662776,
+        "anger": 0.1855150859658135,
+        "hope": 0.5432624319187238,
+        "despair": 0.09719030142578759
+      }
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.6712149106205759,
+        "improvisation": 0.2007738682097678,
+        "empathy": 0.6524236568614289,
+        "hoarding": 0.32898194677374476,
+        "faith": 0.544094247789062,
+        "paranoia": 0.5823724938951912
+      },
+      "skills": {
+        "terraforming": 0.33061631357884835,
+        "hydroponics": 0.3,
+        "mediation": 0.8023201589467832,
+        "coding": 0.4063151428481596,
+        "prayer": 0.31371724792482886,
+        "sabotage": 0.02323858474742835
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 3,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        }
+      ],
+      "mood": {
+        "joy": 0.725543554941738,
+        "grief": 0.09395761041570586,
+        "fear": 0.11667139151673678,
+        "anger": 0.19589305653502048,
+        "hope": 0.534922782114632,
+        "despair": 0.08458220837596539
+      }
+    }
+  ],
+  "convergence": {
+    "resolve": 0.2237640781441227,
+    "improvisation": 0.2566467693547452,
+    "empathy": 0.24560357159528945,
+    "hoarding": 0.24460952731130128,
+    "faith": 0.26156379673541114,
+    "paranoia": 0.19938001010536713,
+    "convergence_score": 0.23859462554103947
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Selene",
-      "entry": "Population: 11. Communication window with Earth opens. I spent the year on prayer. Closest to Demeter."
-    },
-    {
-      "colonist": "Vulcan",
-      "entry": "Population: 11. Communication window with Earth opens. I spent the year on coding. Closest to Nova."
-    },
-    {
-      "colonist": "Lyra",
-      "entry": "The earth_contact changed everything. I feel worried about our future here."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1189.563044030657,
-    "water": 1304.0,
-    "power": 392.9663489679742,
-    "oxygen": 1010.3016750664844,
-    "materials": 921.7712938486005,
-    "morale": 100
+  "mood_summary": {
+    "joy": 0.7273190384980074,
+    "grief": 0.0919657955181267,
+    "fear": 0.12213588131529374,
+    "anger": 0.19446771024685347,
+    "hope": 0.5380725331054168,
+    "despair": 0.10015504210610586,
+    "morale": 0.5366353669895958,
+    "stability": 0.8055322897531465
   }
 }

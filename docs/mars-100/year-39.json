@@ -1,234 +1,3054 @@
 {
   "year": 39,
-  "population": 23,
-  "event": {
-    "id": "earth_contact",
-    "desc": "Communication window with Earth opens",
-    "severity": 0.1
+  "events": [
+    {
+      "name": "epidemic",
+      "category": "social",
+      "severity": 0.591190378159534,
+      "description": "Regolith dust causes chronic respiratory inflammation.",
+      "effects": {
+        "medicine": -0.32735711344786017,
+        "morale": -0.2727975945398835,
+        "food": -0.0545595189079767
+      }
+    },
+    {
+      "name": "phobos_transit",
+      "category": "cosmic",
+      "severity": 0.06964342936034665,
+      "description": "Double shadow: Phobos and Deimos transit simultaneously.",
+      "effects": {
+        "morale": 0.028482171468017334,
+        "faith_boost": 0.017089302880810398
+      }
+    },
+    {
+      "name": "solar_flare",
+      "category": "cosmic",
+      "severity": 0.9331991886815391,
+      "description": "Electronics damaged by electromagnetic pulse from solar event.",
+      "effects": {
+        "power": -0.1433199188681539,
+        "medicine": -0.1433199188681539,
+        "morale": -0.21497987830223084
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "cooperate",
+    "fen-marsh": "hoard",
+    "rust-vega": "mediate",
+    "dax-iron": "rest",
+    "grove-ash": "mediate",
+    "zeph-wind": "sabotage",
+    "ora-flame": "hoard",
+    "pax-stone": "hoard"
   },
-  "event_effects": [
-    "Morale +15 from Earth contact"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 27.0)"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 39,
+      "expression": "(let ((gov-value (+ (* empathy 0.4) (* resolve 0.3) (* faith 0.3)))) (if (> gov-value 0.5) 1 0))",
+      "result": 0,
+      "steps_used": 0
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 25.4)"
+      "depth": 1,
+      "colonist_id": "grove-ash",
+      "year": 39,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.0818387298121144,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "grove-ash",
+          "year": 39,
+          "expression": "(let ((parent-result 1.0818387298121144)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1900226027933258,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos considers proposing constitutional_amendment but it already exists"
+      "depth": 2,
+      "colonist_id": "grove-ash",
+      "year": 39,
+      "expression": "(let ((parent-result 1.0818387298121144)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1900226027933258,
+      "steps_used": 0
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 23.0)"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 39,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.0818387298121144,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "zeph-wind",
+          "year": 39,
+          "expression": "(let ((parent-result 1.0818387298121144)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.1900226027933258,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Titan",
-      "action": "Titan considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene",
-      "action": "Selene proposes leadership_election: we need new leadership"
-    },
-    {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 29.7)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Orion-12",
-      "action": "Orion-12 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Astra-14",
-      "action": "Astra-14 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-18",
-      "action": "Ares-18 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Vulcan-23",
-      "action": "Vulcan-23 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Juno-26",
-      "action": "Juno-26 works on prayer (output: 23.1)"
-    },
-    {
-      "colonist": "Juno-28",
-      "action": "Juno-28 considers proposing leadership_election but one is already pending"
-    },
-    {
-      "colonist": "Cosmo-29",
-      "action": "Cosmo-29 works on prayer (output: 19.9)"
-    },
-    {
-      "colonist": "Lyra-30",
-      "action": "Lyra-30 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Juno-33",
-      "action": "Juno-33 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ares-35",
-      "action": "Ares-35 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Ceres-36",
-      "action": "Ceres-36 considers proposing constitutional_amendment but it already exists"
-    },
-    {
-      "colonist": "Nova-38",
-      "action": "Nova-38 considers proposing leadership_election but one is already pending"
+      "depth": 2,
+      "colonist_id": "zeph-wind",
+      "year": 39,
+      "expression": "(let ((parent-result 1.0818387298121144)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.1900226027933258,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [
+  "governance": null,
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 0.9091936490605712,
+    "air": 1.0,
+    "medicine": 0.9045747100144566
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 0.8842199508446157,
+    "air": 1.0,
+    "medicine": 0.5658061834981531
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": -0.02497369821595552,
+    "air": 0.0,
+    "medicine": -0.3387685265163034
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.9861081628209182,
+  "governance_state": {
+    "gov_type": "ai_governor",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": 47,
+    "ai_program": "(if (> food 0.5) (+ morale 0.1) (- morale 0.05))",
+    "constitution": [
+      "Year 5: governance changed to lottery",
+      "Year 13: governance changed to consensus",
+      "Year 25: governance changed to lottery",
+      "Year 28: governance changed to council",
+      "Year 35: governance changed to consensus",
+      "Year 37: governance changed to ai_governor",
+      "Year 50: governance changed to anarchy",
+      "Year 59: governance changed to dictator",
+      "Year 79: governance changed to council",
+      "Year 92: governance changed to lottery",
+      "Year 95: governance changed to consensus"
+    ],
+    "history": [
+      {
+        "year": 5,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y5-lottery"
+      },
+      {
+        "year": 13,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y13-consensus"
+      },
+      {
+        "year": 25,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y25-lottery"
+      },
+      {
+        "year": 28,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y28-council"
+      },
+      {
+        "year": 35,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y35-consensus"
+      },
+      {
+        "year": 37,
+        "from": "consensus",
+        "to": "ai_governor",
+        "proposal_id": "prop-y37-ai_governor"
+      },
+      {
+        "year": 50,
+        "from": "ai_governor",
+        "to": "anarchy",
+        "proposal_id": "prop-y50-anarchy"
+      },
+      {
+        "year": 59,
+        "from": "anarchy",
+        "to": "dictator",
+        "proposal_id": "prop-y59-dictator"
+      },
+      {
+        "year": 79,
+        "from": "dictator",
+        "to": "council",
+        "proposal_id": "prop-y79-council"
+      },
+      {
+        "year": 92,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y92-lottery"
+      },
+      {
+        "year": 95,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y95-consensus"
+      }
+    ]
+  },
+  "colonist_snapshots": [
     {
-      "colonist": "Vulcan",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[1, 14]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.8947512751055446,
+        "improvisation": 0.5552838974875446,
+        "empathy": 0.5733253635039233,
+        "hoarding": 0.4575192634712948,
+        "faith": 0.2875942964992517,
+        "paranoia": 0.03723618453944258
+      },
+      "skills": {
+        "terraforming": 0.728423971042874,
+        "hydroponics": 0.24883165357988984,
+        "mediation": 0.52005085306835,
+        "coding": 0.31759458842913524,
+        "prayer": 0.0564155603058102,
+        "sabotage": 0.14114402743733936
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 11,
+      "governance_votes": 10,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8567926625984789,
+        "grief": 0.18981118654577706,
+        "fear": 0.28348539983458326,
+        "anger": 0.30901467657808707,
+        "hope": 0.8268262983536421,
+        "despair": 0.13776757311713986
+      }
     },
     {
-      "colonist": "Iris",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 16]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.1315086192964188,
+        "improvisation": 0.688566553122754,
+        "empathy": 0.9581861608463594,
+        "hoarding": 0.1377328458476416,
+        "faith": 0.521634089426186,
+        "paranoia": 0.1564324914290062
+      },
+      "skills": {
+        "terraforming": 0.1424860637220804,
+        "hydroponics": 0.8250550333390015,
+        "mediation": 0.7345098403950275,
+        "coding": 0.17900092706686632,
+        "prayer": 0.545763165873914,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 13,
+      "governance_votes": 12,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8774567309554694,
+        "grief": 0.19202293761798372,
+        "fear": 0.2853491873635187,
+        "anger": 0.30433046559540333,
+        "hope": 0.8268694995122923,
+        "despair": 0.1430608469730302
+      }
     },
     {
-      "colonist": "Nova",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 16]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.6484558522986297,
+        "improvisation": 0.7682021305269272,
+        "empathy": 0.14050147155208126,
+        "hoarding": 0.8728827278164341,
+        "faith": 0.37715507991258074,
+        "paranoia": 0.1990440459960675
+      },
+      "skills": {
+        "terraforming": 0.9111444583049991,
+        "hydroponics": 0.37197646753170444,
+        "mediation": 0.14391640785817222,
+        "coding": 0.8249279585830604,
+        "prayer": 0.08842011928504659,
+        "sabotage": 0.3578202535355429
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 19,
+      "governance_votes": 12,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8759577243990309,
+        "grief": 0.2005112407964865,
+        "fear": 0.27456347416571036,
+        "anger": 0.3101105008498017,
+        "hope": 0.8154997086210073,
+        "despair": 0.150190288096243
+      }
     },
     {
-      "colonist": "Astra-14",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 15]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.3454647907485809,
+        "improvisation": 0.8072897654069401,
+        "empathy": 0.8700572587325006,
+        "hoarding": 0.12597719890965278,
+        "faith": 0.7831982240525405,
+        "paranoia": 0.24667002022065027
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.42798746005683536,
+        "mediation": 0.9075222336212234,
+        "coding": 0.5294157594719127,
+        "prayer": 0.8079726442173072,
+        "sabotage": 0.08505927158235736
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 9,
+      "governance_votes": 8,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        },
+        {
+          "year": 10,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5032816357398346
+        },
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        }
+      ],
+      "mood": {
+        "joy": 0.7339845367967066,
+        "grief": 0.09443357178023364,
+        "fear": 0.10314455918413551,
+        "anger": 0.20812247153434055,
+        "hope": 0.5561039669468438,
+        "despair": 0.09920723467771907
+      },
+      "death_year": 23,
+      "death_cause": "equipment malfunction"
     },
     {
-      "colonist": "Ares-18",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[1, 20]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.882250606392795,
+        "improvisation": 0.3790065590226966,
+        "empathy": 0.1503130051654209,
+        "hoarding": 0.5269533935348456,
+        "faith": 0.13413330170760632,
+        "paranoia": 0.729071333372223
+      },
+      "skills": {
+        "terraforming": 0.5396280085487526,
+        "hydroponics": 0.15879123564566583,
+        "mediation": 0.0139844928945768,
+        "coding": 0.27172192100454834,
+        "prayer": 0.04623128772166352,
+        "sabotage": 0.7338534866304794
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 12,
+      "governance_votes": 14,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8725905983627065,
+        "grief": 0.19418481486185954,
+        "fear": 0.30145575778381567,
+        "anger": 0.3334529648832443,
+        "hope": 0.8188664083063864,
+        "despair": 0.13209629433885253
+      }
     },
     {
-      "colonist": "Vulcan-23",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 17]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.4344925541932052,
+        "improvisation": 0.9677329160529602,
+        "empathy": 0.44726440274364243,
+        "hoarding": 0.29414166797845664,
+        "faith": 0.4663234964876806,
+        "paranoia": 0.5024192152894233
+      },
+      "skills": {
+        "terraforming": 0.6216255584627722,
+        "hydroponics": 0.6543187401575018,
+        "mediation": 0.37929466113336624,
+        "coding": 0.9083642220499476,
+        "prayer": 0.1239468280948591,
+        "sabotage": 0.12132216004075273
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 18,
+      "governance_votes": 10,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        },
+        {
+          "year": 5,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.08687143890561007
+        },
+        {
+          "year": 5,
+          "event": "A bitter dispute over food rationing escalates to shouting.",
+          "valence": -0.41807691500309524
+        },
+        {
+          "year": 6,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.3141295339924766
+        },
+        {
+          "year": 6,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.010115910319869987
+        },
+        {
+          "year": 7,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5527082633337752
+        },
+        {
+          "year": 7,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.027301198383922715
+        },
+        {
+          "year": 8,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22592827643459237
+        },
+        {
+          "year": 9,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.908618382616786
+        },
+        {
+          "year": 10,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5032816357398346
+        },
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        }
+      ],
+      "mood": {
+        "joy": 0.8678134556351011,
+        "grief": 0.17918113186142046,
+        "fear": 0.20785636375470395,
+        "anger": 0.33529058971799464,
+        "hope": 0.7079395271762157,
+        "despair": 0.14873417441310022
+      },
+      "death_year": 32,
+      "death_cause": "radiation exposure"
     },
     {
-      "colonist": "Juno-26",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 17]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.6173629888236437,
+        "improvisation": 0.2837963307860159,
+        "empathy": 0.5442253844055673,
+        "hoarding": 1.0,
+        "faith": 0.26073761871174944,
+        "paranoia": 0.4601259786148974
+      },
+      "skills": {
+        "terraforming": 0.41010908251968964,
+        "hydroponics": 0.9124315210736871,
+        "mediation": 0.4721440432691849,
+        "coding": 0.2125985158091689,
+        "prayer": 0.23103688557505078,
+        "sabotage": 0.052509051839779344
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 12,
+      "governance_votes": 14,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8577962402332978,
+        "grief": 0.19006948265140444,
+        "fear": 0.2784096541691935,
+        "anger": 0.297643882806822,
+        "hope": 0.8243740697351969,
+        "despair": 0.14166669616899674
+      }
     },
     {
-      "colonist": "Juno-28",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 17]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.4846261747091168,
+        "improvisation": 0.9447619392307165,
+        "empathy": 0.280315515714349,
+        "hoarding": 0.4624502304721132,
+        "faith": 0.1892776707569021,
+        "paranoia": 0.8451144220023211
+      },
+      "skills": {
+        "terraforming": 0.3325638017667849,
+        "hydroponics": 0.28736609264957913,
+        "mediation": 0.2617825529447642,
+        "coding": 0.6400410888096967,
+        "prayer": 0.14294445253266863,
+        "sabotage": 0.8092902324862136
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 21,
+      "governance_votes": 15,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8686228417319565,
+        "grief": 0.19733136620272027,
+        "fear": 0.295118448102195,
+        "anger": 0.29431609628440036,
+        "hope": 0.8317394179072719,
+        "despair": 0.1561789180234802
+      }
     },
     {
-      "colonist": "Cosmo-29",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 16]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.4163130340265873,
+        "improvisation": 0.2978406830916048,
+        "empathy": 0.8806683847971204,
+        "hoarding": 0.2874751107359472,
+        "faith": 0.8669751670212422,
+        "paranoia": 0.6170909720248756
+      },
+      "skills": {
+        "terraforming": 0.2533125722629771,
+        "hydroponics": 0.3368839327719686,
+        "mediation": 0.6374371592509374,
+        "coding": 0.07960781049692588,
+        "prayer": 0.9067948847491314,
+        "sabotage": 0.050184170302972377
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 10,
+      "governance_votes": 15,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.857471134267673,
+        "grief": 0.19263994372313198,
+        "fear": 0.2886199435858461,
+        "anger": 0.30659098084248027,
+        "hope": 0.8218004170519672,
+        "despair": 0.14014813862091186
+      }
     },
     {
-      "colonist": "Lyra-30",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 21]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.5147642024905706,
+        "improvisation": 0.13710059756437976,
+        "empathy": 0.42894512885874453,
+        "hoarding": 0.4840985293328347,
+        "faith": 0.35066396141774747,
+        "paranoia": 0.33097783233970174
+      },
+      "skills": {
+        "terraforming": 0.425528926587995,
+        "hydroponics": 0.4067012202505979,
+        "mediation": 0.8023201589467832,
+        "coding": 0.43548012415265824,
+        "prayer": 0.36459110066992056,
+        "sabotage": 0.02323858474742835
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 7,
+      "governance_votes": 13,
+      "memories": [
+        {
+          "year": 11,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5603245456118744
+        },
+        {
+          "year": 12,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.07850351917361706
+        },
+        {
+          "year": 13,
+          "event": "New hydroponics technique doubles crop yield per unit water.",
+          "valence": 0.04784934650166337
+        },
+        {
+          "year": 14,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3380572110174463
+        },
+        {
+          "year": 15,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.5566707295989426
+        },
+        {
+          "year": 16,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.5572044084197812
+        },
+        {
+          "year": 17,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.7150416025508559
+        },
+        {
+          "year": 18,
+          "event": "Coding breakthrough: automated drone maintenance saves labor.",
+          "valence": 0.001663030411137112
+        },
+        {
+          "year": 18,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9367172458982254
+        },
+        {
+          "year": 19,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.04706986799490364
+        },
+        {
+          "year": 20,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8263499760698185
+        },
+        {
+          "year": 21,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.3573249763991841
+        },
+        {
+          "year": 22,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.385585479190637
+        },
+        {
+          "year": 22,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.022224979506400216
+        },
+        {
+          "year": 23,
+          "event": "Subsurface water table detected by ground-penetrating radar.",
+          "valence": 0.06127541857327064
+        },
+        {
+          "year": 24,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.13496432017767432
+        },
+        {
+          "year": 25,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.6286063936716577
+        },
+        {
+          "year": 25,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3068213118983544
+        },
+        {
+          "year": 26,
+          "event": "Coronal mass ejection detected \u2014 48 hours to shelter.",
+          "valence": -0.7349358795286914
+        },
+        {
+          "year": 26,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.03906139718719506
+        },
+        {
+          "year": 26,
+          "event": "Accusations of resource hoarding fracture the colony trust.",
+          "valence": -0.5751203863612762
+        },
+        {
+          "year": 27,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.0070531638162620765
+        },
+        {
+          "year": 27,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.5702201682799999
+        },
+        {
+          "year": 28,
+          "event": "Video letters from family arrive after 22-minute delay.",
+          "valence": 0.040423808571054654
+        },
+        {
+          "year": 28,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.06647777779469691
+        },
+        {
+          "year": 28,
+          "event": "Ice geyser breaks through permafrost near the colony perimeter.",
+          "valence": -0.3964957627782777
+        },
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        },
+        {
+          "year": 30,
+          "event": "Cryovolcanic eruption 200km north \u2014 ground tremors felt.",
+          "valence": -0.4646340203374648
+        },
+        {
+          "year": 30,
+          "event": "Severe radiation event \u2014 all colonists confined to shielded core.",
+          "valence": -0.8489092573432656
+        },
+        {
+          "year": 31,
+          "event": "Fine Martian regolith clogs air filters and reduces solar output.",
+          "valence": -0.33962768064906396
+        },
+        {
+          "year": 31,
+          "event": "Strange crystalline structures found in deep drill core.",
+          "valence": 0.1406201662853797
+        },
+        {
+          "year": 32,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.6093784139480266
+        },
+        {
+          "year": 32,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.13343795559786462
+        },
+        {
+          "year": 33,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.01547886233608307
+        },
+        {
+          "year": 33,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.4156522162658546
+        },
+        {
+          "year": 33,
+          "event": "A rich vein of iron oxide uncovered during excavation.",
+          "valence": 0.030743902698624363
+        },
+        {
+          "year": 34,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08806823340997898
+        },
+        {
+          "year": 34,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.12894400019712898
+        },
+        {
+          "year": 35,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.02994178544040805
+        },
+        {
+          "year": 35,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5649249138181864
+        },
+        {
+          "year": 36,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.5389511562530661
+        },
+        {
+          "year": 36,
+          "event": "Underground cavern with stable temperature discovered.",
+          "valence": 0.06709902903239354
+        },
+        {
+          "year": 37,
+          "event": "Nuclear reactor scram \u2014 emergency power only for 30 sols.",
+          "valence": 0.22879147903218364
+        },
+        {
+          "year": 37,
+          "event": "A massive dust storm engulfs the colony for weeks.",
+          "valence": -0.6367188538955024
+        },
+        {
+          "year": 38,
+          "event": "Phobos eclipses the sun \u2014 30 seconds of twilight at noon.",
+          "valence": 0.01868996412965202
+        },
+        {
+          "year": 38,
+          "event": "Lava tube entrance found \u2014 potential expansion space.",
+          "valence": 0.08086496312831531
+        },
+        {
+          "year": 39,
+          "event": "Regolith dust causes chronic respiratory inflammation.",
+          "valence": -0.591190378159534
+        },
+        {
+          "year": 39,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.034821714680173324
+        },
+        {
+          "year": 39,
+          "event": "Electronics damaged by electromagnetic pulse from solar event.",
+          "valence": -0.9331991886815391
+        }
+      ],
+      "mood": {
+        "joy": 0.8773421868393299,
+        "grief": 0.19252908513951164,
+        "fear": 0.2881117690782053,
+        "anger": 0.3144687020620139,
+        "hope": 0.8347125825012659,
+        "despair": 0.13641662306748534
+      }
     },
     {
-      "colonist": "Juno-33",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 21]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ares-35",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 20]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Ceres-36",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 20]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
-    },
-    {
-      "colonist": "Nova-38",
-      "depth": 1,
-      "proposal": "leadership_election",
-      "result": "[0, 20]",
-      "s_expr": "(sub-sim\n          (begin\n            (define candidates (filter (lambda (r) (> (nth r 1) 10)) my-relationships))\n            (define best (if (empty? candidates) my-id (nth (car candidates) 0)))\n    "
+      "id": "child-10",
+      "name": "Haze Cliff",
+      "element": "earth",
+      "archetype": "child",
+      "stats": {
+        "resolve": 0.607126737577187,
+        "improvisation": 0.44523420169664757,
+        "empathy": 0.39337164774119643,
+        "hoarding": 0.37577416945133096,
+        "faith": 0.6871480088818032,
+        "paranoia": 0.49890456309435827
+      },
+      "skills": {
+        "terraforming": 0.04383097359589142,
+        "hydroponics": 0.036797612122003415,
+        "mediation": 0.027279433834631883,
+        "coding": 0.035294774646475256,
+        "prayer": 0.049186896597657855,
+        "sabotage": 0.070247077982149
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": false,
+      "exiled": false,
+      "birth_year": 28,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 29,
+          "event": "Unknown pathogen spreads through the water system.",
+          "valence": -0.5047995775257577
+        },
+        {
+          "year": 29,
+          "event": "Double shadow: Phobos and Deimos transit simultaneously.",
+          "valence": 0.015919902394763607
+        }
+      ],
+      "mood": {
+        "joy": 0.5695702466043233,
+        "grief": 0.11738604403789978,
+        "fear": 0.20933045018737087,
+        "anger": 0.13898019559112054,
+        "hope": 0.5486748354053164,
+        "despair": 0.10749969468129866
+      },
+      "death_year": 29,
+      "death_cause": "resource deprivation"
     }
   ],
-  "governance_results": [
-    "Leadership election: Selene elected (ratio 90%)"
-  ],
-  "resource_effects": [],
+  "convergence": {
+    "resolve": 0.23384923492381643,
+    "improvisation": 0.26027267993980996,
+    "empathy": 0.2886972852550021,
+    "hoarding": 0.2653013014086629,
+    "faith": 0.21717668984375307,
+    "paranoia": 0.2714305344954661,
+    "convergence_score": 0.25612128764441844
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Ares-18",
-      "entry": "Population: 23. Communication window with Earth opens. I spent the year on sabotage. Closest to Selene."
-    },
-    {
-      "colonist": "Orion-12",
-      "entry": "The earth_contact changed everything. I feel worried about our future here."
-    },
-    {
-      "colonist": "Ceres-36",
-      "entry": "The earth_contact changed everything. I feel optimistic about our future here."
-    }
-  ],
-  "meta_awareness": "Lyra (year 39): 'Today I realized: the output of Year 39 is the input to Year 40. We are being data-sloshed.'",
-  "resources_snapshot": {
-    "food": 975.6406250901769,
-    "water": 2860.8138886726974,
-    "power": 270.21285672933385,
-    "oxygen": 769.8108256436935,
-    "materials": 2526.5169661279274,
-    "morale": 100
+  "mood_summary": {
+    "joy": 0.8680037649234928,
+    "grief": 0.19363750719235936,
+    "fear": 0.2868892042603835,
+    "anger": 0.30874103373778167,
+    "hope": 0.8250860502486287,
+    "despair": 0.14219067230076746,
+    "morale": 0.6786308178394973,
+    "stability": 0.6912589662622184
   }
 }

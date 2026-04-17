@@ -1,7 +1,7 @@
 """
 Colonist model for Mars-100.
 
-Each colonist has identity, stats, skills, memory, and a LisPy decision expression.
+Each colonist has identity, stats, skills, memory, mood, and a LisPy decision expression.
 Colonists are data structures AND LisPy programs (homoiconic).
 """
 from __future__ import annotations
@@ -9,6 +9,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from typing import Any
+
+from src.mars100.psychology import MoodState
 
 ELEMENTS = ("fire", "water", "earth", "air")
 STAT_NAMES = ("resolve", "improvisation", "empathy", "hoarding", "faith", "paranoia")
@@ -94,6 +96,7 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    mood: MoodState = field(default_factory=MoodState)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -103,6 +106,7 @@ class Colonist:
             "alive": self.alive, "exiled": self.exiled, "birth_year": self.birth_year,
             "subsim_count": self.subsim_count, "governance_votes": self.governance_votes,
             "memories": [m.to_dict() for m in self.memories],
+            "mood": self.mood.to_dict(),
         }
         if self.death_year is not None:
             d["death_year"] = self.death_year
@@ -114,6 +118,7 @@ class Colonist:
     @classmethod
     def from_dict(cls, d: dict) -> Colonist:
         memories = [MemoryEntry(m["year"], m["event"], m["valence"]) for m in d.get("memories", [])]
+        mood = MoodState.from_dict(d["mood"]) if "mood" in d else MoodState()
         return cls(
             id=d["id"], name=d["name"], element=d["element"], archetype=d["archetype"],
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
@@ -123,6 +128,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            mood=mood,
         )
 
     def is_active(self) -> bool:
@@ -172,6 +178,10 @@ class Colonist:
         bindings["element"] = self.element
         bindings["alive"] = self.alive
         bindings["memory-count"] = len(self.memories)
+        from src.mars100.psychology import EMOTION_NAMES
+        for name in EMOTION_NAMES:
+            bindings[f"mood-{name}"] = getattr(self.mood, name)
+        bindings["mood-valence"] = self.mood.valence()
         return bindings
 
 

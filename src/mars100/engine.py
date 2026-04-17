@@ -25,6 +25,11 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.psychology import (
+    MoodState, compute_action_bias, compute_mood_shift,
+    compute_resilience, contagion_spread, collective_mood,
+    decay_toward_baseline,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +57,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    mood_summary: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +73,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "mood_summary": self.mood_summary,
         }
 
 
@@ -89,7 +96,7 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "3.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -136,7 +143,7 @@ class Mars100Engine:
         return [c.id for c in self._active_colonists()]
 
     def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
-        """Choose an action for a colonist based on personality and events."""
+        """Choose an action for a colonist based on personality, mood, and events."""
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
@@ -148,6 +155,7 @@ class Mars100Engine:
             score = 0.5
 
         critical = self.resources.critical()
+        mood_biases = compute_action_bias(colonist.mood)
         weights: dict[str, float] = {}
         for action in ACTIONS:
             w = 1.0
@@ -185,6 +193,8 @@ class Mars100Engine:
                     w += 1.5
                 if ev.name == "equipment_failure" and action == "code":
                     w += 1.0
+            # Apply mood-driven biases
+            w += mood_biases.get(action, 0.0)
             weights[action] = max(0.01, w)
 
         total = sum(weights.values())
@@ -437,6 +447,47 @@ class Mars100Engine:
             "status": "proposed",
         }
 
+    def _update_moods(self, active: list[Colonist], events: list[Event]) -> None:
+        """Run the psychology phase: mood shifts, contagion, decay."""
+        event_dicts = [e.to_dict() for e in events]
+        for colonist in active:
+            resilience = compute_resilience(colonist.stats.resolve, colonist.stats.faith)
+            compute_mood_shift(
+                mood=colonist.mood,
+                events=event_dicts,
+                deaths=[],  # deaths happen later this tick
+                births=self.births[-1:] if self.births else [],
+                resource_avg=self.resources.average(),
+                relationship_to_dead={},
+                rng=self.rng,
+            )
+            decay_toward_baseline(colonist.mood, resilience, self.rng)
+
+        # Contagion: snapshot-based spread through social graph
+        mood_map = {c.id: c.mood for c in active}
+        empathy_map = {c.id: c.stats.empathy for c in active}
+        social_edges = {
+            a: {b: self.social.get(a, b).to_dict() for b in [c.id for c in active] if b != a}
+            for a in [c.id for c in active]
+        }
+        contagion_spread(mood_map, social_edges, empathy_map)
+
+    def _apply_death_grief(self, deaths: list[dict]) -> None:
+        """Apply grief from deaths to surviving colonists."""
+        dead_ids = [d["id"] for d in deaths]
+        for colonist in self._active_colonists():
+            rel_scores: dict[str, float] = {}
+            for did in dead_ids:
+                rel = self.social.get(colonist.id, did)
+                rel_scores[did] = rel.score()
+            compute_mood_shift(
+                mood=colonist.mood,
+                events=[], deaths=deaths, births=[],
+                resource_avg=self.resources.average(),
+                relationship_to_dead=rel_scores,
+                rng=self.rng,
+            )
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
@@ -451,6 +502,9 @@ class Mars100Engine:
             for ev in events:
                 valence = -ev.severity if ev.effects.get("morale", 0) < 0 else ev.severity * 0.5
                 colonist.add_memory(self.year, ev.description, valence)
+
+        # ── Psychology phase: mood shifts + contagion ──
+        self._update_moods(active, events)
 
         actions: dict[str, str] = {}
         subsim_budget = SubSimBudget(year=self.year)
@@ -518,11 +572,19 @@ class Mars100Engine:
                 colonist.exile(self.year)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
+        # ── Post-death mood update: grief from witnessing death ──
+        if deaths:
+            self._apply_death_grief(deaths)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
             if meta:
                 meta_events.append(meta)
+
+        # Collective mood snapshot for this year
+        active_moods = {c.id: c.mood for c in self._active_colonists()}
+        year_mood = collective_mood(active_moods)
 
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
@@ -541,6 +603,7 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            mood_summary=year_mood,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:

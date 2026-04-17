@@ -1,85 +1,832 @@
 {
   "year": 4,
-  "population": 11,
-  "event": {
-    "id": "meteorite",
-    "desc": "Small meteorite impacts near colony",
-    "severity": 0.5
+  "events": [
+    {
+      "name": "equipment_failure",
+      "category": "environment",
+      "severity": 0.6198027499602055,
+      "description": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+      "effects": {
+        "water": -0.11198027499602055,
+        "power": -0.2239605499920411,
+        "food": -0.055990137498010274
+      }
+    }
+  ],
+  "actions": {
+    "kira-sol": "cooperate",
+    "fen-marsh": "pray",
+    "rust-vega": "code",
+    "aura-kai": "code",
+    "dax-iron": "hoard",
+    "luna-tide": "cooperate",
+    "grove-ash": "rest",
+    "zeph-wind": "mediate",
+    "ora-flame": "cooperate",
+    "pax-stone": "pray"
   },
-  "event_effects": [
-    "Meteorite impact: materials -20"
-  ],
-  "colonist_actions": [
+  "subsim_log": [
     {
-      "colonist": "Ares",
-      "action": "Ares works on terraforming (output: 26.6)"
+      "depth": 1,
+      "colonist_id": "rust-vega",
+      "year": 4,
+      "expression": "(let ((survival (+ (* food 0.3) (* water 0.3) (* power 0.2) (* air 0.2)))) (if (> survival 0.6) (+ survival 0.1) (- survival 0.2)))",
+      "result": 1.1,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "rust-vega",
+          "year": 4,
+          "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 1.2100000000000002,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Lyra",
-      "action": "Lyra works on prayer (output: 19.6)"
+      "depth": 2,
+      "colonist_id": "rust-vega",
+      "year": 4,
+      "expression": "(let ((parent-result 1.1)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 1.2100000000000002,
+      "steps_used": 0
     },
     {
-      "colonist": "Phobos",
-      "action": "Phobos works on mediation (output: 28.0)"
+      "depth": 1,
+      "colonist_id": "luna-tide",
+      "year": 4,
+      "expression": "(let ((risk (* paranoia 0.62))) (if (> risk 0.5) (- resolve 0.1) (+ improvisation 0.05)))",
+      "result": 0.8856009459542911,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "luna-tide",
+          "year": 4,
+          "expression": "(let ((parent-result 0.8856009459542911)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 0.9741610405497203,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Demeter",
-      "action": "Demeter works on coding (output: 24.7)"
+      "depth": 2,
+      "colonist_id": "luna-tide",
+      "year": 4,
+      "expression": "(let ((parent-result 0.8856009459542911)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 0.9741610405497203,
+      "steps_used": 0
     },
     {
-      "colonist": "Titan",
-      "action": "Titan works on coding (output: 22.3)"
+      "depth": 1,
+      "colonist_id": "grove-ash",
+      "year": 4,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": 0.8851904464917715,
+      "steps_used": 0,
+      "children": [
+        {
+          "depth": 2,
+          "colonist_id": "grove-ash",
+          "year": 4,
+          "expression": "(let ((parent-result 0.8851904464917715)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+          "result": 0.9737094911409487,
+          "steps_used": 0
+        }
+      ]
     },
     {
-      "colonist": "Selene",
-      "action": "Selene works on prayer (output: 27.0)"
+      "depth": 2,
+      "colonist_id": "grove-ash",
+      "year": 4,
+      "expression": "(let ((parent-result 0.8851904464917715)) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))",
+      "result": 0.9737094911409487,
+      "steps_used": 0
     },
     {
-      "colonist": "Vulcan",
-      "action": "Vulcan works on coding (output: 23.1)"
-    },
-    {
-      "colonist": "Iris",
-      "action": "Iris works on prayer (output: 30.2)"
-    },
-    {
-      "colonist": "Cosmo",
-      "action": "Cosmo works on hydroponics (output: 25.5)"
-    },
-    {
-      "colonist": "Nova",
-      "action": "Nova works on sabotage (output: 23.5)"
-    },
-    {
-      "colonist": "Selene-1",
-      "action": "Selene-1 works on mediation (output: 23.1)"
+      "depth": 1,
+      "colonist_id": "zeph-wind",
+      "year": 4,
+      "expression": "(let ((trust-score (* empathy resolve))) (if (> trust-score 0.4) (+ trust-score faith) (- trust-score paranoia)))",
+      "result": -0.5673329018706886,
+      "steps_used": 0
     }
   ],
-  "sub_sims": [],
-  "governance_results": [],
-  "resource_effects": [],
+  "governance": null,
+  "resources_before": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 1.0,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resources_after": {
+    "food": 1.0,
+    "water": 1.0,
+    "power": 0.9775843206924847,
+    "air": 1.0,
+    "medicine": 1.0
+  },
+  "resource_delta": {
+    "food": 0.0,
+    "water": 0.0,
+    "power": -0.022415679307515313,
+    "air": 0.0,
+    "medicine": 0.0
+  },
+  "deaths": [],
+  "exiles": [],
+  "meta_awareness": [],
+  "social_cohesion": 0.5755725778686788,
+  "governance_state": {
+    "gov_type": "anarchy",
+    "leader_id": null,
+    "council_ids": [],
+    "term_end_year": null,
+    "ai_program": null,
+    "constitution": [
+      "Year 5: governance changed to lottery",
+      "Year 13: governance changed to consensus",
+      "Year 25: governance changed to lottery",
+      "Year 28: governance changed to council",
+      "Year 35: governance changed to consensus",
+      "Year 37: governance changed to ai_governor",
+      "Year 50: governance changed to anarchy",
+      "Year 59: governance changed to dictator",
+      "Year 79: governance changed to council",
+      "Year 92: governance changed to lottery",
+      "Year 95: governance changed to consensus"
+    ],
+    "history": [
+      {
+        "year": 5,
+        "from": "anarchy",
+        "to": "lottery",
+        "proposal_id": "prop-y5-lottery"
+      },
+      {
+        "year": 13,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y13-consensus"
+      },
+      {
+        "year": 25,
+        "from": "consensus",
+        "to": "lottery",
+        "proposal_id": "prop-y25-lottery"
+      },
+      {
+        "year": 28,
+        "from": "lottery",
+        "to": "council",
+        "proposal_id": "prop-y28-council"
+      },
+      {
+        "year": 35,
+        "from": "council",
+        "to": "consensus",
+        "proposal_id": "prop-y35-consensus"
+      },
+      {
+        "year": 37,
+        "from": "consensus",
+        "to": "ai_governor",
+        "proposal_id": "prop-y37-ai_governor"
+      },
+      {
+        "year": 50,
+        "from": "ai_governor",
+        "to": "anarchy",
+        "proposal_id": "prop-y50-anarchy"
+      },
+      {
+        "year": 59,
+        "from": "anarchy",
+        "to": "dictator",
+        "proposal_id": "prop-y59-dictator"
+      },
+      {
+        "year": 79,
+        "from": "dictator",
+        "to": "council",
+        "proposal_id": "prop-y79-council"
+      },
+      {
+        "year": 92,
+        "from": "council",
+        "to": "lottery",
+        "proposal_id": "prop-y92-lottery"
+      },
+      {
+        "year": 95,
+        "from": "lottery",
+        "to": "consensus",
+        "proposal_id": "prop-y95-consensus"
+      }
+    ]
+  },
+  "colonist_snapshots": [
+    {
+      "id": "kira-sol",
+      "name": "Kira Sol",
+      "element": "fire",
+      "archetype": "commander",
+      "stats": {
+        "resolve": 0.9289585606062855,
+        "improvisation": 0.3835737353691228,
+        "empathy": 0.5053151137867794,
+        "hoarding": 0.3636682529189463,
+        "faith": 0.18679420310252295,
+        "paranoia": 0.48106901533614943
+      },
+      "skills": {
+        "terraforming": 0.7072530040862263,
+        "hydroponics": 0.2,
+        "mediation": 0.5,
+        "coding": 0.3,
+        "prayer": 0.0,
+        "sabotage": 0.10900730691455118
+      },
+      "decision_expr": "(if (> resolve 0.7) (+ resolve improvisation) (* empathy 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 1,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6015793701404617,
+        "grief": 0.11889775883017914,
+        "fear": 0.07713376267973804,
+        "anger": 0.09632978717339515,
+        "hope": 0.5421015904784904,
+        "despair": 0.08931314647895917
+      }
+    },
+    {
+      "id": "fen-marsh",
+      "name": "Fen Marsh",
+      "element": "water",
+      "archetype": "healer",
+      "stats": {
+        "resolve": 0.3369852514012955,
+        "improvisation": 0.5745575359112676,
+        "empathy": 0.8922271260906357,
+        "hoarding": 0.20301703713314048,
+        "faith": 0.6497362502389153,
+        "paranoia": 0.1302748565413358
+      },
+      "skills": {
+        "terraforming": 0.1,
+        "hydroponics": 0.8,
+        "mediation": 0.7,
+        "coding": 0.12324991524154379,
+        "prayer": 0.5254574865163638,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* empathy (+ faith 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6199190087477658,
+        "grief": 0.10086518152802652,
+        "fear": 0.09673037886365958,
+        "anger": 0.10825342339969554,
+        "hope": 0.5240985401427436,
+        "despair": 0.09435418910686962
+      }
+    },
+    {
+      "id": "rust-vega",
+      "name": "Rust Vega",
+      "element": "earth",
+      "archetype": "engineer",
+      "stats": {
+        "resolve": 0.7243047069165041,
+        "improvisation": 0.7408982532955434,
+        "empathy": 0.26700433227879244,
+        "hoarding": 0.6114250995001695,
+        "faith": 0.16846964304402912,
+        "paranoia": 0.5044683649492387
+      },
+      "skills": {
+        "terraforming": 0.9,
+        "hydroponics": 0.3,
+        "mediation": 0.1,
+        "coding": 0.8058267419687862,
+        "prayer": 0.01884319598609615,
+        "sabotage": 0.3
+      },
+      "decision_expr": "(let ((risk (* paranoia 0.5))) (- improvisation risk))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 3,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6353700196822981,
+        "grief": 0.0948666172658501,
+        "fear": 0.1101601450919419,
+        "anger": 0.1224758056140305,
+        "hope": 0.5165255022814628,
+        "despair": 0.11628080679562863
+      }
+    },
+    {
+      "id": "aura-kai",
+      "name": "Aura Kai",
+      "element": "air",
+      "archetype": "philosopher",
+      "stats": {
+        "resolve": 0.15257975202763202,
+        "improvisation": 0.8959596568220237,
+        "empathy": 0.8030338915936777,
+        "hoarding": 0.13178624296325842,
+        "faith": 0.8545381226632192,
+        "paranoia": 0.1684904945027033
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.4,
+        "mediation": 0.9,
+        "coding": 0.5085428698864481,
+        "prayer": 0.8,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(if (> faith 0.5) (* faith empathy) improvisation)",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6171506432951138,
+        "grief": 0.09493785627030654,
+        "fear": 0.09144316253815252,
+        "anger": 0.10603611243371447,
+        "hope": 0.520611183584585,
+        "despair": 0.09906237496419795
+      }
+    },
+    {
+      "id": "dax-iron",
+      "name": "Dax Iron",
+      "element": "fire",
+      "archetype": "soldier",
+      "stats": {
+        "resolve": 0.8868185874457296,
+        "improvisation": 0.3182986807495637,
+        "empathy": 0.2831902029248632,
+        "hoarding": 0.6701677702717421,
+        "faith": 0.0662666284879252,
+        "paranoia": 0.7688913193071092
+      },
+      "skills": {
+        "terraforming": 0.5,
+        "hydroponics": 0.1,
+        "mediation": 0.0,
+        "coding": 0.2,
+        "prayer": 0.0,
+        "sabotage": 0.7129790813778669
+      },
+      "decision_expr": "(if (> paranoia 0.6) (* hoarding resolve) (- resolve empathy))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.613197800289831,
+        "grief": 0.09760215195363957,
+        "fear": 0.0972868058993914,
+        "anger": 0.10837696640495309,
+        "hope": 0.5327618084635436,
+        "despair": 0.09737012220425346
+      }
+    },
+    {
+      "id": "luna-tide",
+      "name": "Luna Tide",
+      "element": "water",
+      "archetype": "scientist",
+      "stats": {
+        "resolve": 0.5860309264411924,
+        "improvisation": 0.835600945954291,
+        "empathy": 0.2843785917181644,
+        "hoarding": 0.35539000954854677,
+        "faith": 0.33368092237791114,
+        "paranoia": 0.26929334567401086
+      },
+      "skills": {
+        "terraforming": 0.6,
+        "hydroponics": 0.6094751965952473,
+        "mediation": 0.31629395370826996,
+        "coding": 0.9017251953379641,
+        "prayer": 0.1,
+        "sabotage": 0.1
+      },
+      "decision_expr": "(+ (* improvisation coding) (/ terraforming 2))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 3,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6162705082729006,
+        "grief": 0.11764499154016131,
+        "fear": 0.09444498819066302,
+        "anger": 0.08040868021161816,
+        "hope": 0.5190237159656665,
+        "despair": 0.0847778714446514
+      }
+    },
+    {
+      "id": "grove-ash",
+      "name": "Grove Ash",
+      "element": "earth",
+      "archetype": "farmer",
+      "stats": {
+        "resolve": 0.7106523632621722,
+        "improvisation": 0.4722635410430282,
+        "empathy": 0.6192874831605598,
+        "hoarding": 0.7955294386564332,
+        "faith": 0.44509233304503704,
+        "paranoia": 0.282157367011632
+      },
+      "skills": {
+        "terraforming": 0.4,
+        "hydroponics": 0.902903999324905,
+        "mediation": 0.4,
+        "coding": 0.12279081173802076,
+        "prayer": 0.2,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(+ hoarding (* hydroponics resolve))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6120628832780749,
+        "grief": 0.08796699497445643,
+        "fear": 0.08201382264078853,
+        "anger": 0.09545359462739837,
+        "hope": 0.5245842579360878,
+        "despair": 0.10766907282293185
+      }
+    },
+    {
+      "id": "zeph-wind",
+      "name": "Zeph Wind",
+      "element": "air",
+      "archetype": "trickster",
+      "stats": {
+        "resolve": 0.456987572932257,
+        "improvisation": 0.9734997427922292,
+        "empathy": 0.3257941355110112,
+        "hoarding": 0.5279232131911966,
+        "faith": 0.2839044301547291,
+        "paranoia": 0.7162167731334285
+      },
+      "skills": {
+        "terraforming": 0.3,
+        "hydroponics": 0.23058392606539482,
+        "mediation": 0.22356657004144911,
+        "coding": 0.6104525031566101,
+        "prayer": 0.1,
+        "sabotage": 0.8
+      },
+      "decision_expr": "(if (> paranoia 0.5) sabotage (* improvisation coding))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 2,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6233632331969498,
+        "grief": 0.09106195118755493,
+        "fear": 0.08652819377906523,
+        "anger": 0.09059154510900187,
+        "hope": 0.5250582952230144,
+        "despair": 0.09626790094124313
+      }
+    },
+    {
+      "id": "ora-flame",
+      "name": "Ora Flame",
+      "element": "fire",
+      "archetype": "prophet",
+      "stats": {
+        "resolve": 0.8043176875862541,
+        "improvisation": 0.5164004777149866,
+        "empathy": 0.7573969761796976,
+        "hoarding": 0.11770590672866824,
+        "faith": 0.8454518093366777,
+        "paranoia": 0.614012506468006
+      },
+      "skills": {
+        "terraforming": 0.2,
+        "hydroponics": 0.3,
+        "mediation": 0.6078010907537504,
+        "coding": 0.0,
+        "prayer": 0.9044178843426305,
+        "sabotage": 0.0
+      },
+      "decision_expr": "(* faith (if (> empathy 0.5) (+ empathy resolve) paranoia))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6091741818750731,
+        "grief": 0.09538836257547735,
+        "fear": 0.0972877893215735,
+        "anger": 0.10013143492099959,
+        "hope": 0.5142661063847551,
+        "despair": 0.10317405708904956
+      }
+    },
+    {
+      "id": "pax-stone",
+      "name": "Pax Stone",
+      "element": "earth",
+      "archetype": "judge",
+      "stats": {
+        "resolve": 0.7312311010904494,
+        "improvisation": 0.2333992040996767,
+        "empathy": 0.5955175184391883,
+        "hoarding": 0.2920842027279327,
+        "faith": 0.5203877224924814,
+        "paranoia": 0.5886553351955147
+      },
+      "skills": {
+        "terraforming": 0.33061631357884835,
+        "hydroponics": 0.3,
+        "mediation": 0.8,
+        "coding": 0.4,
+        "prayer": 0.31371724792482886,
+        "sabotage": 0.02323858474742835
+      },
+      "decision_expr": "(+ (* empathy mediation) (* resolve 0.5))",
+      "alive": true,
+      "exiled": false,
+      "birth_year": 0,
+      "subsim_count": 0,
+      "governance_votes": 0,
+      "memories": [
+        {
+          "year": 1,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.23635120788721548
+        },
+        {
+          "year": 2,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.05517297847766709
+        },
+        {
+          "year": 3,
+          "event": "Anomalous radio signal detected from Phobos.",
+          "valence": 0.11562447118756823
+        },
+        {
+          "year": 4,
+          "event": "Greenhouse dome seal breach \u2014 crops exposed to vacuum.",
+          "valence": 0.30990137498010273
+        }
+      ],
+      "mood": {
+        "joy": 0.6225785305827805,
+        "grief": 0.10745538541308607,
+        "fear": 0.08875053827428617,
+        "anger": 0.09119442412973601,
+        "hope": 0.530591906634841,
+        "despair": 0.08483554713737919
+      }
+    }
+  ],
+  "convergence": {
+    "resolve": 0.23600493685475607,
+    "improvisation": 0.24221697838936615,
+    "empathy": 0.22412973296582367,
+    "hoarding": 0.22257894791669822,
+    "faith": 0.26451652243531343,
+    "paranoia": 0.21560681455487274,
+    "convergence_score": 0.2341756555194717
+  },
   "births": [],
-  "diary_entries": [
-    {
-      "colonist": "Selene-1",
-      "entry": "Population: 11. Small meteorite impacts near colony. I spent the year on mediation. Closest to Phobos."
-    },
-    {
-      "colonist": "Selene",
-      "entry": "The meteorite changed everything. I feel worried about our future here."
-    },
-    {
-      "colonist": "Demeter",
-      "entry": "Another year. Small meteorite impacts near colony. The colony feels hopeful. My empathy grows stronger."
-    }
-  ],
-  "meta_awareness": null,
-  "resources_snapshot": {
-    "food": 1161.381169754654,
-    "water": 1414.0,
-    "power": 437.9117140002277,
-    "oxygen": 1012.6372167236025,
-    "materials": 613.3823300341614,
-    "morale": 84.66057882092578
+  "mood_summary": {
+    "joy": 0.6170666179361248,
+    "grief": 0.10066872515387378,
+    "fear": 0.092177958727926,
+    "anger": 0.09992517740245428,
+    "hope": 0.524962290709519,
+    "despair": 0.09731050889851639,
+    "morale": 0.4720248372966268,
+    "stability": 0.9000748225975457
   }
 }

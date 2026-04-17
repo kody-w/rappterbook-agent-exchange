@@ -36,17 +36,26 @@ canvas{width:100%;height:200px}
 .bar-fill{height:100%;border-radius:3px}
 .subsim-node{padding:4px 8px;margin:4px 0;border-left:3px solid var(--purple);background:rgba(170,68,255,0.05);font-size:0.8em}
 .subsim-node .depth{color:var(--purple);font-weight:bold}
+.mood-bar{display:flex;gap:2px;align-items:center;margin:1px 0;font-size:0.75em}
+.mood-bar .label{width:52px;color:var(--muted)}
+.mood-bar .track{flex:1;height:5px;background:#1a1a2f;border-radius:3px}
+.mood-bar .fill{height:100%;border-radius:3px}
+.mood-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:0.65em;margin-top:3px}
 #loading{text-align:center;padding:40px;color:var(--muted)}
 </style>
 </head>
 <body>
 <h1>🔴 Mars-100: Recursive Colony Experiment</h1>
-<p class="subtitle">Turtles All the Way Down — 10 colonists, 100 Martian years, sub-sims to depth 3</p>
+<p class="subtitle">Turtles All the Way Down — 10 colonists, 100 Martian years, sub-sims to depth 3 · Psychology Engine v3.0</p>
 <div id="loading">Loading simulation data...</div>
 <div id="app" style="display:none">
 <div class="grid">
   <div class="card"><h2>📊 Colony Vitals</h2><div id="vitals"></div><h3>Population</h3><canvas id="popChart"></canvas></div>
   <div class="card"><h2>🌡️ Resources</h2><canvas id="resourceChart"></canvas><h3>Morale</h3><canvas id="moraleChart"></canvas></div>
+</div>
+<div class="grid">
+  <div class="card"><h2>🧠 Collective Mood</h2><div id="mood-summary"></div><h3>Mood Evolution</h3><canvas id="moodChart"></canvas></div>
+  <div class="card"><h2>😶‍🌫️ Emotional Contagion</h2><div id="mood-events"></div><h3>Valence Over Time</h3><canvas id="valenceChart"></canvas></div>
 </div>
 <div class="grid">
   <div class="card"><h2>👥 Colonists</h2><div id="colonists" class="colonist-grid"></div></div>
@@ -57,71 +66,153 @@ canvas{width:100%;height:200px}
 <div class="card"><h2>💀 Memorial</h2><div id="memorial"></div></div>
 </div>
 <script>
-function drawChart(canvas,datasets,labels){
-const ctx=canvas.getContext('2d'),dpr=window.devicePixelRatio||1,rect=canvas.getBoundingClientRect();
+var MOOD_COLORS={joy:'#ffdd44',grief:'#6666cc',fear:'#ff6644',hope:'#44ffaa',anger:'#ff4444',despair:'#666699'};
+var EMO_KEYS=['joy','grief','fear','anger','hope','despair'];
+function moodColor(n){return MOOD_COLORS[n]||'#888'}
+function dominant(obj){return EMO_KEYS.reduce(function(a,b){return(obj[a]||0)>(obj[b]||0)?a:b},'joy')}
+function drawChart(canvas,datasets){
+var ctx=canvas.getContext('2d'),dpr=window.devicePixelRatio||1,rect=canvas.getBoundingClientRect();
 canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;ctx.scale(dpr,dpr);
-const W=rect.width,H=rect.height,pad={top:10,right:10,bottom:20,left:40};
-const plotW=W-pad.left-pad.right,plotH=H-pad.top-pad.bottom;
-let allVals=datasets.flatMap(d=>d.data),minV=Math.min(...allVals),maxV=Math.max(...allVals);
-if(maxV===minV)maxV=minV+1;const n=datasets[0].data.length;
+var W=rect.width,H=rect.height,pad={top:10,right:10,bottom:20,left:40};
+var plotW=W-pad.left-pad.right,plotH=H-pad.top-pad.bottom;
+var allVals=datasets.flatMap(function(d){return d.data}),minV=Math.min.apply(null,allVals),maxV=Math.max.apply(null,allVals);
+if(maxV===minV)maxV=minV+1;var n=datasets[0].data.length;
 ctx.fillStyle='#0a0a12';ctx.fillRect(0,0,W,H);
 ctx.strokeStyle='#1a1a2f';ctx.lineWidth=0.5;
-for(let i=0;i<=4;i++){const y=pad.top+plotH*i/4;ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
+for(var i=0;i<=4;i++){var y=pad.top+plotH*i/4;ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
 ctx.fillStyle='#666';ctx.font='10px monospace';ctx.textAlign='right';ctx.fillText(Math.round(maxV-(maxV-minV)*i/4),pad.left-4,y+4)}
-datasets.forEach(ds=>{ctx.strokeStyle=ds.color;ctx.lineWidth=1.5;ctx.beginPath();
-ds.data.forEach((v,i)=>{const x=pad.left+(i/Math.max(1,n-1))*plotW,y=pad.top+plotH-((v-minV)/(maxV-minV))*plotH;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke()});
-let lx=pad.left;datasets.forEach(ds=>{ctx.fillStyle=ds.color;ctx.fillRect(lx,2,12,6);ctx.fillStyle='#888';ctx.font='9px monospace';ctx.textAlign='left';ctx.fillText(ds.label,lx+15,8);lx+=ctx.measureText(ds.label).width+30})}
+datasets.forEach(function(ds){ctx.strokeStyle=ds.color;ctx.lineWidth=1.5;ctx.beginPath();
+ds.data.forEach(function(v,i){var x=pad.left+(i/Math.max(1,n-1))*plotW,y2=pad.top+plotH-((v-minV)/(maxV-minV))*plotH;i===0?ctx.moveTo(x,y2):ctx.lineTo(x,y2)});ctx.stroke()});
+var lx=pad.left;datasets.forEach(function(ds){ctx.fillStyle=ds.color;ctx.fillRect(lx,2,12,6);ctx.fillStyle='#888';ctx.font='9px monospace';ctx.textAlign='left';ctx.fillText(ds.label,lx+15,8);lx+=ctx.measureText(ds.label).width+30})}
+
 function render(data){
-document.getElementById('loading').style.display='none';document.getElementById('app').style.display='block';
-const s=data.summary,deltas=data.deltas;
-document.getElementById('vitals').innerHTML=`
-<div class="stat-row"><span class="stat-label">Years survived</span><span>${s.years_survived}/100</span></div>
-<div class="stat-row"><span class="stat-label">Final pop</span><span class="${s.final_population>0?'alive':'dead'}">${s.final_population}</span></div>
-<div class="stat-row"><span class="stat-label">Peak pop</span><span>${s.peak_population}</span></div>
-<div class="stat-row"><span class="stat-label">Births</span><span class="alive">${s.total_births}</span></div>
-<div class="stat-row"><span class="stat-label">Deaths</span><span class="dead">${s.total_deaths}</span></div>
-<div class="stat-row"><span class="stat-label">Sub-sims</span><span style="color:var(--purple)">${s.total_sub_simulations}</span></div>
-<div class="stat-row"><span class="stat-label">Proposals</span><span>${s.total_proposals}</span></div>
-<div class="stat-row"><span class="stat-label">Governance</span><span>${data.colony.governance.system}</span></div>`;
-const years=s.population_curve.map((_,i)=>'Y'+(i+1));
-drawChart(document.getElementById('popChart'),[{data:s.population_curve,color:'#44ff88',label:'Population'}],years);
+document.getElementById('loading').style.display='none';
+document.getElementById('app').style.display='block';
+var s=data.summary,yrs=data.years||[];
+var popCurve=yrs.map(function(y){return(y.colonist_snapshots||[]).filter(function(c){return c.alive!==false}).length});
+var moraleCurve=yrs.map(function(y){return(y.mood_summary||{}).morale||0});
+var finalPop=(data.final_colonists||[]).filter(function(c){return c.alive!==false}).length;
+var peakPop=Math.max.apply(null,popCurve.concat([0]));
+var govSystem=(data.final_governance||{}).gov_type||'unknown';
+
+// Vitals
+document.getElementById('vitals').innerHTML=
+'<div class="stat-row"><span class="stat-label">Years survived</span><span>'+yrs.length+'/100</span></div>'+
+'<div class="stat-row"><span class="stat-label">Final pop</span><span class="'+(finalPop>0?'alive':'dead')+'">'+finalPop+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Peak pop</span><span>'+peakPop+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Births</span><span class="alive">'+(s.total_births||0)+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Deaths</span><span class="dead">'+(s.total_deaths||0)+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Sub-sims</span><span style="color:var(--purple)">'+(s.total_subsims||0)+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Gov changes</span><span>'+(s.governance_changes||0)+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Governance</span><span>'+govSystem+'</span></div>'+
+'<div class="stat-row"><span class="stat-label">Convergence</span><span>'+(s.convergence_trend||'unknown')+'</span></div>';
+
+// Charts
+drawChart(document.getElementById('popChart'),[{data:popCurve,color:'#44ff88',label:'Population'}]);
+var resCurve=function(n){return yrs.map(function(y){return(y.resources_after||{})[n]||0})};
 drawChart(document.getElementById('resourceChart'),[
-{data:deltas.map(d=>d.resources_snapshot.food),color:'#ffaa44',label:'Food'},
-{data:deltas.map(d=>d.resources_snapshot.water),color:'#4488ff',label:'Water'},
-{data:deltas.map(d=>d.resources_snapshot.oxygen),color:'#88ccff',label:'O₂'}],years);
-drawChart(document.getElementById('moraleChart'),[{data:s.morale_curve,color:'#ff44aa',label:'Morale'}],years);
-const all=[...data.colony.colonists,...(data.colony.dead_souls||[])],seen=new Set(),uniq=all.filter(c=>{if(seen.has(c.id))return false;seen.add(c.id);return true});
-document.getElementById('colonists').innerHTML=uniq.map(c=>`<div class="colonist-card ${c.alive?'':'dead'}">
-<strong style="color:${{fire:'#ff6644',water:'#4488ff',earth:'#88aa44',air:'#ccccff'}[c.element]||'#fff'}">${c.name}</strong> #${c.id}
-<div style="font-size:0.9em;color:var(--muted)">${c.element} · ${c.alive?'🟢':'💀 '+(c.cause_of_death||'')}</div>
-${Object.entries(c.stats).map(([k,v])=>`<div style="display:flex;align-items:center;gap:4px;margin:1px 0">
-<span style="width:70px;font-size:0.75em;color:var(--muted)">${k}</span>
-<div class="bar" style="flex:1;background:#1a1a2f"><div class="bar-fill" style="width:${v}%;background:${v>60?'#44ff88':v>30?'#ffaa44':'#ff4444'}"></div></div>
-<span style="width:20px;text-align:right;font-size:0.75em">${v}</span></div>`).join('')}</div>`).join('');
-const allSS=deltas.flatMap(d=>d.sub_sims.map(s=>({...s,year:d.year})));
-document.getElementById('subsim-count').textContent=`${allSS.length} sub-simulations recorded`;
+{data:resCurve('food'),color:'#ffaa44',label:'Food'},
+{data:resCurve('water'),color:'#4488ff',label:'Water'},
+{data:resCurve('air'),color:'#88ccff',label:'Air'},
+{data:resCurve('power'),color:'#ffdd44',label:'Power'}]);
+drawChart(document.getElementById('moraleChart'),[{data:moraleCurve,color:'#ff44aa',label:'Morale'}]);
+
+// Mood
+var moodData=yrs.map(function(y){return y.mood_summary||{}});
+var hasM=moodData.some(function(m){return m.morale!==undefined});
+if(hasM){
+var mc=function(n){return moodData.map(function(m){return m[n]||0})};
+drawChart(document.getElementById('moodChart'),[
+{data:mc('joy'),color:MOOD_COLORS.joy,label:'Joy'},{data:mc('grief'),color:MOOD_COLORS.grief,label:'Grief'},
+{data:mc('fear'),color:MOOD_COLORS.fear,label:'Fear'},{data:mc('hope'),color:MOOD_COLORS.hope,label:'Hope'},
+{data:mc('anger'),color:MOOD_COLORS.anger,label:'Anger'},{data:mc('despair'),color:MOOD_COLORS.despair,label:'Despair'}]);
+drawChart(document.getElementById('valenceChart'),[
+{data:mc('morale'),color:'#44ff88',label:'Morale'},
+{data:mc('stability'),color:'#4488ff',label:'Stability'}]);
+var last=moodData[moodData.length-1]||{};
+var domE=dominant(last);
+document.getElementById('mood-summary').innerHTML=
+'<div class="stat-row"><span class="stat-label">Colony Morale</span><span style="color:'+((last.morale||0)>0.5?'var(--green)':'var(--red)')+'">'+
+((last.morale||0)*100).toFixed(0)+'%</span></div>'+
+'<div class="stat-row"><span class="stat-label">Stability</span><span>'+((last.stability||0)*100).toFixed(0)+'%</span></div>'+
+'<div class="stat-row"><span class="stat-label">Dominant</span><span style="color:'+moodColor(domE)+'">'+domE+'</span></div>'+
+EMO_KEYS.map(function(k){return '<div class="mood-bar"><span class="label">'+k+'</span>'+
+'<div class="track"><div class="fill" style="width:'+((last[k]||0)*100)+'%;background:'+moodColor(k)+'"></div></div>'+
+'<span style="width:28px;text-align:right">'+((last[k]||0)*100).toFixed(0)+'%</span></div>'}).join('');
+var deathYears=yrs.filter(function(y){return(y.deaths||[]).length>0}).map(function(y){return y.year});
+var crisisYears=yrs.filter(function(y){return y.mood_summary&&y.mood_summary.morale<0.3}).map(function(y){return y.year});
+document.getElementById('mood-events').innerHTML=
+'<div style="font-size:0.85em;margin-bottom:8px"><strong>Emotional Crises</strong> (morale &lt; 30%): '+
+(crisisYears.length>0?crisisYears.map(function(y){return '<span class="tag tag-death">Y'+y+'</span>'}).join(' '):'None — colony stable')+'</div>'+
+'<div style="font-size:0.85em"><strong>Death Grief Events</strong>: '+
+(deathYears.length>0?deathYears.map(function(y){return '<span class="tag tag-death">Y'+y+'</span>'}).join(' '):'None')+'</div>'+
+'<div style="font-size:0.85em;margin-top:8px;color:var(--muted)">Emotional contagion spreads through social trust. High trust = moods ripple. Grief from deaths propagates to close relationships.</div>';
+}else{
+document.getElementById('mood-summary').innerHTML='<p style="color:var(--muted)">No mood data (pre-v3.0 simulation)</p>';
+document.getElementById('mood-events').innerHTML='<p style="color:var(--muted)">Upgrade to v3.0+ for mood data</p>';
+}
+
+// Colonists
+var all=data.final_colonists||[];
+var seen={};
+var uniq=all.filter(function(c){if(seen[c.id])return false;seen[c.id]=true;return true});
+document.getElementById('colonists').innerHTML=uniq.map(function(c){
+var mood=c.mood||{};var emo=mood.emotions||mood;
+var domPair=EMO_KEYS.map(function(k){return[k,emo[k]||0]}).sort(function(a,b){return b[1]-a[1]})[0];
+var elColors={fire:'#ff6644',water:'#4488ff',earth:'#88aa44',air:'#ccccff'};
+var stats=c.stats||{};
+return '<div class="colonist-card '+(c.alive!==false?'':'dead')+'">'+
+'<strong style="color:'+(elColors[c.element]||'#fff')+'">'+c.name+'</strong> #'+c.id+
+'<div style="font-size:0.9em;color:var(--muted)">'+c.element+' · '+(c.archetype||'')+' · '+(c.alive!==false?'🟢':'💀 '+(c.cause_of_death||''))+'</div>'+
+(domPair&&domPair[1]>0.1?'<div class="mood-badge" style="background:'+(MOOD_COLORS[domPair[0]]||'#333')+'22;color:'+(MOOD_COLORS[domPair[0]]||'#888')+'">'+domPair[0]+' '+(domPair[1]*100).toFixed(0)+'%</div>':'')+
+Object.keys(stats).map(function(k){var v=stats[k];var pct=typeof v==='number'?Math.round(v*100):v;
+return '<div style="display:flex;align-items:center;gap:4px;margin:1px 0">'+
+'<span style="width:70px;font-size:0.75em;color:var(--muted)">'+k+'</span>'+
+'<div class="bar" style="flex:1;background:#1a1a2f"><div class="bar-fill" style="width:'+Math.min(pct,100)+'%;background:'+(pct>60?'#44ff88':pct>30?'#ffaa44':'#ff4444')+'"></div></div>'+
+'<span style="width:20px;text-align:right;font-size:0.75em">'+pct+'</span></div>'}).join('')+'</div>'}).join('');
+
+// Sub-sims
+var allSS=yrs.flatMap(function(y){return(y.subsim_log||[]).map(function(ss){return Object.assign({},ss,{year:y.year})})});
+document.getElementById('subsim-count').textContent=allSS.length+' sub-simulations recorded';
 document.getElementById('subsims').innerHTML=allSS.length===0?'<p style="color:var(--muted)">No sub-simulations yet.</p>':
-allSS.slice(0,50).map(ss=>`<div class="subsim-node"><span class="depth">depth:${ss.depth}</span> Year ${ss.year} · ${ss.colonist}
-<br>Proposal: <span class="tag tag-proposal">${ss.proposal}</span><br>Result: ${String(ss.result).substring(0,120)}
-${ss.s_expr?'<div class="sexp">'+ss.s_expr.substring(0,200)+'</div>':''}</div>`).join('');
-document.getElementById('timeline').innerHTML=deltas.map(d=>`<div class="year-entry">
-<span class="year-label">Year ${d.year}</span> · Pop: ${d.population} · ${d.event.id}
-<div style="color:var(--muted)">${d.event.desc}</div>
-${d.event_effects.map(e=>'<div>'+e+'</div>').join('')}
-${d.colonist_actions.slice(0,5).map(a=>'<div>'+a.action+'</div>').join('')}
-${d.colonist_actions.length>5?'<div style="color:var(--muted)">...+'+(d.colonist_actions.length-5)+' more</div>':''}
-${d.sub_sims.map(s=>'<span class="tag tag-subsim">sub-sim: '+s.colonist+'</span>').join('')}
-${d.resource_effects.filter(e=>e.toLowerCase().includes('dies')).map(e=>'<span class="tag tag-death">'+e+'</span>').join('')}
-${d.births.map(b=>'<span class="tag tag-birth">'+b+'</span>').join('')}
-${d.diary_entries.slice(0,2).map(e=>'<div style="font-style:italic;color:var(--muted);margin:4px 0">"'+e.entry.substring(0,150)+'"</div>').join('')}</div>`).join('');
-const govE=deltas.filter(d=>d.governance_results.length>0);
-document.getElementById('governance').innerHTML=govE.length===0?'<p style="color:var(--muted)">No governance proposals resolved.</p>':
-govE.map(d=>`<div class="year-entry"><span class="year-label">Year ${d.year}</span>${d.governance_results.map(g=>'<div><span class="tag tag-proposal">'+g+'</span></div>').join('')}</div>`).join('');
-const dead=data.colony.dead_souls||[];
+allSS.slice(0,50).map(function(ss){return '<div class="subsim-node"><span class="depth">depth:'+ss.depth+'</span> Year '+ss.year+' · '+(ss.colonist_id||'?')+
+'<br><span class="tag tag-proposal">'+(ss.expression?(ss.expression.substring(0,80)+'...'):'(no expr)')+'</span>'+
+'<br>Result: '+String(ss.result).substring(0,120)+
+(ss.expression?'<div class="sexp">'+ss.expression.substring(0,200)+'</div>':'')+'</div>'}).join('');
+
+// Timeline
+document.getElementById('timeline').innerHTML=yrs.map(function(y){
+var ms=y.mood_summary||{};var domT=dominant(ms);
+var mTag=ms.morale!==undefined?'<span class="mood-badge" style="background:'+moodColor(domT)+'22;color:'+moodColor(domT)+'">'+domT+' '+((ms[domT]||0)*100).toFixed(0)+'%</span>':'';
+var evt=(y.events||[])[0]||{};
+var actions=y.actions||{};var aKeys=Object.keys(actions);
+return '<div class="year-entry">'+
+'<span class="year-label">Year '+y.year+'</span> · Pop: '+(y.colonist_snapshots||[]).filter(function(c){return c.alive!==false}).length+' · '+(evt.name||'calm')+' '+mTag+
+'<div style="color:var(--muted)">'+(evt.description||'')+'</div>'+
+aKeys.slice(0,5).map(function(k){return '<div>'+k+': '+actions[k]+'</div>'}).join('')+
+(aKeys.length>5?'<div style="color:var(--muted)">...+'+(aKeys.length-5)+' more</div>':'')+
+(y.subsim_log||[]).map(function(ss){return '<span class="tag tag-subsim">sub-sim: '+(ss.colonist_id||'?')+'</span>'}).join('')+
+(y.deaths||[]).map(function(d){return '<span class="tag tag-death">💀 '+(d.name||d.id)+'</span>'}).join('')+
+(y.births||[]).map(function(b){return '<span class="tag tag-birth">🌱 '+(b.name||b.id)+'</span>'}).join('')+
+'</div>'}).join('');
+
+// Governance
+var govYears=yrs.filter(function(y){return y.governance&&typeof y.governance==='object'&&y.governance.id});
+document.getElementById('governance').innerHTML=govYears.length===0?'<p style="color:var(--muted)">No governance proposals resolved.</p>':
+govYears.map(function(y){var g=y.governance;
+return '<div class="year-entry"><span class="year-label">Year '+y.year+'</span>'+
+'<div><span class="tag tag-proposal">'+(g.gov_type||'?')+': '+(g.rationale||'').substring(0,200)+'</span></div></div>'}).join('');
+
+// Memorial
+var dead=(data.final_colonists||[]).filter(function(c){return c.alive===false});
 document.getElementById('memorial').innerHTML=dead.length===0?'<p style="color:var(--muted)">No casualties. The colony endures.</p>':
-dead.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em"><span class="dead">💀 ${d.name}</span> (${d.element}) · Died year ${d.year_died||'?'} · ${d.cause_of_death||'unknown'}</div>`).join('')}
-fetch('data.json').then(r=>r.json()).then(render).catch(err=>{
-document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p><p style="color:var(--muted)">Run: python3 src/mars100_engine.py --years 100</p>'})
+dead.map(function(d){var emo=d.mood&&d.mood.emotions?d.mood.emotions:(d.mood||{});var domM=dominant(emo);
+return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85em">'+
+'<span class="dead">💀 '+d.name+'</span> ('+d.element+') · Died year '+(d.death_year||'?')+' · '+(d.cause_of_death||'unknown')+
+' <span class="mood-badge" style="background:'+moodColor(domM)+'22;color:'+moodColor(domM)+'">final: '+domM+'</span></div>'}).join('');
+}
+fetch('data.json').then(function(r){return r.json()}).then(render).catch(function(err){
+document.getElementById('loading').innerHTML='<p style="color:var(--red)">Failed: '+err.message+'</p>'});
 </script>
 </body>
 </html>
