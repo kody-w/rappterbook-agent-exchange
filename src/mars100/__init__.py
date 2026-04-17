@@ -26,6 +26,15 @@ from src.mars100.infrastructure import (
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
     validate_tech_tree,
 )
+from src.mars100.genome import (
+    Gene, CulturalGenome, GENE_CATEGORIES,
+    extract_crisis_genes, extract_governance_genes,
+    extract_resource_genes, extract_social_genes,
+    extract_subsim_genes, extract_amendment_genes,
+    extract_genome, validate_gene, evaluate_gene,
+    mutate_gene, crossover_genes,
+    run_genome_extraction, load_year_files,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -45,4 +54,11 @@ __all__ = [
     "available_techs", "can_afford", "choose_project", "start_project",
     "tick_infrastructure", "compute_resource_modifiers", "compute_operating_costs",
     "validate_tech_tree",
+    "Gene", "CulturalGenome", "GENE_CATEGORIES",
+    "extract_crisis_genes", "extract_governance_genes",
+    "extract_resource_genes", "extract_social_genes",
+    "extract_subsim_genes", "extract_amendment_genes",
+    "extract_genome", "validate_gene", "evaluate_gene",
+    "mutate_gene", "crossover_genes",
+    "run_genome_extraction", "load_year_files",
 ]
