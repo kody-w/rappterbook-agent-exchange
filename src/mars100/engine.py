@@ -29,6 +29,12 @@ from src.mars100.infrastructure import (
     InfrastructureState, choose_project, start_project,
     tick_infrastructure, compute_resource_modifiers, compute_operating_costs,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, tick_diplomacy, faction_vote_bias,
+)
+from src.mars100.self_modify import (
+    MutationLog, tick_self_modify, apply_mutation,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest", "research"]
@@ -57,6 +63,8 @@ class YearResult:
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
+    self_modifications: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +81,8 @@ class YearResult:
             "convergence": self.convergence,
             "births": self.births,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
+            "self_modifications": self.self_modifications,
         }
 
 
@@ -93,10 +103,12 @@ class SimulationResult:
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
     infrastructure: dict = field(default_factory=dict)
+    diplomacy: dict = field(default_factory=dict)
+    mutation_log: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "4.0",
+            "_meta": {"engine": "mars-100", "version": "5.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -114,6 +126,8 @@ class SimulationResult:
             "final_governance": self.final_governance,
             "promoted_insights": self.promoted_insights,
             "infrastructure": self.infrastructure,
+            "diplomacy": self.diplomacy,
+            "mutation_log": self.mutation_log,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -134,6 +148,9 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.infra = InfrastructureState()
+        self.diplo = DiplomacyState()
+        self.mutation_log = MutationLog()
+        self.meta_aware_colonists: set[str] = set()
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -400,6 +417,7 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        score += faction_vote_bias(self.diplo, colonist, proposal.gov_type)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -572,6 +590,26 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # Diplomacy: detect factions, alliances, schisms
+        diplo_events = tick_diplomacy(
+            self.diplo, self.social, self.colonists,
+            self._active_ids(), self.year, self.rng)
+
+        # Track meta-aware colonists for self-modification eligibility
+        for me in meta_events:
+            self.meta_aware_colonists.add(me["colonist_id"])
+
+        # Self-modification: meta-aware colonists may rewrite their own brains
+        mutations = tick_self_modify(
+            self.colonists, self.meta_aware_colonists,
+            self.year, self.mutation_log, self.rng)
+        for proposal in mutations:
+            if proposal.accepted:
+                colonist = next(
+                    (c for c in self.colonists if c.id == proposal.colonist_id), None)
+                if colonist:
+                    apply_mutation(colonist, proposal)
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -586,6 +624,8 @@ class Mars100Engine:
             convergence=convergence,
             births=year_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplo.to_dict(),
+            self_modifications=[m.to_dict() for m in mutations],
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -618,6 +658,8 @@ class Mars100Engine:
             promoted_insights=self.promoted_insights,
             total_births=total_births,
             infrastructure=self.infra.to_dict(),
+            diplomacy=self.diplo.to_dict(),
+            mutation_log=self.mutation_log.to_dict(),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
