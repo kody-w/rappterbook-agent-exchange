@@ -45,6 +45,11 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.medicine import (
+    HealthState, MedicalState, ColonistHealthContext,
+    tick_medicine, check_health_death,
+    FOUNDER_AGE_OFFSET, IMMIGRANT_AGE_OFFSET, CHILD_AGE_OFFSET,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +85,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    medicine: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +108,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "medicine": self.medicine,
         }
 
 
@@ -129,10 +136,12 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_medicine: dict = field(default_factory=dict)
+    total_health_deaths: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +156,7 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_health_deaths": self.total_health_deaths,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +167,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_medicine": self.final_medicine,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +196,9 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.health_map: dict[str, HealthState] = {}
+        self.med_state = MedicalState()
+        self.med_rng = random.Random(seed + 10007)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -386,6 +400,14 @@ class Mars100Engine:
         return births
 
     def _check_death(self, colonist: Colonist) -> str | None:
+        # Health-specific death causes (medicine organ v9.0)
+        health = self.health_map.get(colonist.id)
+        if health:
+            health_cause = check_health_death(
+                health, self.year, colonist.birth_year)
+            if health_cause:
+                return health_cause
+
         rate = BASE_DEATH_RATE
         # Psychology: low morale increases death rate
         psych = self.psych_map.get(colonist.id)
@@ -696,6 +718,25 @@ class Mars100Engine:
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
 
+        # --- medicine / health tick (dedicated RNG stream) ---
+        has_med_bay = "med_bay" in self.infra.completed
+        med_contexts: list[ColonistHealthContext] = []
+        for c in active:
+            med_contexts.append(ColonistHealthContext(
+                colonist_id=c.id, birth_year=c.birth_year,
+                action=actions.get(c.id, "rest"),
+                event_severity=events[0].severity if events else 0.0,
+                event_name=events[0].name if events else "calm",
+                has_med_bay=has_med_bay,
+                population=len(active),
+                food_level=self.resources.food,
+                water_level=self.resources.water,
+                medicine_level=getattr(self.resources, "medicine", 0.5),
+            ))
+        med_result = tick_medicine(
+            self.health_map, self.med_state, med_contexts,
+            self.year, self.med_rng)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -832,6 +873,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            medicine=med_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -839,12 +881,16 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        health_death_causes = {"old_age", "radiation_sickness", "untreated_injury", "epidemic"}
+        total_health_deaths = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
             result = self.tick()
             years.append(result)
             total_deaths += len(result.deaths)
+            total_health_deaths += sum(
+                1 for d in result.deaths if d.get("cause") in health_death_causes)
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
@@ -875,6 +921,8 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_medicine=self.med_state.to_dict(),
+            total_health_deaths=total_health_deaths,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:

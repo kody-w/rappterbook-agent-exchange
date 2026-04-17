@@ -48,6 +48,10 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.medicine import (
+    HealthState, MedicalState, ColonistHealthContext,
+    MedicineTickResult, tick_medicine, check_health_death,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +83,6 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "HealthState", "MedicalState", "ColonistHealthContext",
+    "MedicineTickResult", "tick_medicine", "check_health_death",
 ]
