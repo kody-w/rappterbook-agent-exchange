@@ -134,6 +134,7 @@ footer {
   <div class="stat"><div class="stat-value" id="s-births">—</div><div class="stat-label">Births</div></div>
   <div class="stat"><div class="stat-value" id="s-sims">—</div><div class="stat-label">Sub-Sims</div></div>
   <div class="stat"><div class="stat-value" id="s-gov">—</div><div class="stat-label">Governance</div></div>
+  <div class="stat"><div class="stat-value" id="s-conv">—</div><div class="stat-label">Convergence</div></div>
 </div>
 
 <div class="section">
@@ -155,6 +156,13 @@ footer {
 <div class="section">
   <h2>🔄 Sub-Simulations (Recursive LisPy)</h2>
   <div id="sub-sim-container"><div class="loading">Loading sub-simulation data…</div></div>
+</div>
+
+<div class="section">
+  <h2>🎯 Value Convergence</h2>
+  <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.5rem">How aligned are colonist values over time? Lower = more convergence.</p>
+  <div id="conv-chart" style="display:flex;gap:1px;height:60px;align-items:flex-end"></div>
+  <div id="conv-detail" style="color:var(--text-dim);font-size:0.8rem;margin-top:0.5rem"></div>
 </div>
 
 <div class="section">
@@ -203,6 +211,13 @@ async function init() {
   document.getElementById('s-births').textContent = summary.total_births;
   document.getElementById('s-sims').textContent = state.sub_sim_log.length;
   document.getElementById('s-gov').textContent = summary.dominant_governance;
+
+  // Convergence stat
+  const vc = summary.value_convergence;
+  if (vc) {
+    document.getElementById('s-conv').textContent = vc.trend;
+    document.getElementById('s-conv').style.color = vc.trend === 'converging' ? '#27ae60' : vc.trend === 'diverging' ? '#e74c3c' : '#f39c12';
+  }
 
   // Timeline
   const maxPop = Math.max(...state.years.map(y => y.population));
@@ -282,6 +297,26 @@ async function init() {
         <div class="sub-sim-code">${(sim.code || '(no code logged)').replace(/</g, '&lt;')}</div>`;
       container.appendChild(div);
     });
+  }
+
+  // Value convergence chart
+  const convChart = document.getElementById('conv-chart');
+  convChart.innerHTML = '';
+  const convScores = state.years.map(y => y.convergence_score || 0);
+  const maxConv = Math.max(...convScores, 0.01);
+  state.years.forEach((y, i) => {
+    const bar = document.createElement('div');
+    const score = convScores[i];
+    bar.style.height = Math.max(2, (score / maxConv) * 56) + 'px';
+    bar.style.flex = '1';
+    bar.style.background = score < maxConv * 0.4 ? '#27ae60' : score < maxConv * 0.7 ? '#f39c12' : '#e74c3c';
+    bar.style.borderRadius = '1px';
+    bar.title = `Year ${y.year}: convergence ${score.toFixed(3)}`;
+    convChart.appendChild(bar);
+  });
+  const convDetail = document.getElementById('conv-detail');
+  if (vc) {
+    convDetail.textContent = `Start: ${vc.first.toFixed(3)} → End: ${vc.last.toFixed(3)} — colonists are ${vc.trend}`;
   }
 
   // Event log

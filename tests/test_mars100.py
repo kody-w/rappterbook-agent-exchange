@@ -13,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.mars100 import Mars100Simulation, write_results
+from src.mars100 import Mars100Simulation, write_results, compute_value_convergence
+from src.colonist import create_colonists, STAT_NAMES
 
 
 class TestSmoke:
@@ -299,3 +300,92 @@ class TestFullRun:
         sim.run()
         elapsed = time.time() - start
         assert elapsed < 5.0, f"100-year sim took {elapsed:.2f}s"
+
+
+class TestValueConvergence:
+    """Tests for value convergence tracking."""
+
+    def test_convergence_basic(self):
+        """compute_value_convergence returns expected keys."""
+        colonists = create_colonists(42)
+        result = compute_value_convergence(colonists)
+        assert "stats_std" in result
+        assert "convergence_score" in result
+        assert "sample_size" in result
+        assert result["sample_size"] == 10
+
+    def test_convergence_score_bounded(self):
+        """Convergence score is non-negative."""
+        colonists = create_colonists(42)
+        result = compute_value_convergence(colonists)
+        assert result["convergence_score"] >= 0.0
+
+    def test_convergence_with_one_alive(self):
+        """Single survivor has 0 convergence."""
+        colonists = create_colonists(42)
+        for c in colonists[1:]:
+            c['alive'] = False
+        result = compute_value_convergence(colonists)
+        assert result["convergence_score"] == 0.0
+        assert result["sample_size"] == 1
+
+    def test_convergence_with_none_alive(self):
+        """No survivors has 0 convergence."""
+        colonists = create_colonists(42)
+        for c in colonists:
+            c['alive'] = False
+        result = compute_value_convergence(colonists)
+        assert result["convergence_score"] == 0.0
+        assert result["sample_size"] == 0
+
+    def test_convergence_identical_stats(self):
+        """Identical stats produce zero convergence."""
+        colonists = create_colonists(42)
+        uniform = {s: 50 for s in STAT_NAMES}
+        for c in colonists:
+            c['stats'] = dict(uniform)
+        result = compute_value_convergence(colonists)
+        assert result["convergence_score"] == 0.0
+
+    def test_convergence_per_stat(self):
+        """Each stat in STAT_NAMES has its own std dev."""
+        colonists = create_colonists(42)
+        result = compute_value_convergence(colonists)
+        for stat in STAT_NAMES:
+            assert stat in result["stats_std"]
+            assert result["stats_std"][stat] >= 0.0
+
+    def test_convergence_in_year_records(self):
+        """Year records include convergence_score."""
+        sim = Mars100Simulation(seed=42, years=10)
+        results = sim.run()
+        for year_record in results['years']:
+            assert 'convergence_score' in year_record
+            assert isinstance(year_record['convergence_score'], float)
+
+    def test_convergence_in_summary(self):
+        """Summary includes value_convergence with trend."""
+        sim = Mars100Simulation(seed=42, years=20)
+        results = sim.run()
+        vc = results['summary']['value_convergence']
+        assert 'first' in vc
+        assert 'last' in vc
+        assert vc['trend'] in ('converging', 'diverging', 'stable')
+
+    def test_convergence_trend_direction(self):
+        """If first > last, trend is converging."""
+        sim = Mars100Simulation(seed=42, years=50)
+        results = sim.run()
+        vc = results['summary']['value_convergence']
+        if vc['first'] > vc['last']:
+            assert vc['trend'] == 'converging'
+        elif vc['first'] < vc['last']:
+            assert vc['trend'] == 'diverging'
+        else:
+            assert vc['trend'] == 'stable'
+
+    def test_version_bumped(self):
+        """Engine version is 1.1 after this mutation."""
+        sim = Mars100Simulation(seed=42, years=5)
+        results = sim.run()
+        assert results['_meta']['version'] == '1.1'

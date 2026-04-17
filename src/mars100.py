@@ -39,6 +39,31 @@ from src.colonist import (
     evolve_relationships, serialize_colonist, clamp_stat,
     STAT_NAMES, SKILL_NAMES,
 )
+
+
+def compute_value_convergence(colonists: list[dict]) -> dict:
+    """Compute how colonist values (stats) converge or diverge over time.
+
+    Returns per-stat standard deviation across alive colonists,
+    plus an aggregate convergence score (lower = more aligned).
+    """
+    alive = [c for c in colonists if c['alive']]
+    if len(alive) < 2:
+        return {"stats_std": {}, "convergence_score": 0.0, "sample_size": len(alive)}
+
+    stats_std: dict[str, float] = {}
+    for stat in STAT_NAMES:
+        values = [c['stats'].get(stat, 50) for c in alive]
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / len(values)
+        stats_std[stat] = round(math.sqrt(variance), 4)
+
+    aggregate = sum(stats_std.values()) / len(stats_std) if stats_std else 0.0
+    return {
+        "stats_std": stats_std,
+        "convergence_score": round(aggregate, 4),
+        "sample_size": len(alive),
+    }
 from src.mars100_events import generate_event
 from src.mars100_gov import (
     create_proposal, cast_vote, tally_votes,
@@ -162,7 +187,10 @@ class Mars100Simulation:
         # 10. Sub-simulation phase (governance modeling, philosophy)
         sub_sims = self._sub_sim_phase(year, event)
 
-        # 11. Record the year
+        # 11. Value convergence
+        convergence = compute_value_convergence(self.colonists)
+
+        # 12. Record the year
         record = {
             'year': year,
             'event': event,
@@ -173,6 +201,7 @@ class Mars100Simulation:
             'deaths': deaths,
             'births': births,
             'sub_sims': sub_sims,
+            'convergence_score': convergence['convergence_score'],
             'colonist_snapshot': [
                 {
                     'id': c['id'], 'name': c['name'], 'alive': c['alive'],
@@ -712,10 +741,16 @@ class Mars100Simulation:
 
         dominant_pattern = max(pattern_counts.items(), key=lambda x: x[1])[0] if pattern_counts else 'anarchy'
 
+        # Value convergence trajectory
+        conv_scores = [r.get('convergence_score', 0.0) for r in self.year_records if 'convergence_score' in r]
+        conv_first = conv_scores[0] if conv_scores else 0.0
+        conv_last = conv_scores[-1] if conv_scores else 0.0
+        conv_trend = 'converging' if conv_last < conv_first else 'diverging' if conv_last > conv_first else 'stable'
+
         return {
             '_meta': {
                 'engine': 'mars-100',
-                'version': '1.0',
+                'version': '1.1',
                 'seed': self.seed,
                 'years': self.total_years,
                 'years_completed': self.year,
@@ -731,6 +766,11 @@ class Mars100Simulation:
                 'governance_description': PATTERNS.get(dominant_pattern, ''),
                 'pattern_history': self.pattern_history,
                 'amendment': self.amendment,
+                'value_convergence': {
+                    'first': conv_first,
+                    'last': conv_last,
+                    'trend': conv_trend,
+                },
             },
             'years': self.year_records,
             'colonists': [serialize_colonist(c) for c in self.colonists],
@@ -776,6 +816,9 @@ def write_results(results: dict, output_dir: Path) -> None:
     print(f"  Years completed: {results['_meta']['years_completed']}")
     print(f"  Final population: {results['summary']['final_population']}")
     print(f"  Dominant governance: {results['summary']['dominant_governance']}")
+    conv = results['summary'].get('value_convergence', {})
+    if conv:
+        print(f"  Value convergence: {conv.get('first', 0):.2f} → {conv.get('last', 0):.2f} ({conv.get('trend', '?')})")
     if results['summary']['amendment']:
         print(f"  AMENDMENT PROPOSED: {results['summary']['amendment'][:80]}...")
 
