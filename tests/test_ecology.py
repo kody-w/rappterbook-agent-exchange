@@ -2,382 +2,367 @@
 from __future__ import annotations
 
 import random
-from typing import Any
 import pytest
-
 from src.mars100.ecology import (
-    EcologyState, EcologyYearContext, EcologyTickResult,
-    BIOME_NAMES, BIOME_UP_THRESHOLDS, BIOME_DOWN_THRESHOLDS,
-    MAX_FOOD_BONUS, MAX_AIR_BONUS, MAX_WATER_BONUS,
-    MAX_NATURE_STRESS_REDUCTION,
-    PRESSURE_GATE_KPA, TEMPERATURE_GATE_C, PERCHLORATE_GATE,
-    compute_atmosphere_score, compute_soil_score, compute_flora_score,
-    compute_biosphere_index, outdoor_habitable, has_greenhouse_tech,
-    compute_ecology_bonuses, compute_resource_modifiers,
-    compute_nature_stress_reduction,
-    update_biome_level, tick_ecology,
+    Atmosphere, SoilState, WaterCycle, Flora, Fauna,
+    Biosphere, EcologyTickResult, tick_ecology,
+    compute_ecology_resource_bonus, compute_ecology_psych_pressure,
+    compute_ecology_modifiers, compute_ecology_upkeep,
 )
 
 
-class TestEcologyStateDefaults:
-    def test_defaults(self) -> None:
-        s = EcologyState()
-        assert s.pressure_kpa == pytest.approx(0.6)
-        assert s.o2_kpa == pytest.approx(0.001)
-        assert s.temperature_c == pytest.approx(-60.0)
-        assert s.perchlorate == pytest.approx(0.8)
-        assert s.soil_organic == pytest.approx(0.0)
-        assert s.greenhouse_crops == pytest.approx(0.0)
-        assert s.outdoor_plants == pytest.approx(0.0)
-        assert s.biome_level == 0
-        assert s.biosphere_index == pytest.approx(0.0)
+# --------------- Dataclass basics ---------------
 
-    def test_roundtrip(self) -> None:
-        s = EcologyState(pressure_kpa=5.0, o2_kpa=1.2, temperature_c=-30.0,
-                         perchlorate=0.2, soil_organic=0.5, soil_moisture=0.3,
-                         greenhouse_crops=0.4, outdoor_plants=0.1,
-                         biome_level=2, biosphere_index=0.25,
-                         biome_unlocks=[1, 2])
-        d = s.to_dict()
-        s2 = EcologyState.from_dict(d)
-        for attr in ("pressure_kpa", "o2_kpa", "temperature_c", "perchlorate",
-                     "soil_organic", "soil_moisture", "greenhouse_crops",
-                     "outdoor_plants", "biosphere_index"):
-            assert getattr(s2, attr) == pytest.approx(getattr(s, attr), abs=1e-3)
-        assert s2.biome_level == s.biome_level
-        assert s2.biome_unlocks == s.biome_unlocks
+class TestAtmosphere:
+    def test_defaults(self):
+        a = Atmosphere()
+        assert a.pressure_kpa == pytest.approx(0.6)
+        assert 0.0 <= a.health() <= 1.0
 
-    def test_clamp(self) -> None:
-        s = EcologyState(pressure_kpa=3.0, o2_kpa=50.0, temperature_c=100.0,
-                         perchlorate=-1.0, soil_organic=2.0,
-                         biosphere_index=5.0)
+    def test_clamp(self):
+        a = Atmosphere(pressure_kpa=-5.0, o2_fraction=0.5, co2_fraction=2.0)
+        a.clamp()
+        assert a.pressure_kpa >= 0.6
+        assert a.o2_fraction <= 0.25
+        assert a.co2_fraction <= 1.0
+
+    def test_roundtrip(self):
+        a = Atmosphere(pressure_kpa=8.0, o2_fraction=0.05, co2_fraction=0.6)
+        a2 = Atmosphere.from_dict(a.to_dict())
+        assert a2.pressure_kpa == pytest.approx(a.pressure_kpa, abs=1e-3)
+
+
+class TestSoilState:
+    def test_defaults(self):
+        s = SoilState()
+        assert s.perchlorate == pytest.approx(0.75)
+        assert 0.0 <= s.health() <= 1.0
+
+    def test_clamp(self):
+        s = SoilState(perchlorate=-1.0, organic_content=5.0, moisture=3.0)
         s.clamp()
-        assert s.o2_kpa <= s.pressure_kpa
-        assert s.temperature_c == 30.0
-        assert s.perchlorate == 0.0
-        assert s.soil_organic == 1.0
-        assert s.biosphere_index == 1.0
+        assert 0.0 <= s.perchlorate <= 1.0
+        assert 0.0 <= s.organic_content <= 1.0
 
-    def test_health_alias(self) -> None:
-        s = EcologyState(biosphere_index=0.42)
-        assert s.health() == pytest.approx(0.42)
+    def test_roundtrip(self):
+        s = SoilState(perchlorate=0.3, organic_content=0.2, moisture=0.15)
+        s2 = SoilState.from_dict(s.to_dict())
+        assert s2.perchlorate == pytest.approx(s.perchlorate, abs=1e-3)
 
 
-class TestScores:
-    def test_atmosphere_score_default_low(self) -> None:
-        s = EcologyState()
-        score = compute_atmosphere_score(s)
-        assert 0.0 <= score <= 0.05
+class TestWaterCycle:
+    def test_defaults(self):
+        w = WaterCycle()
+        assert w.aquifer == pytest.approx(0.6)
+        assert 0.0 <= w.health() <= 1.0
 
-    def test_atmosphere_score_earthlike_high(self) -> None:
-        s = EcologyState(pressure_kpa=50.0, o2_kpa=16.0, temperature_c=20.0)
-        score = compute_atmosphere_score(s)
-        assert score == pytest.approx(1.0)
-
-    def test_soil_score_default_low(self) -> None:
-        s = EcologyState()
-        score = compute_soil_score(s)
-        assert 0.0 <= score <= 0.15
-
-    def test_soil_score_good(self) -> None:
-        s = EcologyState(perchlorate=0.0, soil_organic=1.0, soil_moisture=1.0)
-        score = compute_soil_score(s)
-        assert score == pytest.approx(1.0)
-
-    def test_flora_score_default_zero(self) -> None:
-        s = EcologyState()
-        assert compute_flora_score(s) == pytest.approx(0.0)
-
-    def test_flora_score_greenhouse(self) -> None:
-        s = EcologyState(greenhouse_crops=1.0)
-        assert compute_flora_score(s) == pytest.approx(0.6)
-
-    def test_biosphere_index_composition(self) -> None:
-        s = EcologyState(pressure_kpa=50.0, o2_kpa=16.0, temperature_c=20.0,
-                         perchlorate=0.0, soil_organic=1.0, soil_moisture=1.0,
-                         greenhouse_crops=1.0, outdoor_plants=1.0)
-        idx = compute_biosphere_index(s)
-        assert idx == pytest.approx(1.0)
+    def test_roundtrip(self):
+        w = WaterCycle(aquifer=0.4, surface_water=0.1, ice_reserves=0.5)
+        w2 = WaterCycle.from_dict(w.to_dict())
+        assert w2.aquifer == pytest.approx(w.aquifer, abs=1e-3)
 
 
-class TestOutdoorHabitable:
-    def test_mars_default_not_habitable(self) -> None:
-        assert not outdoor_habitable(EcologyState())
+class TestFlora:
+    def test_defaults(self):
+        f = Flora()
+        assert f.crops == pytest.approx(0.1)
 
-    def test_habitable_when_all_gates_met(self) -> None:
-        s = EcologyState(pressure_kpa=6.0, temperature_c=-35.0, perchlorate=0.1)
-        assert outdoor_habitable(s)
-
-    def test_pressure_too_low(self) -> None:
-        s = EcologyState(pressure_kpa=4.9, temperature_c=-35.0, perchlorate=0.1)
-        assert not outdoor_habitable(s)
-
-    def test_temp_too_low(self) -> None:
-        s = EcologyState(pressure_kpa=6.0, temperature_c=-41.0, perchlorate=0.1)
-        assert not outdoor_habitable(s)
-
-    def test_perchlorate_too_high(self) -> None:
-        s = EcologyState(pressure_kpa=6.0, temperature_c=-35.0, perchlorate=0.31)
-        assert not outdoor_habitable(s)
+    def test_roundtrip(self):
+        f = Flora(crops=0.3, wild_plants=0.1, biomass=0.2)
+        f2 = Flora.from_dict(f.to_dict())
+        assert f2.crops == pytest.approx(f.crops, abs=1e-3)
 
 
-class TestHasGreenhouseTech:
-    def test_no_infra(self) -> None:
-        assert not has_greenhouse_tech([])
+class TestFauna:
+    def test_defaults(self):
+        f = Fauna()
+        assert f.microbes == pytest.approx(0.02)
 
-    def test_greenhouse_present(self) -> None:
-        assert has_greenhouse_tech(["advanced_greenhouse"])
-
-    def test_case_insensitive(self) -> None:
-        assert has_greenhouse_tech(["Greenhouse_mk2"])
-
-
-class TestBonuses:
-    def test_zero_on_default(self) -> None:
-        b = compute_ecology_bonuses(EcologyState())
-        assert b["food"] == pytest.approx(0.0, abs=1e-5)
-        assert b["water"] == pytest.approx(0.05 * MAX_WATER_BONUS, abs=1e-5)
-
-    def test_food_from_greenhouse(self) -> None:
-        s = EcologyState(greenhouse_crops=1.0)
-        b = compute_ecology_bonuses(s)
-        assert b["food"] > 0.01
-
-    def test_bonuses_bounded(self) -> None:
-        s = EcologyState(greenhouse_crops=1.0, outdoor_plants=1.0,
-                         soil_moisture=1.0, o2_kpa=20.0)
-        b = compute_ecology_bonuses(s)
-        assert b["food"] <= MAX_FOOD_BONUS * 2
-        assert b["water"] <= MAX_WATER_BONUS
+    def test_roundtrip(self):
+        f = Fauna(insects=0.1, microbes=0.05)
+        f2 = Fauna.from_dict(f.to_dict())
+        assert f2.insects == pytest.approx(f.insects, abs=1e-3)
 
 
-class TestResourceModifiers:
-    def test_default_near_one(self) -> None:
-        m = compute_resource_modifiers(EcologyState())
-        assert m["food_spoilage_mult"] == pytest.approx(1.0)
-        assert m["air_maintenance_mult"] == pytest.approx(1.0)
+class TestBiosphere:
+    def test_defaults(self):
+        b = Biosphere()
+        assert 0.0 <= b.biosphere_index() <= 1.0
+        assert b.health() == b.biosphere_index()
 
-    def test_improves_with_biosphere(self) -> None:
-        s = EcologyState(biosphere_index=0.5)
-        m = compute_resource_modifiers(s)
-        assert m["food_spoilage_mult"] < 1.0
-        assert m["food_spoilage_mult"] >= 0.5
+    def test_clamp(self):
+        b = Biosphere()
+        b.atmosphere.pressure_kpa = -100
+        b.clamp()
+        assert b.atmosphere.pressure_kpa >= 0.6
 
-
-class TestNatureStress:
-    def test_zero_on_default(self) -> None:
-        assert compute_nature_stress_reduction(EcologyState()) == pytest.approx(0.0)
-
-    def test_positive_with_biosphere(self) -> None:
-        s = EcologyState(biosphere_index=0.5)
-        val = compute_nature_stress_reduction(s)
-        assert val == pytest.approx(0.5 * MAX_NATURE_STRESS_REDUCTION)
-
-    def test_max_cap(self) -> None:
-        s = EcologyState(biosphere_index=1.0)
-        val = compute_nature_stress_reduction(s)
-        assert val == pytest.approx(MAX_NATURE_STRESS_REDUCTION)
+    def test_roundtrip(self):
+        b = Biosphere()
+        d = b.to_dict()
+        b2 = Biosphere.from_dict(d)
+        assert b2.biosphere_index() == pytest.approx(b.biosphere_index(), abs=1e-3)
 
 
-class TestBiomeLevels:
-    def test_stays_barren_at_zero(self) -> None:
-        s = EcologyState(biosphere_index=0.0, biome_level=0)
-        assert update_biome_level(s) is None
-        assert s.biome_level == 0
-
-    def test_promote_to_lichen(self) -> None:
-        s = EcologyState(biosphere_index=0.08, biome_level=0)
-        t = update_biome_level(s)
-        assert t is not None
-        assert t["to_name"] == "lichen"
-        assert t["direction"] == "up"
-        assert s.biome_level == 1
-
-    def test_hysteresis_prevents_thrash(self) -> None:
-        s = EcologyState(biosphere_index=0.06, biome_level=1, biome_unlocks=[1])
-        t = update_biome_level(s)
-        assert t is None
-        assert s.biome_level == 1
-
-    def test_demote_below_down_threshold(self) -> None:
-        s = EcologyState(biosphere_index=0.04, biome_level=1, biome_unlocks=[1])
-        t = update_biome_level(s)
-        assert t is not None
-        assert t["direction"] == "down"
-        assert s.biome_level == 0
-
-    def test_first_time_tracked(self) -> None:
-        s = EcologyState(biosphere_index=0.08, biome_level=0)
-        t = update_biome_level(s)
-        assert t is not None
-        assert t["first_time"] is True
-        assert 1 in s.biome_unlocks
-
-    def test_revisit_not_first_time(self) -> None:
-        s = EcologyState(biosphere_index=0.08, biome_level=0, biome_unlocks=[1])
-        t = update_biome_level(s)
-        assert t is not None
-        assert t["first_time"] is False
-
+# --------------- tick_ecology ---------------
 
 class TestTickEcology:
-    def _make_ctx(self, **kw: Any) -> EcologyYearContext:
-        defaults: dict[str, Any] = dict(
-            year=1, terraform_count=0, farm_count=0,
-            research_count=0, population=10,
-            infrastructure_completed=[])
-        defaults.update(kw)
-        return EcologyYearContext(**defaults)
-
-    def test_no_action_slight_decay(self) -> None:
-        eco = EcologyState(greenhouse_crops=0.5)
+    def test_basic_tick(self):
+        bio = Biosphere()
         rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(), rng)
-        assert eco.greenhouse_crops < 0.5
+        result = tick_ecology(bio, 1, rng=rng)
+        assert isinstance(result, EcologyTickResult)
+        assert result.biosphere_before != {}
+        assert result.biosphere_after != {}
 
-    def test_terraform_raises_pressure(self) -> None:
-        eco = EcologyState()
+    def test_terraformers_increase_pressure(self):
+        bio = Biosphere()
+        initial_p = bio.atmosphere.pressure_kpa
+        tick_ecology(bio, 1, terraformers=3, rng=random.Random(42))
+        assert bio.atmosphere.pressure_kpa > initial_p
+
+    def test_farmers_remediate_perchlorate(self):
+        bio = Biosphere()
+        initial_perch = bio.soil.perchlorate
+        tick_ecology(bio, 1, farmers=5, rng=random.Random(42))
+        assert bio.soil.perchlorate < initial_perch
+
+    def test_farmers_grow_crops(self):
+        bio = Biosphere()
+        initial_crops = bio.flora.crops
+        tick_ecology(bio, 1, farmers=3, rng=random.Random(42))
+        assert bio.flora.crops > initial_crops
+
+    def test_saboteurs_damage_crops(self):
+        bio = Biosphere()
+        bio.flora.crops = 0.5
+        tick_ecology(bio, 1, saboteurs=2, rng=random.Random(42))
+        assert bio.flora.crops < 0.5
+
+    def test_event_damage_lowers_pressure(self):
+        bio = Biosphere()
+        bio.atmosphere.pressure_kpa = 10.0
+        tick_ecology(bio, 1, event_damage=0.8, rng=random.Random(42))
+        assert bio.atmosphere.pressure_kpa < 10.0
+
+    def test_infra_protects_from_damage(self):
+        """shelter_reinforcement should reduce event damage."""
+        bio1 = Biosphere()
+        bio1.atmosphere.pressure_kpa = 10.0
+        bio2 = Biosphere()
+        bio2.atmosphere.pressure_kpa = 10.0
+        tick_ecology(bio1, 1, event_damage=0.8, rng=random.Random(42))
+        tick_ecology(bio2, 1, event_damage=0.8,
+                     infra_completed=["shelter_reinforcement"],
+                     rng=random.Random(42))
+        # With shelter, less pressure loss
+        assert bio2.atmosphere.pressure_kpa >= bio1.atmosphere.pressure_kpa
+
+    def test_greenhouse_boosts_crops(self):
+        bio1 = Biosphere()
+        bio2 = Biosphere()
+        tick_ecology(bio1, 1, farmers=3, rng=random.Random(42))
+        tick_ecology(bio2, 1, farmers=3,
+                     infra_completed=["greenhouse_dome"],
+                     rng=random.Random(42))
+        assert bio2.flora.crops >= bio1.flora.crops
+
+    def test_aquifer_drain(self):
+        bio = Biosphere()
+        initial_aquifer = bio.water.aquifer
+        tick_ecology(bio, 1, rng=random.Random(42))
+        assert bio.water.aquifer < initial_aquifer
+
+    def test_100_year_stability(self):
+        """Run 100 years — biosphere stays bounded [0,1]."""
+        bio = Biosphere()
         rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(terraform_count=3), rng)
-        assert eco.pressure_kpa > 0.6
+        for year in range(1, 101):
+            tick_ecology(bio, year, terraformers=2, farmers=3,
+                         researchers=1, rng=rng)
+        idx = bio.biosphere_index()
+        assert 0.0 <= idx <= 1.0
+        # After 100 years of effort, should have improved
+        assert idx > Biosphere().biosphere_index()
 
-    def test_farm_reduces_perchlorate(self) -> None:
-        eco = EcologyState(perchlorate=0.5)
-        rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(farm_count=3), rng)
-        assert eco.perchlorate < 0.5
-
-    def test_bonuses_from_lagged_state(self) -> None:
-        eco = EcologyState(greenhouse_crops=0.5, soil_moisture=0.3)
-        rng = random.Random(42)
-        result = tick_ecology(eco, self._make_ctx(), rng)
-        assert result.resource_bonuses["food"] > 0
-
-    def test_greenhouse_tech_warms(self) -> None:
-        eco = EcologyState()
-        rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(
-            infrastructure_completed=["greenhouse_mk1"]), rng)
-        assert eco.temperature_c > -60.0
-
-    def test_outdoor_plants_die_without_habitat(self) -> None:
-        eco = EcologyState(outdoor_plants=0.5)
-        rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(), rng)
-        assert eco.outdoor_plants < 0.5
-
-    def test_outdoor_plants_grow_when_habitable(self) -> None:
-        eco = EcologyState(pressure_kpa=6.0, temperature_c=-30.0,
-                           perchlorate=0.1, greenhouse_crops=0.3,
-                           soil_organic=0.5, soil_moisture=0.5,
-                           outdoor_plants=0.1)
-        rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(farm_count=2), rng)
-        assert eco.outdoor_plants > 0.1
-
-    def test_biosphere_index_updated(self) -> None:
-        eco = EcologyState()
-        rng = random.Random(42)
-        tick_ecology(eco, self._make_ctx(terraform_count=3, farm_count=3), rng)
-        assert eco.biosphere_index > 0.0
-
-    def test_tick_result_has_fields(self) -> None:
-        eco = EcologyState()
-        rng = random.Random(42)
-        result = tick_ecology(eco, self._make_ctx(terraform_count=1), rng)
-        assert "food" in result.resource_bonuses
-        assert "air" in result.resource_bonuses
-        assert "water" in result.resource_bonuses
-        assert isinstance(result.nature_stress_reduction, float)
-
-    def test_to_dict(self) -> None:
-        result = EcologyTickResult(
-            resource_bonuses={"food": 0.01},
-            nature_stress_reduction=0.02,
-            biome_transition={"to_name": "lichen"},
-            tipping_event="ecological_bloom")
+    def test_result_serialization(self):
+        bio = Biosphere()
+        result = tick_ecology(bio, 1, rng=random.Random(42))
         d = result.to_dict()
-        assert d["tipping_event"] == "ecological_bloom"
-        assert "biome_transition" in d
+        assert "biosphere_before" in d
+        assert "biosphere_after" in d
+        assert "events" in d
 
 
-class TestDeterminism:
-    def test_same_seed_same_result(self) -> None:
-        for seed in range(5):
-            eco1 = EcologyState()
-            eco2 = EcologyState()
-            ctx = EcologyYearContext(year=1, terraform_count=2, farm_count=2,
-                                     research_count=1, population=10,
-                                     infrastructure_completed=[])
-            r1 = tick_ecology(eco1, ctx, random.Random(seed))
-            r2 = tick_ecology(eco2, ctx, random.Random(seed))
-            assert eco1.to_dict() == eco2.to_dict()
-            assert r1.resource_bonuses == r2.resource_bonuses
+# --------------- Property invariants ---------------
 
-
-class TestBoundsInvariants:
-    """Property-based: 10 seeds x 50 years, all values in physical bounds."""
-
+class TestEcologyInvariants:
     @pytest.mark.parametrize("seed", range(10))
-    def test_50_year_bounds(self, seed: int) -> None:
-        eco = EcologyState()
+    def test_all_values_bounded(self, seed):
+        """All ecology values stay in [0, 1] regardless of inputs."""
+        bio = Biosphere()
         rng = random.Random(seed)
-        for year in range(50):
-            terraform = rng.randint(0, 4)
-            farm = rng.randint(0, 4)
-            infra = ["greenhouse_mk1"] if year > 10 else []
-            ctx = EcologyYearContext(
-                year=year, terraform_count=terraform,
-                farm_count=farm, research_count=1,
-                population=10,
-                infrastructure_completed=infra)
-            tick_ecology(eco, ctx, random.Random(seed * 1000 + year))
-            assert 0.0 <= eco.pressure_kpa <= 200.0
-            assert 0.0 <= eco.o2_kpa <= eco.pressure_kpa + 0.001
-            assert -80.0 <= eco.temperature_c <= 30.0
-            assert 0.0 <= eco.perchlorate <= 1.0
-            assert 0.0 <= eco.soil_organic <= 1.0
-            assert 0.0 <= eco.soil_moisture <= 1.0
-            assert 0.0 <= eco.greenhouse_crops <= 1.0
-            assert 0.0 <= eco.outdoor_plants <= 1.0
-            assert 0.0 <= eco.biosphere_index <= 1.0
-            assert 0 <= eco.biome_level <= len(BIOME_NAMES) - 1
+        for year in range(1, 51):
+            t = rng.randint(0, 5)
+            f = rng.randint(0, 5)
+            r = rng.randint(0, 3)
+            s = rng.randint(0, 2)
+            d = rng.uniform(0, 1)
+            tick_ecology(bio, year, terraformers=t, farmers=f,
+                         researchers=r, saboteurs=s, event_damage=d, rng=rng)
+        # Check all sub-values bounded
+        assert 0.0 <= bio.atmosphere.o2_fraction <= 0.25
+        assert 0.0 <= bio.atmosphere.co2_fraction <= 1.0
+        assert bio.atmosphere.pressure_kpa >= 0.6
+        assert 0.0 <= bio.soil.perchlorate <= 1.0
+        assert 0.0 <= bio.soil.organic_content <= 1.0
+        assert 0.0 <= bio.soil.moisture <= 1.0
+        assert 0.0 <= bio.water.aquifer <= 1.0
+        assert 0.0 <= bio.water.surface_water <= 1.0
+        assert 0.0 <= bio.water.ice_reserves <= 1.0
+        assert 0.0 <= bio.flora.crops <= 1.0
+        assert 0.0 <= bio.flora.wild_plants <= 1.0
+        assert 0.0 <= bio.flora.biomass <= 1.0
+        assert 0.0 <= bio.fauna.insects <= 1.0
+        assert 0.0 <= bio.fauna.microbes <= 1.0
+
+    @pytest.mark.parametrize("seed", range(5))
+    def test_biosphere_index_bounded(self, seed):
+        bio = Biosphere()
+        rng = random.Random(seed)
+        for _ in range(100):
+            tick_ecology(bio, 1, terraformers=rng.randint(0, 5),
+                         farmers=rng.randint(0, 5), rng=rng)
+        assert 0.0 <= bio.biosphere_index() <= 1.0
 
 
-class TestReachability:
-    """Ensure biosphere can advance beyond barren with sustained effort."""
+# --------------- Resource bonus / modifier / upkeep ---------------
 
-    def test_100_year_advancement(self) -> None:
-        eco = EcologyState()
+class TestResourceBonus:
+    def test_all_non_negative(self):
+        bio = Biosphere()
+        bonus = compute_ecology_resource_bonus(bio)
+        for v in bonus.values():
+            assert v >= 0.0
+
+    def test_capped(self):
+        bio = Biosphere()
+        bio.flora.crops = 1.0
+        bio.flora.wild_plants = 1.0
+        bio.flora.biomass = 1.0
+        bio.water.surface_water = 1.0
+        bio.fauna.microbes = 1.0
+        bonus = compute_ecology_resource_bonus(bio)
+        assert bonus["food"] <= 0.03
+        assert bonus["water"] <= 0.02
+        assert bonus["air"] <= 0.025
+        assert bonus["medicine"] <= 0.01
+
+
+class TestModifiers:
+    def test_neutral_at_zero(self):
+        """Empty biosphere → modifiers near 1.0 (no benefit)."""
+        bio = Biosphere()
+        # Set everything to minimum
+        bio.atmosphere = Atmosphere(pressure_kpa=0.6, o2_fraction=0.0, co2_fraction=1.0)
+        bio.soil = SoilState(perchlorate=1.0, organic_content=0.0, moisture=0.0)
+        bio.water = WaterCycle(aquifer=0.0, surface_water=0.0, ice_reserves=0.0)
+        bio.flora = Flora(crops=0.0, wild_plants=0.0, biomass=0.0)
+        bio.fauna = Fauna(insects=0.0, microbes=0.0)
+        mods = compute_ecology_modifiers(bio)
+        assert mods["food_spoilage_mult"] == pytest.approx(1.0, abs=0.01)
+
+    def test_green_biosphere_reduces_spoilage(self):
+        bio = Biosphere()
+        # Max out everything
+        bio.atmosphere = Atmosphere(pressure_kpa=30.0, o2_fraction=0.21, co2_fraction=0.04)
+        bio.soil = SoilState(perchlorate=0.0, organic_content=1.0, moisture=1.0)
+        bio.water = WaterCycle(aquifer=1.0, surface_water=1.0, ice_reserves=1.0)
+        bio.flora = Flora(crops=1.0, wild_plants=1.0, biomass=1.0)
+        bio.fauna = Fauna(insects=1.0, microbes=1.0)
+        mods = compute_ecology_modifiers(bio)
+        assert mods["food_spoilage_mult"] < 1.0
+        assert mods["air_maintenance_mult"] < 1.0
+
+    def test_all_multipliers_at_least_floor(self):
+        bio = Biosphere()
+        mods = compute_ecology_modifiers(bio)
+        assert mods["food_spoilage_mult"] >= 0.75
+        assert mods["air_maintenance_mult"] >= 0.80
+        assert mods["water_maintenance_mult"] >= 0.85
+
+
+class TestUpkeep:
+    def test_minimal_at_start(self):
+        bio = Biosphere()
+        upkeep = compute_ecology_upkeep(bio)
+        assert upkeep["power"] >= 0.0
+        assert upkeep["water"] >= 0.0
+
+    def test_scales_with_flora(self):
+        bio1 = Biosphere()
+        bio2 = Biosphere()
+        bio2.flora.crops = 0.8
+        bio2.fauna.insects = 0.5
+        u1 = compute_ecology_upkeep(bio1)
+        u2 = compute_ecology_upkeep(bio2)
+        assert u2["power"] > u1["power"]
+
+
+class TestPsychPressure:
+    def test_stress_negative_or_zero(self):
+        bio = Biosphere()
+        pp = compute_ecology_psych_pressure(bio)
+        assert pp["stress"] <= 0.0
+
+    def test_purpose_positive_or_zero(self):
+        bio = Biosphere()
+        pp = compute_ecology_psych_pressure(bio)
+        assert pp["purpose"] >= 0.0
+
+    def test_scales_with_health(self):
+        bio = Biosphere()
+        bio.flora = Flora(crops=1.0, wild_plants=1.0, biomass=1.0)
+        bio.fauna = Fauna(insects=1.0, microbes=1.0)
+        pp = compute_ecology_psych_pressure(bio)
+        assert pp["purpose"] > 0.0
+        assert pp["stress"] < 0.0
+
+
+# --------------- Golden path: 100-year terraforming ---------------
+
+class TestGoldenPath:
+    def test_flora_reachable_within_100_years(self):
+        """With sustained terraforming + farming, wild plants should emerge."""
+        bio = Biosphere()
         rng = random.Random(42)
-        for year in range(100):
-            infra = ["greenhouse_mk1"] if year > 5 else []
-            ctx = EcologyYearContext(
-                year=year, terraform_count=3,
-                farm_count=3, research_count=2,
-                population=10,
-                infrastructure_completed=infra)
-            tick_ecology(eco, ctx, random.Random(42 * 1000 + year))
-        assert eco.biosphere_index > 0.15
-        assert eco.biome_level >= 1
-        assert eco.perchlorate < 0.1
-        assert eco.greenhouse_crops > 0.1
+        for year in range(1, 101):
+            tick_ecology(bio, year, terraformers=3, farmers=4,
+                         researchers=1, rng=rng)
+        # Wild plants should have grown (perchlorate remediated, pressure up)
+        assert bio.flora.wild_plants > 0.01
 
+    def test_fauna_reachable_within_100_years(self):
+        """With sustained effort, insects/microbes should grow."""
+        bio = Biosphere()
+        rng = random.Random(42)
+        for year in range(1, 101):
+            tick_ecology(bio, year, terraformers=3, farmers=4,
+                         researchers=1, rng=rng)
+        assert bio.fauna.microbes > 0.02  # above initial
 
-class TestSmokeTest:
-    """Full smoke test: 100 years, no crash."""
+    def test_biosphere_improves_with_effort(self):
+        bio = Biosphere()
+        initial_idx = bio.biosphere_index()
+        rng = random.Random(42)
+        for year in range(1, 101):
+            tick_ecology(bio, year, terraformers=2, farmers=3, rng=rng)
+        assert bio.biosphere_index() > initial_idx
 
-    def test_100_years_no_crash(self) -> None:
-        eco = EcologyState()
-        rng = random.Random(777)
-        for year in range(100):
-            ctx = EcologyYearContext(
-                year=year,
-                terraform_count=rng.randint(0, 5),
-                farm_count=rng.randint(0, 5),
-                research_count=rng.randint(0, 3),
-                population=10,
-                infrastructure_completed=(
-                    ["greenhouse_mk1"] if year > 10 else []))
-            tick_ecology(eco, ctx, random.Random(777 * 1000 + year))
-        assert eco.biosphere_index >= 0.0
+    def test_no_effort_biosphere_decays(self):
+        bio = Biosphere()
+        initial_idx = bio.biosphere_index()
+        rng = random.Random(42)
+        for year in range(1, 51):
+            tick_ecology(bio, year, rng=rng)
+        # Without effort, biosphere should not improve (may stay same or decay)
+        assert bio.biosphere_index() <= initial_idx + 0.05

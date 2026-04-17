@@ -50,6 +50,11 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences,
 )
+from src.mars100.ecology import (
+    EcologyState, EcologyYearContext, EcologyTickResult, tick_ecology,
+    compute_resource_modifiers as compute_ecology_modifiers,
+    compute_nature_stress_reduction,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,6 +91,7 @@ class YearResult:
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
+    ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +115,7 @@ class YearResult:
             "economics": self.economics,
             "psychology": self.psychology,
             "behavior": self.behavior,
+            "ecology": self.ecology,
         }
 
 
@@ -137,10 +144,11 @@ class SimulationResult:
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
+    final_ecology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "9.0",
+            "_meta": {"engine": "mars-100", "version": "10.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -166,6 +174,7 @@ class SimulationResult:
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
+            "final_ecology": self.final_ecology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -195,6 +204,9 @@ class Mars100Engine:
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
         self.behavior_map: dict[str, BehaviorProfile] = {}
+        self.ecology = EcologyState()
+        self.ecology_rng = random.Random(seed + 11213)
+        self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -611,6 +623,10 @@ class Mars100Engine:
         event_effects = {k: v * event_damage_mult if v < 0 else v
                          for k, v in event_effects.items()}
 
+        # Ecology: merge lagged ecology modifiers (one-year lag)
+        for k, v in self.pending_ecology_mods.items():
+            infra_mods[k] = infra_mods.get(k, 1.0) * v
+
         resource_delta = tick_resources(self.resources, len(active),
                                         skill_bonuses, event_effects,
                                         infra_modifiers=infra_mods)
@@ -636,6 +652,29 @@ class Mars100Engine:
                            if actions.get(c.id) == "research"]
         avg_skill = sum(research_skills) / max(1, len(research_skills))
         infra_event = tick_infrastructure(self.infra, researchers, avg_skill, self.year)
+
+        # --- ecology: tick biosphere (dedicated RNG stream) ---
+        eco_terraformers = sum(1 for a in actions.values() if a == "terraform")
+        eco_farmers = sum(1 for a in actions.values() if a == "farm")
+        eco_researchers = sum(1 for a in actions.values() if a == "research")
+        eco_saboteurs = sum(1 for a in actions.values() if a == "sabotage")
+        eco_damage = sum(e.severity for e in events if e.severity > 0.5) * 0.5
+        ecology_result = tick_ecology(
+            self.ecology, self.year,
+            terraformers=eco_terraformers, farmers=eco_farmers,
+            researchers=eco_researchers, saboteurs=eco_saboteurs,
+            infra_completed=self.infra.completed,
+            event_damage=eco_damage,
+            rng=self.ecology_rng,
+        )
+        # Stage ecology modifiers for NEXT year (one-year lag)
+        self.pending_ecology_mods = compute_ecology_modifiers(self.ecology)
+        # Deduct ecology upkeep costs
+        eco_upkeep = compute_ecology_upkeep(self.ecology)
+        for res_name, cost in eco_upkeep.items():
+            if res_name in RESOURCE_NAMES:
+                current = getattr(self.resources, res_name)
+                setattr(self.resources, res_name, max(0.0, current - cost))
 
         if events:
             self.social.update_from_event(active_ids, events[0].severity, self.rng)
@@ -711,6 +750,14 @@ class Mars100Engine:
             ))
         psych_result = tick_psychology(
             self.psych_map, psych_contexts, self.year, self.psych_rng)
+
+        # Ecology -> psychology: nature exposure reduces stress
+        eco_psych = compute_nature_stress_reduction(self.ecology)
+        for cid in active_ids:
+            ps = self.psych_map.get(cid)
+            if ps is not None:
+                ps.stress = max(0.0, min(1.0, ps.stress + eco_psych["stress"]))
+                ps.purpose = max(0.0, min(1.0, ps.purpose + eco_psych["purpose"]))
 
         # --- behavior: social contagion (frozen snapshot, simultaneous) ---
         frozen_psych = {cid: self.psych_map[cid].to_dict()
@@ -886,6 +933,7 @@ class Mars100Engine:
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
+            ecology=ecology_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -927,6 +975,7 @@ class Mars100Engine:
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
+            final_ecology=self.ecology.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
