@@ -48,6 +48,10 @@ from src.mars100.psychology import (
     death_rate_modifier, compute_colony_morale,
     compute_bottom_quartile_morale,
 )
+from src.mars100.behavior import (
+    compute_behavior_weights, is_forced_rest,
+    AXIS_CAP, TOTAL_CAP, CRITICAL_ACTIONS, CRITICAL_FLOOR_DELTA,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -79,4 +83,6 @@ __all__ = [
     "ColonistPsychContext", "tick_psychology",
     "death_rate_modifier", "compute_colony_morale",
     "compute_bottom_quartile_morale",
+    "compute_behavior_weights", "is_forced_rest",
+    "AXIS_CAP", "TOTAL_CAP", "CRITICAL_ACTIONS", "CRITICAL_FLOOR_DELTA",
 ]

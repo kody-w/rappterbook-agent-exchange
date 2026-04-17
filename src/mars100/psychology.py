@@ -64,6 +64,7 @@ class PsychState:
     loneliness: float = 0.20
     purpose: float = 0.50
     last_crisis_year: int = -999
+    forced_rest_until: int | None = None
 
     @property
     def morale(self) -> float:
@@ -80,6 +81,7 @@ class PsychState:
             "purpose": round(self.purpose, 4),
             "morale": round(self.morale, 4),
             "last_crisis_year": self.last_crisis_year,
+            "forced_rest_until": self.forced_rest_until,
         }
 
     @classmethod
@@ -89,6 +91,7 @@ class PsychState:
             loneliness=d.get("loneliness", 0.20),
             purpose=d.get("purpose", 0.50),
             last_crisis_year=d.get("last_crisis_year", -999),
+            forced_rest_until=d.get("forced_rest_until"),
         )
 
 
@@ -298,6 +301,7 @@ def tick_psychology(
             crises.append(crisis)
             psych.last_crisis_year = year
             psych.stress = _clamp(psych.stress - 0.20)
+            psych.forced_rest_until = year + 1
 
         snapshots[cid] = psych.to_dict()
 

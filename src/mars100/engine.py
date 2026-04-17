@@ -45,6 +45,7 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.behavior import compute_behavior_weights, is_forced_rest
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -132,7 +133,7 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -196,7 +197,16 @@ class Mars100Engine:
         return [c.id for c in self._active_colonists()]
 
     def _choose_action(self, colonist: Colonist, events: list[Event]) -> str:
-        """Choose an action for a colonist based on personality and events."""
+        """Choose an action for a colonist based on personality, events, and psychology."""
+        # Ensure psych state exists for this colonist (year-1 / newcomer safety)
+        psych = self.psych_map.setdefault(colonist.id, PsychState())
+
+        # Crisis-forced rest from a prior year's breakdown
+        if is_forced_rest(psych, self.year):
+            # Still consume the RNG draw to keep stream alignment
+            self.rng.random()
+            return "rest"
+
         try:
             from src.mars100.lispy_vm import run as lispy_run
             score = lispy_run(colonist.decision_expr,
@@ -258,6 +268,12 @@ class Mars100Engine:
         # Economic pressure from personal wealth
         econ_pressure = compute_economic_pressure(colonist)
         for act, delta in econ_pressure.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
+
+        # Behavioral pressure from psychological state (v9.0)
+        behavior_pressure = compute_behavior_weights(psych)
+        for act, delta in behavior_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
 
