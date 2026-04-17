@@ -41,6 +41,10 @@ from src.mars100.economics import (
     EconomicState, tick_economics, compute_economic_pressure,
     liquidate_estate, endow_immigrant as econ_endow_immigrant,
 )
+from src.mars100.psychology import (
+    PsychState, ColonistPsychContext, tick_psychology,
+    death_rate_modifier,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -75,6 +79,7 @@ class YearResult:
     diplomacy: list[dict] = field(default_factory=list)
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
+    psychology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +101,7 @@ class YearResult:
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
             "economics": self.economics,
+            "psychology": self.psychology,
         }
 
 
@@ -121,10 +127,12 @@ class SimulationResult:
     total_immigrants: int = 0
     total_ships: int = 0
     final_economics: dict = field(default_factory=dict)
+    final_psychology: dict = field(default_factory=dict)
+    total_crises: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "7.0",
+            "_meta": {"engine": "mars-100", "version": "8.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -138,6 +146,7 @@ class SimulationResult:
                 "total_immigrants": self.total_immigrants,
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
+                "total_crises": self.total_crises,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -147,6 +156,7 @@ class SimulationResult:
             "final_culture": self.final_culture,
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
+            "final_psychology": self.final_psychology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -173,6 +183,8 @@ class Mars100Engine:
         self.earth_rng = random.Random(seed + 6151)
         self.economics = EconomicState()
         self.econ_rng = random.Random(seed + 8191)
+        self.psych_map: dict[str, PsychState] = {}
+        self.psych_rng = random.Random(seed + 9049)
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -375,6 +387,10 @@ class Mars100Engine:
 
     def _check_death(self, colonist: Colonist) -> str | None:
         rate = BASE_DEATH_RATE
+        # Psychology: low morale increases death rate
+        psych = self.psych_map.get(colonist.id)
+        if psych:
+            rate *= death_rate_modifier(psych.morale)
         death_rate_mult = compute_resource_modifiers(self.infra.completed).get("death_rate_mult", 1.0)
         rate *= death_rate_mult
         critical_resources: list[str] = []
@@ -644,6 +660,42 @@ class Mars100Engine:
                     apply_governance(revolt_proposal, self.governance,
                                      active_ids, self.econ_rng)
 
+        # --- psychology tick (dedicated RNG stream) ---
+        event_sev = events[0].severity if events else 0.0
+        res_avg = self.resources.average()
+        earth_contacted = (hasattr(self.earth, 'last_contact_year')
+                           and self.earth.last_contact_year == self.year)
+        infra_just_completed = bool(
+            infra_event and (
+                infra_event.get("completed", False)
+                if isinstance(infra_event, dict)
+                else getattr(infra_event, 'completed', False)))
+        psych_contexts: list[ColonistPsychContext] = []
+        for c in active:
+            n_connections = sum(
+                1 for oid in active_ids
+                if oid != c.id and self.social.get(c.id, oid).trust > 0.3)
+            trusts = [self.social.get(c.id, oid).trust
+                      for oid in active_ids if oid != c.id]
+            avg_trust = sum(trusts) / max(1, len(trusts))
+            participated_gov = (gov_proposal is not None
+                                and c.id in (gov_proposal.votes_for
+                                             + gov_proposal.votes_against))
+            ran_subsim = any(s.colonist_id == c.id for s in subsim_log)
+            psych_contexts.append(ColonistPsychContext(
+                colonist_id=c.id, action=actions.get(c.id, "rest"),
+                event_severity=event_sev, resource_avg=res_avg,
+                social_connections=n_connections, avg_trust=avg_trust,
+                earth_contact=earth_contacted,
+                infra_completed=infra_just_completed,
+                gov_participated=participated_gov,
+                subsim_ran=ran_subsim,
+                resolve=c.stats.resolve, empathy=c.stats.empathy,
+                faith=c.stats.faith, paranoia=c.stats.paranoia,
+            ))
+        psych_result = tick_psychology(
+            self.psych_map, psych_contexts, self.year, self.psych_rng)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -779,6 +831,7 @@ class Mars100Engine:
             diplomacy=[earth_result.to_dict()],
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
+            psychology=psych_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -818,6 +871,10 @@ class Mars100Engine:
             final_culture=self.culture.to_dict(),
             final_earth=self.earth.to_dict(),
             final_economics=self.economics.to_dict(),
+            final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
+            total_crises=sum(
+                len(y.psychology.get("crises", []))
+                for y in years if isinstance(y.psychology, dict)),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
