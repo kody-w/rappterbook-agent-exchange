@@ -123,6 +123,21 @@ class SocialGraph:
             return None
         return max(candidates, key=lambda x: x[1])[0]
 
+    def add_member(self, new_id: str, active_ids: list[str], rng: random.Random) -> None:
+        """Add a new colonist (e.g. newborn) to the social graph."""
+        self.edges[new_id] = {}
+        for cid in active_ids:
+            if cid != new_id:
+                self.edges[new_id][cid] = Relationship(
+                    trust=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
+                    affection=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
+                    respect=max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1))))
+                if cid in self.edges:
+                    self.edges[cid][new_id] = Relationship(
+                        trust=max(0.0, min(1.0, 0.5 + rng.gauss(0, 0.1))),
+                        affection=max(0.0, min(1.0, 0.55 + rng.gauss(0, 0.1))),
+                        respect=max(0.0, min(1.0, 0.4 + rng.gauss(0, 0.1))))
+
     def colony_cohesion(self, active_ids: list[str]) -> float:
         total = 0.0
         count = 0

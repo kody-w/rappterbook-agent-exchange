@@ -86,6 +86,7 @@ class Colonist:
     memories: list[MemoryEntry] = field(default_factory=list)
     subsim_count: int = 0
     governance_votes: int = 0
+    last_birth_year: int = 0
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -114,6 +115,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
+            last_birth_year=d.get("last_birth_year", 0),
         )
 
     def is_active(self) -> bool:
