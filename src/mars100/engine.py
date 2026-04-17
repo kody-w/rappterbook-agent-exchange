@@ -25,6 +25,11 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.economy import (
+    Stockpile, Specialization, EconomyState,
+    tick_economy, liquidate_stockpile, get_specialization_bonus,
+    GINI_GOVERNANCE_THRESHOLD,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +57,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    economy: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +73,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "economy": self.economy,
         }
 
 
@@ -126,6 +133,8 @@ class Mars100Engine:
         self.promoted_insights: list[dict] = []
         self.births: list[dict] = []
         self.next_id = 10
+        self.stockpiles: dict[str, Stockpile] = {}
+        self.specializations: dict[str, Specialization] = {}
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -202,13 +211,14 @@ class Mars100Engine:
             colonist = next((c for c in self.colonists if c.id == cid), None)
             if colonist is None:
                 continue
+            spec_mult = 1.0 + get_specialization_bonus(cid, action, self.specializations)
             if action == "terraform":
-                bonuses["water"] += colonist.skills.terraforming * 0.05
-                bonuses["air"] += colonist.skills.terraforming * 0.03
+                bonuses["water"] += colonist.skills.terraforming * 0.05 * spec_mult
+                bonuses["air"] += colonist.skills.terraforming * 0.03 * spec_mult
             elif action == "farm":
-                bonuses["food"] += colonist.skills.hydroponics * 0.08
+                bonuses["food"] += colonist.skills.hydroponics * 0.08 * spec_mult
             elif action == "code":
-                bonuses["power"] += colonist.skills.coding * 0.04
+                bonuses["power"] += colonist.skills.coding * 0.04 * spec_mult
             elif action == "sabotage":
                 bonuses["power"] -= colonist.skills.sabotage * 0.03
                 bonuses["food"] -= colonist.skills.sabotage * 0.02
@@ -462,7 +472,12 @@ class Mars100Engine:
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
         gov_proposal: GovernanceProposal | None = None
-        if should_propose(self.year, self.governance, self.rng) and active:
+        economy_state = tick_economy(
+            active, actions, self.resources, self.social,
+            self.stockpiles, self.specializations, self.year, self.rng,
+        )
+        econ_gini_boost = economy_state.gini > GINI_GOVERNANCE_THRESHOLD
+        if (should_propose(self.year, self.governance, self.rng) or econ_gini_boost) and active:
             proposer = self.rng.choice(active)
             gov_proposal = generate_proposal(self.year, proposer.id, self.governance, self.rng)
             if subsim_budget.can_spawn(proposer.id):
@@ -511,11 +526,17 @@ class Mars100Engine:
             cause = self._check_death(colonist)
             if cause:
                 colonist.die(self.year, cause)
+                sp = self.stockpiles.pop(colonist.id, None)
+                if sp:
+                    liquidate_stockpile(sp, self.resources)
                 deaths.append({"id": colonist.id, "name": colonist.name,
                                 "cause": cause, "year": self.year})
                 continue
             if self._check_exile(colonist):
                 colonist.exile(self.year)
+                sp = self.stockpiles.pop(colonist.id, None)
+                if sp:
+                    liquidate_stockpile(sp, self.resources)
                 exiles.append({"id": colonist.id, "name": colonist.name, "year": self.year})
 
         meta_events: list[dict] = []
@@ -541,6 +562,7 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            economy=economy_state.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
