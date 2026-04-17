@@ -49,6 +49,10 @@ canvas{width:100%;height:200px}
   <div class="card"><h2>🌡️ Resources</h2><canvas id="resourceChart"></canvas><h3>Morale</h3><canvas id="moraleChart"></canvas></div>
 </div>
 <div class="grid">
+  <div class="card"><h2>🧬 Value Convergence</h2><canvas id="convergenceChart"></canvas><div id="convergence-info" style="font-size:0.85em;color:var(--muted);margin-top:8px"></div></div>
+  <div class="card"><h2>📜 Promoted Insights</h2><div id="insights"></div></div>
+</div>
+<div class="grid">
   <div class="card"><h2>👥 Colonists</h2><div id="colonists" class="colonist-grid"></div></div>
   <div class="card"><h2>🐢 Sub-Simulations</h2><div id="subsims"></div><p id="subsim-count" style="color:var(--muted);font-size:0.85em;margin-top:8px"></p></div>
 </div>
@@ -90,6 +94,17 @@ drawChart(document.getElementById('resourceChart'),[
 {data:deltas.map(d=>d.resources_snapshot.water),color:'#4488ff',label:'Water'},
 {data:deltas.map(d=>d.resources_snapshot.oxygen),color:'#88ccff',label:'O₂'}],years);
 drawChart(document.getElementById('moraleChart'),[{data:s.morale_curve,color:'#ff44aa',label:'Morale'}],years);
+const convData=deltas.map(d=>{const c=d.convergence||d.value_convergence||{};return c.convergence_score||c.score||0});
+drawChart(document.getElementById('convergenceChart'),[{data:convData,color:'#aa44ff',label:'Convergence (lower=aligned)'}],years);
+const trend=s.convergence_trend||'stable';
+document.getElementById('convergence-info').innerHTML=`Trend: <strong style="color:${trend==='converging'?'var(--green)':trend==='diverging'?'var(--red)':'var(--muted)'}">${trend}</strong> · Lower score = more value alignment`;
+const insights=s.promoted_insights||[];
+document.getElementById('insights').innerHTML=insights.length===0?'<p style="color:var(--muted)">No insights promoted yet. Deep sub-sims must recur ≥2× from different colonists.</p>':
+insights.map(ins=>`<div style="margin:8px 0;padding:10px;background:#1a1a2f;border-radius:6px;border-left:3px solid var(--gold)">
+<div style="font-weight:bold;color:var(--gold)">🏛️ ${ins.type.replace(/_/g,' ')}</div>
+<div style="font-size:0.85em;margin:4px 0">${ins.draft_amendment}</div>
+<div style="font-size:0.75em;color:var(--muted)">Proposed by ${ins.proposed_by} · Year ${ins.proposed_year} · ${ins.evidence_count} evidence · depth ${ins.max_depth}</div>
+</div>`).join('');
 const all=[...data.colony.colonists,...(data.colony.dead_souls||[])],seen=new Set(),uniq=all.filter(c=>{if(seen.has(c.id))return false;seen.add(c.id);return true});
 document.getElementById('colonists').innerHTML=uniq.map(c=>`<div class="colonist-card ${c.alive?'':'dead'}">
 <strong style="color:${{fire:'#ff6644',water:'#4488ff',earth:'#88aa44',air:'#ccccff'}[c.element]||'#fff'}">${c.name}</strong> #${c.id}

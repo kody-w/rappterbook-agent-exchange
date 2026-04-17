@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.mars100.colonist import Colonist, STAT_NAMES, SKILL_NAMES, create_founding_ten
-from src.mars100.colony import Resources, SocialGraph, tick_resources, RESOURCE_NAMES
+from src.mars100.colony import Resources, SocialGraph, tick_resources, RESOURCE_NAMES, compute_value_convergence
 from src.mars100.events import Event, generate_events
 from src.mars100.governance import (
     GovernanceProposal, GovernanceState, apply_governance,
@@ -44,6 +44,7 @@ class YearResult:
     social_cohesion: float
     governance_state: dict
     colonist_snapshots: list[dict]
+    convergence: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +58,7 @@ class YearResult:
             "social_cohesion": self.social_cohesion,
             "governance_state": self.governance_state,
             "colonist_snapshots": self.colonist_snapshots,
+            "convergence": self.convergence,
         }
 
 
@@ -73,10 +75,12 @@ class SimulationResult:
     governance_changes: int
     meta_events: int
     final_cohesion: float
+    convergence_trend: str = "stable"
+    promoted_insights: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "1.0",
+            "_meta": {"engine": "mars-100", "version": "1.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -85,10 +89,13 @@ class SimulationResult:
                 "governance_changes": self.governance_changes,
                 "meta_awareness_events": self.meta_events,
                 "final_cohesion": self.final_cohesion,
+                "convergence_trend": self.convergence_trend,
+                "promoted_insights": len(self.promoted_insights),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
             "final_governance": self.final_governance,
+            "promoted_insights": self.promoted_insights,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -105,6 +112,8 @@ class Mars100Engine:
         self.social = SocialGraph()
         self.governance = GovernanceState()
         self.year = 0
+        self.insight_queue: list[dict] = []
+        self.promoted_insights: list[dict] = []
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
 
@@ -198,6 +207,7 @@ class Mars100Engine:
     def _maybe_spawn_subsim(self, colonist: Colonist, events: list[Event],
                             budget: SubSimBudget,
                             log: list[SubSimResult]) -> SubSimResult | None:
+        """Spawn sub-simulations up to depth 3, extracting governance insights."""
         if not budget.can_spawn(colonist.id):
             return None
         subsim_chance = (colonist.stats.improvisation * 0.3 +
@@ -215,25 +225,140 @@ class Mars100Engine:
                               year=self.year, bindings=bindings,
                               depth=1, budget=budget, log=log)
         colonist.subsim_count += 1
-        # Depth 2: if result is interesting
+        # Depth 2: governance-scenario modelling
         if (result.succeeded and isinstance(result.result, (int, float))
                 and abs(result.result) > 0.8 and budget.can_spawn(colonist.id)):
-            rv = result.result
-            deeper_expr = f"(let ((parent-result {rv})) (if (> parent-result 0.5) (* parent-result 1.1) (- parent-result 0.1)))"
+            deeper_expr = self._generate_deep_governance_expression(colonist, result.result, 2)
             deeper = spawn_subsim(expression=deeper_expr, colonist_id=colonist.id,
                                   year=self.year, bindings=bindings,
                                   depth=2, budget=budget, log=log)
             result.children.append(deeper)
-            # Depth 3: rare
+            self._extract_insight(colonist, deeper, depth=2)
+            # Depth 3: meta-governance
             if (deeper.succeeded and isinstance(deeper.result, (int, float))
                     and abs(deeper.result) > 1.0 and budget.can_spawn(colonist.id)):
-                drv = deeper.result
-                d3_expr = f"(+ {drv} (* sim-depth 0.01))"
+                d3_expr = self._generate_deep_governance_expression(colonist, deeper.result, 3)
                 d3 = spawn_subsim(expression=d3_expr, colonist_id=colonist.id,
                                   year=self.year, bindings=bindings,
                                   depth=3, budget=budget, log=log)
                 deeper.children.append(d3)
+                self._extract_insight(colonist, d3, depth=3)
         return result
+
+    def _generate_deep_governance_expression(self, colonist: Colonist,
+                                              parent_result: float, depth: int) -> str:
+        """Generate governance-themed LisPy for depth-2/3 sub-simulations."""
+        active_n = len(self._active_colonists())
+        if depth == 2:
+            templates = [
+                f"(let ((council-score (+ (* empathy 0.4) (* resolve 0.3)))"
+                f"      (dictator-score (+ (* resolve 0.5) (* paranoia 0.3)))"
+                f"      (consensus-score (+ (* empathy 0.3) (* faith 0.4))))"
+                f"  (cond ((> council-score dictator-score) council-score)"
+                f"         ((> dictator-score consensus-score) dictator-score)"
+                f"         (#t consensus-score)))",
+                f"(let ((population {active_n}) (crisis {parent_result:.2f}))"
+                f"  (if (< population 5)"
+                f"    (+ (* crisis 0.8) (* faith 0.2))"
+                f"    (+ (* empathy 0.5) (* resolve 0.3) (* (- 1 paranoia) 0.2))))",
+                f"(let ((trust-sum (+ empathy faith (- 1 paranoia))))"
+                f"  (if (> trust-sum 1.5)"
+                f"    (+ trust-sum 0.3)"
+                f"    (- (* resolve 0.5) (* hoarding 0.3))))",
+            ]
+        else:
+            templates = [
+                f"(let ((self-model (+ empathy resolve faith))"
+                f"      (recursion-depth {depth}))"
+                f"  (if (> self-model 1.0)"
+                f"    (* self-model (/ 1 recursion-depth))"
+                f"    (- self-model (* paranoia 0.5))))",
+                f"(let ((parent {parent_result:.2f})"
+                f"      (meta-score (+ (* improvisation 0.4) (* faith 0.3) (* empathy 0.3))))"
+                f"  (if (> meta-score 0.6)"
+                f"    (+ parent meta-score)"
+                f"    (- parent (* paranoia 0.4))))",
+                f"(let ((sim-depth {depth}) (agent-count {active_n}))"
+                f"  (+ (* empathy (/ agent-count 10))"
+                f"     (* faith (/ 1 sim-depth))"
+                f"     (* resolve 0.2)))",
+            ]
+        return self.rng.choice(templates)
+
+    def _extract_insight(self, colonist: Colonist, subsim_result: SubSimResult,
+                         depth: int) -> None:
+        """Extract governance insights from deep sub-simulations."""
+        if not subsim_result.succeeded or not isinstance(subsim_result.result, (int, float)):
+            return
+        score = float(subsim_result.result)
+        if score > 1.2:
+            insight_type = "cooperative_governance"
+            description = f"High cooperation score ({score:.2f}) suggests collective decision-making outperforms hierarchy"
+        elif score > 0.8:
+            insight_type = "balanced_governance"
+            description = f"Moderate score ({score:.2f}) favours balanced council with rotation"
+        elif score < 0.0:
+            insight_type = "crisis_authoritarian"
+            description = f"Negative score ({score:.2f}) suggests crisis conditions favor strong leadership"
+        else:
+            return
+        self.insight_queue.append({
+            "type": insight_type, "description": description, "score": score,
+            "depth": depth, "year": self.year, "colonist_id": colonist.id,
+            "colonist_name": colonist.name, "current_gov": self.governance.gov_type,
+        })
+
+    def _maybe_promote_insight(self) -> dict | None:
+        """Promote a recurring insight to a draft constitutional amendment.
+
+        Requires >= 2 insights of the same type from distinct colonists.
+        Capped at 1 promotion per simulation.
+        """
+        if self.promoted_insights:
+            return None
+        type_counts: dict[str, list[dict]] = {}
+        for ins in self.insight_queue:
+            type_counts.setdefault(ins["type"], []).append(ins)
+        for itype, entries in type_counts.items():
+            unique_colonists = {e["colonist_id"] for e in entries}
+            if len(unique_colonists) >= 2:
+                best = max(entries, key=lambda e: abs(e["score"]))
+                promoted = {
+                    "type": itype, "description": best["description"],
+                    "evidence_count": len(entries),
+                    "unique_colonists": len(unique_colonists),
+                    "max_depth": max(e["depth"] for e in entries),
+                    "proposed_year": self.year,
+                    "proposed_by": best["colonist_name"],
+                    "draft_amendment": self._draft_amendment(itype, entries),
+                }
+                self.promoted_insights.append(promoted)
+                return promoted
+        return None
+
+    @staticmethod
+    def _draft_amendment(insight_type: str, evidence: list[dict]) -> str:
+        """Draft a constitutional amendment from accumulated sub-sim evidence."""
+        templates = {
+            "cooperative_governance":
+                "Amendment: Governance decisions affecting shared resources shall "
+                "require minimum 2/3 consensus among active participants. "
+                "Evidence: {n} sub-simulations across {d} recursion depths showed "
+                "cooperation scores averaging {avg:.2f}, outperforming hierarchy.",
+            "balanced_governance":
+                "Amendment: Leadership shall rotate annually with council oversight. "
+                "No single entity governs for more than 2 consecutive terms. "
+                "Evidence: {n} sub-simulations showed balanced governance scoring {avg:.2f}.",
+            "crisis_authoritarian":
+                "Amendment: In declared emergencies (resources < 20%), a temporary "
+                "crisis coordinator may be appointed for max 1 year. "
+                "Evidence: {n} crisis sub-simulations showed strong leadership "
+                "scoring {avg:.2f} under scarcity conditions.",
+        }
+        avg = sum(e["score"] for e in evidence) / len(evidence)
+        max_d = max(e["depth"] for e in evidence)
+        template = templates.get(insight_type, "Amendment: (auto-generated from sub-sim insight '{t}')")
+        return template.format(n=len(evidence), d=max_d, avg=avg, t=insight_type)
 
     def _generate_subsim_expression(self, colonist: Colonist,
                                     events: list[Event]) -> str:
@@ -411,6 +536,9 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        convergence = compute_value_convergence(self._active_colonists())
+        self._maybe_promote_insight()
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -422,6 +550,7 @@ class Mars100Engine:
             social_cohesion=self.social.colony_cohesion(self._active_ids()),
             governance_state=self.governance.to_dict(),
             colonist_snapshots=[c.to_dict() for c in self.colonists],
+            convergence=convergence,
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -441,6 +570,7 @@ class Mars100Engine:
             meta_count += len(result.meta_awareness)
             if callback:
                 callback(result)
+        convergence_trend = self._compute_convergence_trend(years)
         return SimulationResult(
             years=years, final_colonists=[c.to_dict() for c in self.colonists],
             final_resources=self.resources.to_dict(),
@@ -449,4 +579,22 @@ class Mars100Engine:
             total_subsims=total_subsims, governance_changes=gov_changes,
             meta_events=meta_count,
             final_cohesion=self.social.colony_cohesion(self._active_ids()),
+            convergence_trend=convergence_trend,
+            promoted_insights=self.promoted_insights,
         )
+
+    @staticmethod
+    def _compute_convergence_trend(years: list[YearResult]) -> str:
+        """Classify overall convergence as 'converging', 'diverging', or 'stable'."""
+        scores = [y.convergence.get("convergence_score", 0.0) for y in years if y.convergence]
+        if len(scores) < 4:
+            return "stable"
+        mid = len(scores) // 2
+        first_half_avg = sum(scores[:mid]) / mid
+        second_half_avg = sum(scores[mid:]) / (len(scores) - mid)
+        delta = second_half_avg - first_half_avg
+        if delta < -0.02:
+            return "converging"
+        elif delta > 0.02:
+            return "diverging"
+        return "stable"
