@@ -45,6 +45,10 @@ from src.mars100.psychology import (
     PsychState, ColonistPsychContext, tick_psychology,
     death_rate_modifier,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, tick_diplomacy, compute_diplomatic_pressure,
+    diplomatic_subsim_expression,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -80,6 +84,7 @@ class YearResult:
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
+    external_relations: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +107,7 @@ class YearResult:
             "immigrants": self.immigrants,
             "economics": self.economics,
             "psychology": self.psychology,
+            "external_relations": self.external_relations,
         }
 
 
@@ -129,10 +135,12 @@ class SimulationResult:
     final_economics: dict = field(default_factory=dict)
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
+    final_diplomacy: dict = field(default_factory=dict)
+    total_entities_discovered: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "8.0",
+            "_meta": {"engine": "mars-100", "version": "9.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -147,6 +155,7 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_entities_discovered": self.total_entities_discovered,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -157,6 +166,7 @@ class SimulationResult:
             "final_earth": self.final_earth,
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
+            "final_diplomacy": self.final_diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -185,6 +195,9 @@ class Mars100Engine:
         self.econ_rng = random.Random(seed + 8191)
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
+        self.diplo = DiplomacyState()
+        self.diplo_rng = random.Random(seed + 10007)
+        self.all_exiles_history: list[dict] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -258,6 +271,12 @@ class Mars100Engine:
         # Economic pressure from personal wealth
         econ_pressure = compute_economic_pressure(colonist)
         for act, delta in econ_pressure.items():
+            if act in weights:
+                weights[act] = max(0.01, weights[act] + delta)
+
+        # Diplomatic pressure from external awareness
+        diplo_pressure = compute_diplomatic_pressure(self.diplo)
+        for act, delta in diplo_pressure.items():
             if act in weights:
                 weights[act] = max(0.01, weights[act] + delta)
 
@@ -805,6 +824,50 @@ class Mars100Engine:
             if meta:
                 meta_events.append(meta)
 
+        # --- diplomacy: external awareness, splinter colonies, signals ---
+        self.all_exiles_history.extend(exiles)
+        active_now = self._active_colonists()
+        coding_avg = (sum(c.skills.coding for c in active_now) / len(active_now)
+                      if active_now else 0.0)
+        paranoia_avg = (sum(c.stats.paranoia for c in active_now) / len(active_now)
+                        if active_now else 0.5)
+        empathy_avg = (sum(c.stats.empathy for c in active_now) / len(active_now)
+                       if active_now else 0.5)
+        has_comm = "comm_array" in self.infra.completed
+        earth_new_mission = (hasattr(earth_result, 'ship_launched')
+                             and earth_result.ship_launched
+                             and self.year > 25)
+        diplo_result = tick_diplomacy(
+            self.diplo, year=self.year,
+            year_exiles=exiles,
+            all_exiles_history=self.all_exiles_history,
+            coding_skill_avg=coding_avg,
+            colony_paranoia_avg=paranoia_avg,
+            colony_empathy_avg=empathy_avg,
+            has_comm_infra=has_comm,
+            earth_announced_mission=earth_new_mission,
+            rng=self.diplo_rng)
+
+        # Diplomatic sub-sims: colonists model encounters with known entities
+        for entity in self.diplo.entities.values():
+            if entity.status == "confirmed" and active_now:
+                candidate = self.diplo_rng.choice(active_now)
+                if subsim_budget.can_spawn(candidate.id):
+                    expr = diplomatic_subsim_expression(
+                        entity, self.diplo.stance)
+                    bindings = candidate.lispy_bindings()
+                    bindings.update({name: getattr(self.resources, name)
+                                     for name in RESOURCE_NAMES})
+                    diplo_sim = spawn_subsim(
+                        expression=expr,
+                        colonist_id=candidate.id,
+                        year=self.year,
+                        bindings=bindings,
+                        depth=1,
+                        budget=subsim_budget,
+                        log=subsim_log)
+                    diplo_result.subsim_results.append(diplo_sim.to_dict())
+
         # Final clamp — multiple subsystems may have nudged resources
         self.resources.clamp()
 
@@ -832,6 +895,7 @@ class Mars100Engine:
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
+            external_relations=diplo_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -839,6 +903,7 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_entities = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -849,6 +914,8 @@ class Mars100Engine:
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
             total_immigrants += len(result.immigrants)
+            total_entities += len(result.external_relations.get(
+                "new_entities", []))
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -875,6 +942,8 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_diplomacy=self.diplo.to_dict(),
+            total_entities_discovered=total_entities,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
