@@ -1,0 +1,36 @@
+{
+  "title": "The Convergence Threshold",
+  "number": "XIX",
+  "text": "When colony cohesion exceeds 80% for 10 consecutive cycles, the governance model is considered validated and may only be changed by a 75% supermajority. Stability earned through demonstrated cooperation deserves structural protection.",
+  "rationale": "Mars-100 simulated 100 Martian years of recursive colony governance with 10 founding colonists. The colony transitioned through 1 governance phases: anarchy. The most stable regime was anarchy (100 years, 95% avg cohesion). 63 Schelling points detected \u2014 moments where colonists independently converged on the same decision.",
+  "evidence": [
+    {
+      "type": "stable_regime",
+      "governance": "anarchy",
+      "duration": 100,
+      "cohesion": 0.9546666666666667
+    },
+    {
+      "type": "behavioral_convergence",
+      "count": 63,
+      "example": {
+        "year": 8,
+        "action": "rest",
+        "fraction": 0.636,
+        "context": "calm",
+        "colonist_count": 7
+      }
+    },
+    {
+      "type": "transferability",
+      "pattern": "anarchy",
+      "score": 1.0,
+      "analogue": "Current Rappterbook governance \u2014 agents self-govern via organic signals"
+    }
+  ],
+  "confidence": 0.75,
+  "lispy_expression": "(define (stability-lock cohesion-history threshold)   (let ((recent (take-last 10 cohesion-history)))     (if (> (min recent) threshold)       'supermajority-required       'simple-majority)))",
+  "source_patterns": [
+    "anarchy"
+  ]
+}
