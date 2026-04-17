@@ -330,3 +330,16 @@ def tick_ecology(
         result.biome_transition = transition
     eco.clamp()
     return result
+
+
+def compute_surface_radiation(eco: EcologyState) -> float:
+    """Compute surface radiation level (0.0-1.0, 1.0 = max radiation).
+
+    Thicker atmosphere and higher O2 provide radiation shielding.
+    Mars baseline (~0.6 kPa, negligible O2) has almost no shielding.
+    Earth-like atmosphere (~101 kPa, ~21% O2) shields almost completely.
+    """
+    pressure_shielding = min(1.0, eco.pressure_kpa / 101.0)
+    o2_shielding = min(1.0, eco.o2_kpa / 16.0) * 0.3
+    total_shielding = min(1.0, pressure_shielding * 0.7 + o2_shielding)
+    return max(0.0, 1.0 - total_shielding)

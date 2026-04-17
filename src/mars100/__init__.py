@@ -61,6 +61,15 @@ from src.mars100.ecology import (
     outdoor_habitable, has_greenhouse_tech,
     BIOME_NAMES,
 )
+from src.mars100.genetics import (
+    GeneticsState, GeneticsTickResult, GeneticProfile,
+    GENETIC_TRAITS, create_founding_genetics, create_immigrant_genetics,
+    inherit_genetics, compute_kinship, is_pair_blocked,
+    compute_population_diversity,
+    compute_genetic_death_modifier, compute_genetic_stress_reduction,
+    compute_genetic_radiation_modifier,
+    tick_genetics,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -101,4 +110,12 @@ __all__ = [
     "compute_nature_stress_reduction", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
+    # Genetics (v11.0)
+    "GeneticsState", "GeneticsTickResult", "GeneticProfile",
+    "GENETIC_TRAITS", "create_founding_genetics", "create_immigrant_genetics",
+    "inherit_genetics", "compute_kinship", "is_pair_blocked",
+    "compute_population_diversity",
+    "compute_genetic_death_modifier", "compute_genetic_stress_reduction",
+    "compute_genetic_radiation_modifier",
+    "tick_genetics",
 ]
