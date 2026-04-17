@@ -1,71 +1,90 @@
 {
   "year": 28,
   "event": {
-    "id": "solar_flare",
-    "description": "Intense solar particle event forces shelter-in-place"
+    "id": "calm_year",
+    "description": "An uneventful year \u2014 the colony settles into routine"
   },
   "outcomes": [
-    {
-      "colonist": "aria",
-      "action": "explore",
-      "year": 28
-    },
-    {
-      "colonist": "kael",
-      "action": "gather_food",
-      "year": 28,
-      "gain": 0.0814
-    },
     {
       "colonist": "lyra",
       "action": "gather_food",
       "year": 28,
-      "gain": 0.0508
+      "gain": 0.0336
     },
     {
       "colonist": "thresh",
       "action": "pray",
       "year": 28,
-      "morale_boost": 0.0032
+      "morale_boost": 0.0038
+    },
+    {
+      "colonist": "nyx",
+      "action": "run_subsim",
+      "year": 28,
+      "subsim": "queued"
     },
     {
       "colonist": "sol",
       "action": "gather_food",
       "year": 28,
-      "gain": 0.0596
+      "gain": 0.0845
     },
     {
       "colonist": "vega",
       "action": "sabotage",
       "year": 28,
       "caught": true,
-      "damage": 0.0069
+      "damage": 0.0059
     },
     {
       "colonist": "ember",
       "action": "gather_food",
       "year": 28,
-      "gain": 0.0437
+      "gain": 0.0558
     },
     {
       "colonist": "frost",
-      "action": "explore",
-      "year": 28
+      "action": "gather_food",
+      "year": 28,
+      "gain": 0.0573
     }
   ],
   "proposals": [],
-  "governance_label": "republic",
+  "governance_label": "democracy",
   "resources": {
-    "food": 1.3997,
-    "water": 1.0151,
-    "power": 2.0,
-    "oxygen": 0.548,
-    "hab_integrity": 1.0678,
-    "morale": 0.0132
+    "food": 1.4554,
+    "water": 0.9709,
+    "power": 1.9941,
+    "oxygen": 0.716,
+    "hab_integrity": 1.0157,
+    "morale": 1.0
   },
-  "alive_count": 8,
+  "alive_count": 7,
   "dead_this_year": [],
-  "subsim_log": [],
+  "births": [],
+  "subsim_log": [
+    {
+      "colonist": "nyx",
+      "year": 28,
+      "depth": 2,
+      "max_depth_reached": 2,
+      "sexpr": "(let ((food 1.46)\n              (water 0.97)\n              (pop 7)\n              (crisis 0.28)\n              (trust 0.07))\n          (let ((vote-sim (sub-sim 2\n                  (let ((support (* trust (- 1.0 crisis)))\n                        (opposition (* (- 1.0 trust) crisis)))\n                    (if (> support opposition)\n                      (list \"proposal-passes\" support)\n                      (list \"proposal-fails\" opposition))))))\n            (if (> crisis 0.7)\n              (list \"emergency-ration\" vote-sim (* food 0.6))\n              (list \"governance-model\" vote-sim trust))))",
+      "result": [
+        "governance-model",
+        2.0,
+        0.07
+      ],
+      "steps_used": 18,
+      "nested_subsims": [
+        {
+          "depth": 1,
+          "steps_used": 1,
+          "budget": 2500,
+          "result": 2.0
+        }
+      ]
+    }
+  ],
   "colonist_diaries": [
     {
       "colonist_id": "lyra",
@@ -73,7 +92,7 @@
       "element": "water",
       "year": 28,
       "mood": "contemplative",
-      "entry": "Year 28 \u2014 Lyra Chen (water)\nMood: contemplative. Event: Intense solar particle event forces shelter-in-place.\nAction: gather_food. Colony morale: strained.\n"
+      "entry": "Year 28 \u2014 Lyra Chen (water)\nMood: contemplative. Event: An uneventful year \u2014 the colony settles into routine.\nAction: gather_food. Colony morale: strained.\n"
     },
     {
       "colonist_id": "vega",
@@ -81,15 +100,15 @@
       "element": "water",
       "year": 28,
       "mood": "anxious",
-      "entry": "Year 28 \u2014 Vega Moreau (water)\nMood: anxious. Event: Intense solar particle event forces shelter-in-place.\nAction: sabotage. Colony morale: strained.\n"
+      "entry": "Year 28 \u2014 Vega Moreau (water)\nMood: anxious. Event: An uneventful year \u2014 the colony settles into routine.\nAction: sabotage. Colony morale: strained.\n"
     },
     {
-      "colonist_id": "sol",
-      "colonist_name": "Sol Reeves",
-      "element": "earth",
+      "colonist_id": "ember",
+      "colonist_name": "Ember Osei",
+      "element": "fire",
       "year": 28,
       "mood": "determined",
-      "entry": "Year 28 \u2014 Sol Reeves (earth)\nMood: determined. Event: Intense solar particle event forces shelter-in-place.\nAction: gather_food. Colony morale: strained.\n"
+      "entry": "Year 28 \u2014 Ember Osei (fire)\nMood: determined. Event: An uneventful year \u2014 the colony settles into routine.\nAction: gather_food. Colony morale: strained.\n"
     }
   ]
 }

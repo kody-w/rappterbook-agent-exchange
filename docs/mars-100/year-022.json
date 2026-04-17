@@ -1,91 +1,120 @@
 {
   "year": 22,
   "event": {
-    "id": "disease_outbreak",
-    "description": "Unknown pathogen spreads through the hab modules"
+    "id": "earth_contact",
+    "description": "Transmission received from Earth \u2014 first in years"
   },
   "outcomes": [
-    {
-      "colonist": "aria",
-      "action": "repair_hab",
-      "year": 22,
-      "gain": 0.0279
-    },
-    {
-      "colonist": "kael",
-      "action": "gather_food",
-      "year": 22,
-      "gain": 0.09
-    },
     {
       "colonist": "lyra",
       "action": "gather_food",
       "year": 22,
-      "gain": 0.0304
+      "gain": 0.0327
     },
     {
       "colonist": "thresh",
-      "action": "explore",
+      "action": "propose",
       "year": 22,
-      "discovery": "food",
-      "gain": 0.0965
+      "proposal": "generated"
     },
     {
       "colonist": "nyx",
-      "action": "gather_water",
+      "action": "gather_food",
       "year": 22,
-      "gain": 0.0347
+      "gain": 0.0477
     },
     {
       "colonist": "sol",
       "action": "gather_food",
       "year": 22,
-      "gain": 0.0524
+      "gain": 0.0656
     },
     {
       "colonist": "vega",
-      "action": "pray",
+      "action": "repair_hab",
       "year": 22,
-      "morale_boost": 0.0065
+      "gain": 0.0334
+    },
+    {
+      "colonist": "rook",
+      "action": "run_subsim",
+      "year": 22,
+      "subsim": "queued"
     },
     {
       "colonist": "ember",
       "action": "gather_water",
       "year": 22,
-      "gain": 0.0475
+      "gain": 0.0367
     },
     {
       "colonist": "frost",
-      "action": "run_subsim",
+      "action": "gather_water",
       "year": 22,
-      "subsim": "queued"
+      "gain": 0.0402
     }
   ],
-  "proposals": [],
-  "governance_label": "republic",
+  "proposals": [
+    {
+      "id": "p-22-thre",
+      "year": 22,
+      "proposer_id": "thresh",
+      "kind": "exile",
+      "description": "Exile Frost Nakamura from the colony",
+      "target": "frost",
+      "parameter": null,
+      "value": null,
+      "votes_for": [
+        "lyra",
+        "thresh",
+        "vega",
+        "ember"
+      ],
+      "votes_against": [
+        "rook",
+        "frost"
+      ],
+      "abstentions": [
+        "nyx",
+        "sol"
+      ],
+      "outcome": "rejected",
+      "subsim_evidence": null
+    }
+  ],
+  "governance_label": "democracy",
   "resources": {
-    "food": 1.387,
-    "water": 1.0242,
+    "food": 1.2947,
+    "water": 1.0355,
     "power": 2.0,
-    "oxygen": 0.584,
-    "hab_integrity": 0.8957,
-    "morale": 0.1342
+    "oxygen": 0.68,
+    "hab_integrity": 0.9804,
+    "morale": 0.982
   },
-  "alive_count": 9,
+  "alive_count": 8,
   "dead_this_year": [],
+  "births": [],
   "subsim_log": [
     {
-      "colonist": "frost",
+      "colonist": "rook",
       "year": 22,
-      "depth": 1,
-      "sexpr": "(let ((food 1.39)\n          (water 1.02)\n          (pop 9)\n          (crisis 0.42))\n      (if (> crisis 0.5)\n        (list \"ration\" (* food 0.8) (* water 0.7))\n        (if (> food 1.5)\n          (list \"expand\" (+ pop 2) food)\n          (list \"maintain\" pop food))))",
+      "depth": 2,
+      "max_depth_reached": 2,
+      "sexpr": "(let ((food 1.29)\n              (water 1.04)\n              (pop 8)\n              (crisis 0.32)\n              (trust 0.06))\n          (let ((vote-sim (sub-sim 2\n                  (let ((support (* trust (- 1.0 crisis)))\n                        (opposition (* (- 1.0 trust) crisis)))\n                    (if (> support opposition)\n                      (list \"proposal-passes\" support)\n                      (list \"proposal-fails\" opposition))))))\n            (if (> crisis 0.7)\n              (list \"emergency-ration\" vote-sim (* food 0.6))\n              (list \"governance-model\" vote-sim trust))))",
       "result": [
-        "maintain",
-        9.0,
-        1.39
+        "governance-model",
+        2.0,
+        0.06
       ],
-      "steps_used": 20,
-      "nested_subsims": []
+      "steps_used": 18,
+      "nested_subsims": [
+        {
+          "depth": 1,
+          "steps_used": 1,
+          "budget": 2500,
+          "result": 2.0
+        }
+      ]
     }
   ],
   "colonist_diaries": [
@@ -95,7 +124,15 @@
       "element": "water",
       "year": 22,
       "mood": "contemplative",
-      "entry": "Year 22 \u2014 Lyra Chen (water)\nMood: contemplative. Event: Unknown pathogen spreads through the hab modules.\nAction: gather_food. Colony morale: strained.\n"
+      "entry": "Year 22 \u2014 Lyra Chen (water)\nMood: contemplative. Event: Transmission received from Earth \u2014 first in years.\nAction: gather_food. Colony morale: strained.\n"
+    },
+    {
+      "colonist_id": "rook",
+      "colonist_name": "Rook Tanaka",
+      "element": "air",
+      "year": 22,
+      "mood": "anxious",
+      "entry": "Year 22 \u2014 Rook Tanaka (air)\nMood: anxious. Event: Transmission received from Earth \u2014 first in years.\nAction: run_subsim. Colony morale: strained.\n"
     },
     {
       "colonist_id": "vega",
@@ -103,15 +140,7 @@
       "element": "water",
       "year": 22,
       "mood": "anxious",
-      "entry": "Year 22 \u2014 Vega Moreau (water)\nMood: anxious. Event: Unknown pathogen spreads through the hab modules.\nAction: pray. Colony morale: strained.\n"
-    },
-    {
-      "colonist_id": "frost",
-      "colonist_name": "Frost Nakamura",
-      "element": "water",
-      "year": 22,
-      "mood": "contemplative",
-      "entry": "Year 22 \u2014 Frost Nakamura (water)\nMood: contemplative. Event: Unknown pathogen spreads through the hab modules.\nAction: run_subsim. Colony morale: strained.\n"
+      "entry": "Year 22 \u2014 Vega Moreau (water)\nMood: anxious. Event: Transmission received from Earth \u2014 first in years.\nAction: repair_hab. Colony morale: strained.\n"
     }
   ]
 }

@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.colonist import Colonist, create_colony
 from src.governance import GovernanceState, compute_fitness, _gini
-from src.mars100 import Resources, tick_year, YearResult
+from src.mars100 import Resources, tick_year, YearResult, reset_birth_counter
 
 
 def now_iso() -> str:
@@ -52,6 +52,9 @@ def run_simulation(years: int = 100, seed: int = 42,
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "colonists").mkdir(exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
+
+    # Reset birth counter for deterministic runs
+    reset_birth_counter()
 
     # Initialize colony
     colonists = create_colony(seed)
@@ -152,6 +155,8 @@ def run_simulation(years: int = 100, seed: int = 42,
             "starting_colonists": 10,
             "surviving_colonists": len(active),
             "total_deaths": sum(1 for c in colonists if not c.alive),
+            "total_births": sum(1 for c in colonists if c.id.startswith("mars-")),
+            "total_colonists": len(colonists),
             "death_causes": _count_deaths(colonists),
             "fitness": round(fitness, 4),
         },
@@ -213,10 +218,12 @@ def run_simulation(years: int = 100, seed: int = 42,
             "alive": yr["alive_count"],
             "governance": yr["governance_label"],
             "resources": yr["resources"],
+            "births": yr.get("births", []),
         } for yr in year_results],
         "colonists": [{
             "id": c.id, "name": c.name, "element": c.element,
             "alive": c.alive, "year_died": c.year_died,
+            "mars_born": c.id.startswith("mars-"),
         } for c in colonists],
         "governance_transitions": governance_transitions,
         "fitness": round(fitness, 4),
@@ -230,7 +237,9 @@ def run_simulation(years: int = 100, seed: int = 42,
         print("MARS-100 SIMULATION COMPLETE")
         print("=" * 60)
         print(f"  Years simulated: {final_year}")
-        print(f"  Survivors: {len(active)}/{len(colonists)}")
+        total_births = sum(1 for c in colonists if c.id.startswith("mars-"))
+        print(f"  Survivors: {len(active)}/{len(colonists)} "
+              f"(10 original + {total_births} Mars-born)")
         print(f"  Final governance: {prev_label}")
         print(f"  Fitness score: {fitness:.4f}")
         print(f"  Sub-simulations run: {len(all_subsim_logs)}")

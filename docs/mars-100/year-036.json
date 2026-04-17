@@ -1,70 +1,133 @@
 {
   "year": 36,
   "event": {
-    "id": "disease_outbreak",
-    "description": "Unknown pathogen spreads through the hab modules"
+    "id": "equipment_fail",
+    "description": "Critical life support component fails"
   },
   "outcomes": [
     {
-      "colonist": "kael",
-      "action": "gather_food",
-      "year": 36,
-      "gain": 0.0539
-    },
-    {
       "colonist": "thresh",
-      "action": "explore",
-      "year": 36
+      "action": "pray",
+      "year": 36,
+      "morale_boost": 0.003
     },
     {
-      "colonist": "sol",
+      "colonist": "nyx",
+      "action": "run_subsim",
+      "year": 36,
+      "subsim": "queued"
+    },
+    {
+      "colonist": "ember",
+      "action": "explore",
+      "year": 36,
+      "discovery": "food",
+      "gain": 0.0835
+    },
+    {
+      "colonist": "frost",
+      "action": "propose",
+      "year": 36,
+      "proposal": "generated"
+    },
+    {
+      "colonist": "mars-nova-31",
+      "action": "repair_hab",
+      "year": 36,
+      "gain": 0.0243
+    },
+    {
+      "colonist": "mars-ares-34",
       "action": "gather_food",
       "year": 36,
-      "gain": 0.0541
-    },
-    {
-      "colonist": "vega",
-      "action": "explore",
-      "year": 36
+      "gain": 0.0649
     }
   ],
-  "proposals": [],
+  "proposals": [
+    {
+      "id": "p-36-fros",
+      "year": 36,
+      "proposer_id": "frost",
+      "kind": "policy",
+      "description": "Frost Nakamura proposes a colony improvement initiative",
+      "target": null,
+      "parameter": null,
+      "value": null,
+      "votes_for": [
+        "frost",
+        "mars-ares-34"
+      ],
+      "votes_against": [
+        "thresh"
+      ],
+      "abstentions": [
+        "nyx",
+        "ember",
+        "mars-nova-31"
+      ],
+      "outcome": "passed",
+      "subsim_evidence": null
+    }
+  ],
   "governance_label": "republic",
   "resources": {
-    "food": 2.0,
-    "water": 1.6451,
+    "food": 1.4693,
+    "water": 0.8537,
     "power": 2.0,
-    "oxygen": 0.808,
-    "hab_integrity": 1.0178,
-    "morale": 0.1232
+    "oxygen": 0.868,
+    "hab_integrity": 0.99,
+    "morale": 0.933
   },
-  "alive_count": 4,
+  "alive_count": 6,
   "dead_this_year": [],
-  "subsim_log": [],
+  "births": [],
+  "subsim_log": [
+    {
+      "colonist": "nyx",
+      "year": 36,
+      "depth": 2,
+      "max_depth_reached": 2,
+      "sexpr": "(let ((food 1.47)\n              (water 0.85)\n              (pop 6)\n              (crisis 0.15)\n              (trust 0.13))\n          (let ((vote-sim (sub-sim 2\n                  (let ((support (* trust (- 1.0 crisis)))\n                        (opposition (* (- 1.0 trust) crisis)))\n                    (if (> support opposition)\n                      (list \"proposal-passes\" support)\n                      (list \"proposal-fails\" opposition))))))\n            (if (> crisis 0.7)\n              (list \"emergency-ration\" vote-sim (* food 0.6))\n              (list \"governance-model\" vote-sim trust))))",
+      "result": [
+        "governance-model",
+        2.0,
+        0.13
+      ],
+      "steps_used": 18,
+      "nested_subsims": [
+        {
+          "depth": 1,
+          "steps_used": 1,
+          "budget": 2500,
+          "result": 2.0
+        }
+      ]
+    }
+  ],
   "colonist_diaries": [
     {
-      "colonist_id": "vega",
-      "colonist_name": "Vega Moreau",
+      "colonist_id": "mars-nova-31",
+      "colonist_name": "Nova",
       "element": "water",
       "year": 36,
-      "mood": "anxious",
-      "entry": "Year 36 \u2014 Vega Moreau (water)\nMood: anxious. Event: Unknown pathogen spreads through the hab modules.\nAction: explore. Colony morale: strained.\n"
+      "mood": "hopeful",
+      "entry": "Year 36 \u2014 Nova (water)\nMood: hopeful. Event: Critical life support component fails.\nAction: repair_hab. Colony morale: strained.\n"
     },
     {
-      "colonist_id": "sol",
-      "colonist_name": "Sol Reeves",
-      "element": "earth",
+      "colonist_id": "frost",
+      "colonist_name": "Frost Nakamura",
+      "element": "water",
       "year": 36,
-      "mood": "determined",
-      "entry": "Year 36 \u2014 Sol Reeves (earth)\nMood: determined. Event: Unknown pathogen spreads through the hab modules.\nAction: gather_food. Colony morale: strained.\n"
+      "mood": "contemplative",
+      "entry": "Year 36 \u2014 Frost Nakamura (water)\nMood: contemplative. Event: Critical life support component fails.\nAction: propose. Colony morale: strained.\n"
     },
     {
-      "colonist_id": "thresh",
-      "colonist_name": "Thresh Andersson",
-      "element": "fire",
+      "colonist_id": "nyx",
+      "colonist_name": "Nyx Patel",
+      "element": "air",
       "year": 36,
-      "mood": "determined",
-      "entry": "Year 36 \u2014 Thresh Andersson (fire)\nMood: determined. Event: Unknown pathogen spreads through the hab modules.\nAction: explore. Colony morale: strained.\n"
+      "mood": "contemplative",
+      "entry": "Year 36 \u2014 Nyx Patel (air)\nMood: contemplative. Event: Critical life support component fails.\nAction: run_subsim. Colony morale: strained.\n"
     }
   ]
 }

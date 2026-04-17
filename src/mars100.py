@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.colonist import (
-    Colonist, create_colony, STATS, SKILLS, MEMORY_CAP,
+    Colonist, create_colony, STATS, SKILLS, ELEMENTS, MEMORY_CAP,
 )
 from src.governance import (
     Proposal, Constitution, GovernanceState,
@@ -169,10 +169,10 @@ def decide_action(colonist: Colonist, resources: Resources, year: int,
     if crisis < 0.4 and rng.random() < 0.15:
         weights["propose"] = 0.6
 
-    # Sub-sim if high improvisation + coding skill
+    # Sub-sim if high improvisation + coding skill (increased frequency)
     if colonist.skill("coding") > 0.3 and colonist.stat("improvisation") > 0.4:
-        if rng.random() < 0.08:
-            weights["run_subsim"] = 0.5
+        if rng.random() < 0.15:
+            weights["run_subsim"] = 0.6
 
     # Weighted random selection
     total = sum(weights.values())
@@ -335,6 +335,7 @@ class YearResult:
     discoveries: list[str]
     subsim_log: list[dict]
     colonist_diaries: list[dict]
+    births: list[str] = field(default_factory=list)
     meta_insight: str | None = None
     simulation_awareness: dict | None = None
 
@@ -349,6 +350,7 @@ class YearResult:
             "resources": self.resources,
             "alive_count": self.alive_count,
             "dead_this_year": self.dead_this_year,
+            "births": self.births,
             "subsim_log": self.subsim_log,
             "colonist_diaries": self.colonist_diaries,
         }
@@ -405,6 +407,9 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
     # 4. Resolve intents simultaneously
     outcomes = resolve_intents(intents, colonists, resources, year, governance, rng)
 
+    # Initialize meta_insight — may be set by sub-sims or simulation awareness
+    meta_insight = None
+
     # 5. Governance phase: proposals and votes
     proposals_this_year: list[dict] = []
     proposers = [i for i in intents if i.action == "propose"]
@@ -428,6 +433,26 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
             subsim_result = _run_colonist_subsim(colonist, colonists, resources,
                                                    year, governance, rng)
             subsim_log.append(subsim_result)
+            # Extract meta-insight from deep sub-sims
+            if subsim_result.get("meta_insight") and meta_insight is None:
+                meta_insight = subsim_result["meta_insight"]
+
+    # Also run sub-sim for amendment proposals (evidence-gathering)
+    for prop_dict in proposals_this_year:
+        if prop_dict.get("kind") == "amendment":
+            proposer = next((c for c in colonists
+                             if c.id == prop_dict.get("proposer_id") and c.alive), None)
+            if proposer and len(subsim_log) < 4:
+                subsim_result = _run_colonist_subsim(proposer, colonists, resources,
+                                                       year, governance, rng)
+                subsim_log.append(subsim_result)
+
+    # 6b. Births — Mars-born colonists
+    births_this_year: list[str] = []
+    child = maybe_birth(year, colonists, resources, rng)
+    if child:
+        colonists.append(child)
+        births_this_year.append(child.id)
 
     # 7. Mortality check
     dead_this_year: list[str] = []
@@ -448,7 +473,6 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
 
     # 11. Meta-insight check (simulation awareness)
     sim_awareness = None
-    meta_insight = None
     for c in active:
         if c.alive and c.discovery_potential(year) > 0.75:
             if rng.random() < (c.discovery_potential(year) - 0.7) * 0.5:
@@ -460,7 +484,7 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
                 }
                 c.add_memory(year, "questioned if reality is a simulation", 1.0)
                 c.adjust_stat("paranoia", 0.05)
-                if year > 60 and c.subsims_run > 3:
+                if year > 60 and c.subsims_run > 3 and meta_insight is None:
                     meta_insight = (
                         f"Year {year}: {c.name} proposes that recursive "
                         f"self-modeling reveals the colony itself may be a "
@@ -493,6 +517,7 @@ def tick_year(year: int, colonists: list[Colonist], resources: Resources,
         discoveries=[o.get("discovery", "") for o in outcomes if o.get("discovery")],
         subsim_log=subsim_log,
         colonist_diaries=diaries,
+        births=births_this_year,
         meta_insight=meta_insight,
         simulation_awareness=sim_awareness,
     )
@@ -634,57 +659,218 @@ def _apply_proposal_outcome(proposal: Proposal, colonists: list[Colonist],
             })
 
 
+def _avg_trust(colonist: Colonist, colonists: list[Colonist]) -> float:
+    """Average trust a colonist has toward all living peers."""
+    living = [c for c in colonists if c.alive and c.id != colonist.id]
+    if not living:
+        return 0.0
+    return sum(colonist.trust(c.id) for c in living) / len(living)
+
+
 def _run_colonist_subsim(colonist: Colonist, colonists: list[Colonist],
                            resources: Resources, year: int,
                            governance: GovernanceState,
                            rng: random.Random) -> dict:
-    """Run a sub-simulation for a colonist to evaluate a scenario."""
-    # Build a LisPy program that models a governance decision
-    colony_state = {
-        "year": year,
-        "food": resources.food,
-        "water": resources.water,
-        "power": resources.power,
-        "alive": sum(1 for c in colonists if c.alive),
-        "morale": resources.morale,
-        "crisis": resources.crisis_level(),
-    }
+    """Run a recursive depth-aware sub-simulation for a colonist.
 
-    # The colonist constructs a simple LisPy model
-    sexpr = f"""
-    (let ((food {resources.food:.2f})
-          (water {resources.water:.2f})
-          (pop {sum(1 for c in colonists if c.alive)})
-          (crisis {resources.crisis_level():.2f}))
-      (if (> crisis 0.5)
-        (list "ration" (* food 0.8) (* water 0.7))
-        (if (> food 1.5)
-          (list "expand" (+ pop 2) food)
-          (list "maintain" pop food))))
+    Depth 1: resource evaluation (always).
+    Depth 2: governance scenario with nested (sub-sim ...) — requires
+             coding > 0.5 and 2+ prior sub-sims.
+    Depth 3: turtles-all-the-way-down meta-simulation — requires year > 50,
+             4+ sub-sims, and improvisation > 0.6.
     """
+    alive_count = sum(1 for c in colonists if c.alive)
+    crisis = resources.crisis_level()
+    avg_trust = _avg_trust(colonist, colonists)
 
-    evaluator = Evaluator(step_limit=2000, max_subsim_depth=3, year_budget=5000)
+    # Determine target depth based on colonist capability
+    target_depth = 1
+    if (colonist.skill("coding") > 0.5 and colonist.subsims_run >= 2
+            and colonist.stat("improvisation") > 0.4):
+        target_depth = 2
+    if (year > 50 and colonist.subsims_run >= 4
+            and colonist.stat("improvisation") > 0.6
+            and colonist.skill("coding") > 0.6):
+        target_depth = 3
+
+    # Build LisPy expression with appropriate nesting depth
+    if target_depth == 1:
+        sexpr = f"""
+        (let ((food {resources.food:.2f})
+              (water {resources.water:.2f})
+              (pop {alive_count})
+              (crisis {crisis:.2f}))
+          (if (> crisis 0.5)
+            (list "ration" (* food 0.8) (* water 0.7))
+            (if (> food 1.5)
+              (list "expand" (+ pop 2) food)
+              (list "maintain" pop food))))
+        """
+    elif target_depth == 2:
+        # Governance scenario: nested sub-sim models vote outcome
+        sexpr = f"""
+        (let ((food {resources.food:.2f})
+              (water {resources.water:.2f})
+              (pop {alive_count})
+              (crisis {crisis:.2f})
+              (trust {avg_trust:.2f}))
+          (let ((vote-sim (sub-sim 2
+                  (let ((support (* trust (- 1.0 crisis)))
+                        (opposition (* (- 1.0 trust) crisis)))
+                    (if (> support opposition)
+                      (list "proposal-passes" support)
+                      (list "proposal-fails" opposition))))))
+            (if (> crisis 0.7)
+              (list "emergency-ration" vote-sim (* food 0.6))
+              (list "governance-model" vote-sim trust))))
+        """
+    else:
+        # Depth 3: meta-simulation — the colonist simulates simulating
+        sexpr = f"""
+        (let ((food {resources.food:.2f})
+              (pop {alive_count})
+              (crisis {crisis:.2f})
+              (trust {avg_trust:.2f})
+              (year {year}))
+          (let ((meta (sub-sim 2
+                  (let ((inner (sub-sim 3
+                          (let ((obs-crisis {crisis:.2f})
+                                (obs-pop {alive_count}))
+                            (if (> obs-crisis 0.6)
+                              (list "collapse-risk" (* obs-crisis 1.5))
+                              (list "stable" (- 1.0 obs-crisis)))))))
+                    (list "depth-2-sees" inner
+                          (if (> trust 0.3)
+                            "cooperative"
+                            "competitive"))))))
+            (list "meta-insight" meta year
+                  (if (> crisis 0.5) "fragile" "resilient"))))
+        """
+
+    evaluator = Evaluator(step_limit=5000, max_subsim_depth=3, year_budget=10000)
     env = standard_env()
 
+    meta_insight = None
     try:
         expr = parse(sexpr.strip())
         result = evaluator.eval(expr, env)
+        # Extract meta-insight from depth-3 results
+        if target_depth == 3 and isinstance(result, list) and len(result) >= 3:
+            if result[0] == "meta-insight":
+                gov_rec = ("decentralized cooperation" if avg_trust > 0.3
+                           else "structured hierarchy")
+                fragile = result[3] if len(result) > 3 else "unknown"
+                meta_insight = (
+                    f"Year {year}: {colonist.name}'s depth-3 sub-sim reveals "
+                    f"the colony is {fragile} — recursive self-modeling suggests "
+                    f"governance should embrace {gov_rec}"
+                )
     except (LispyError, Exception) as e:
         result = f"subsim-error: {e}"
+
+    colonist.subsims_run += 1
 
     log = {
         "colonist": colonist.id,
         "year": year,
-        "depth": 1,
+        "depth": target_depth,
+        "max_depth_reached": max(
+            target_depth,
+            max((s.get("depth", 1) for s in evaluator.subsim_log), default=0)
+        ) if evaluator.subsim_log else target_depth,
         "sexpr": sexpr.strip(),
         "result": result if isinstance(result, (str, list, int, float, bool)) else str(result),
         "steps_used": evaluator.steps,
         "nested_subsims": evaluator.subsim_log,
     }
+    if meta_insight:
+        log["meta_insight"] = meta_insight
 
-    colonist.add_memory(year, f"ran sub-sim: {result}", 0.7)
+    colonist.add_memory(year, f"ran depth-{target_depth} sub-sim: {result}",
+                        0.7 + target_depth * 0.1)
     return log
 
+
+# ---------------------------------------------------------------------------
+# Mars-born colonists (births)
+# ---------------------------------------------------------------------------
+
+MARS_BORN_NAMES = [
+    "Nova", "Ares", "Lyra-M", "Zenith", "Phobos",
+    "Aurora", "Titan", "Io", "Ceres", "Vega-M",
+    "Solaris", "Luna", "Astra", "Orbit", "Cosmo",
+]
+
+_birth_counter = 0
+
+
+def reset_birth_counter() -> None:
+    """Reset the birth counter — call between simulation runs."""
+    global _birth_counter
+    _birth_counter = 0
+
+
+def maybe_birth(year: int, colonists: list[Colonist], resources: Resources,
+                rng: random.Random) -> Colonist | None:
+    """Possibly create a Mars-born colonist (young adult entering the roster).
+
+    Gates: year >= 15, alive >= 3, food > 1.2, water > 0.8.
+    Max 10 births per simulation. Inherits blended stats from two random parents.
+    Birth costs resources (food and water).
+    """
+    global _birth_counter
+
+    alive = [c for c in colonists if c.alive]
+    if year < 15 or len(alive) < 3 or _birth_counter >= 10:
+        return None
+    if resources.food <= 1.2 or resources.water <= 0.8:
+        return None
+    # Birth probability scales with colony stability
+    stability = (1.0 - resources.crisis_level()) * 0.12
+    if rng.random() > stability:
+        return None
+
+    # Pick two parents
+    parent_a, parent_b = rng.sample(alive, 2)
+
+    # Blend stats with gaussian mutation
+    child_stats: dict[str, float] = {}
+    for s in STATS:
+        avg = (parent_a.stat(s) + parent_b.stat(s)) / 2.0
+        child_stats[s] = max(0.0, min(1.0, avg + rng.gauss(0, 0.08)))
+
+    child_skills: dict[str, float] = {}
+    for s in SKILLS:
+        avg = (parent_a.skill(s) + parent_b.skill(s)) / 2.0
+        child_skills[s] = max(0.0, min(1.0, avg + rng.gauss(0, 0.06)))
+
+    name_idx = _birth_counter % len(MARS_BORN_NAMES)
+    child_id = f"mars-{MARS_BORN_NAMES[name_idx].lower()}-{year}"
+    element = rng.choice(ELEMENTS)
+
+    child = Colonist(
+        id=child_id,
+        name=MARS_BORN_NAMES[name_idx],
+        element=element,
+        stats=child_stats,
+        skills=child_skills,
+        relationships={c.id: rng.uniform(-0.1, 0.3) for c in alive},
+        memory=[{"year": year, "event": "born on Mars", "significance": 1.0}],
+        year_joined=year,
+    )
+
+    _birth_counter += 1
+    # Birth costs resources
+    resources.food -= 0.15
+    resources.water -= 0.1
+    parent_a.add_memory(year, f"child {child.name} born", 0.9)
+    parent_b.add_memory(year, f"child {child.name} born", 0.9)
+    return child
+
+
+# ---------------------------------------------------------------------------
+# Death
+# ---------------------------------------------------------------------------
 
 def _check_death(colonist: Colonist, resources: Resources, year: int,
                   rng: random.Random) -> bool:
@@ -710,11 +896,11 @@ def _check_death(colonist: Colonist, resources: Resources, year: int,
             colonist.die(year, "habitat breach")
             return True
 
-    # Age/accident (very low base rate)
+    # Age/accident (reduced base rate — colonists are trained, Mars-adapted)
     years_on_mars = year - colonist.year_joined
-    age_risk = 0.005 + years_on_mars * 0.001
+    age_risk = 0.003 + years_on_mars * 0.0005
     if rng.random() < age_risk:
-        colonist.die(year, "accident" if rng.random() < 0.7 else "natural causes")
+        colonist.die(year, "accident" if rng.random() < 0.6 else "natural causes")
         return True
 
     return False

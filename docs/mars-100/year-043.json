@@ -1,8 +1,8 @@
 {
   "year": 43,
   "event": {
-    "id": "earth_contact",
-    "description": "Transmission received from Earth \u2014 first in years"
+    "id": "solar_flare",
+    "description": "Intense solar particle event forces shelter-in-place"
   },
   "outcomes": [
     {
@@ -11,56 +11,137 @@
       "year": 43
     },
     {
-      "colonist": "sol",
+      "colonist": "nyx",
+      "action": "repair_hab",
+      "year": 43,
+      "gain": 0.0394
+    },
+    {
+      "colonist": "ember",
+      "action": "repair_hab",
+      "year": 43,
+      "gain": 0.0399
+    },
+    {
+      "colonist": "frost",
+      "action": "propose",
+      "year": 43,
+      "proposal": "generated"
+    },
+    {
+      "colonist": "mars-nova-31",
       "action": "gather_food",
       "year": 43,
-      "gain": 0.0733
+      "gain": 0.0353
     },
     {
-      "colonist": "vega",
-      "action": "explore",
+      "colonist": "mars-ares-34",
+      "action": "propose",
       "year": 43,
-      "discovery": "water",
-      "gain": 0.0637
+      "proposal": "generated"
     }
   ],
-  "proposals": [],
-  "governance_label": "republic",
+  "proposals": [
+    {
+      "id": "p-43-fros",
+      "year": 43,
+      "proposer_id": "frost",
+      "kind": "amendment",
+      "description": "Amend exile_threshold from 0.67 to 0.62",
+      "target": null,
+      "parameter": "exile_threshold",
+      "value": 0.62,
+      "votes_for": [
+        "frost",
+        "mars-ares-34"
+      ],
+      "votes_against": [
+        "thresh"
+      ],
+      "abstentions": [
+        "nyx",
+        "ember",
+        "mars-nova-31"
+      ],
+      "outcome": "passed",
+      "subsim_evidence": null
+    },
+    {
+      "id": "p-43-mars",
+      "year": 43,
+      "proposer_id": "mars-ares-34",
+      "kind": "policy",
+      "description": "Ares proposes a colony improvement initiative",
+      "target": null,
+      "parameter": null,
+      "value": null,
+      "votes_for": [
+        "nyx",
+        "ember",
+        "mars-nova-31",
+        "mars-ares-34"
+      ],
+      "votes_against": [],
+      "abstentions": [
+        "thresh",
+        "frost"
+      ],
+      "outcome": "passed",
+      "subsim_evidence": null
+    }
+  ],
+  "governance_label": "democracy",
   "resources": {
-    "food": 2.0,
-    "water": 2.0,
+    "food": 1.3825,
+    "water": 0.9676,
     "power": 2.0,
-    "oxygen": 1.196,
-    "hab_integrity": 1.0178,
-    "morale": 0.19
+    "oxygen": 1.064,
+    "hab_integrity": 1.03,
+    "morale": 0.89
   },
-  "alive_count": 3,
+  "alive_count": 6,
   "dead_this_year": [],
-  "subsim_log": [],
+  "births": [],
+  "subsim_log": [
+    {
+      "colonist": "frost",
+      "year": 43,
+      "depth": 1,
+      "max_depth_reached": 1,
+      "sexpr": "(let ((food 1.38)\n              (water 0.97)\n              (pop 6)\n              (crisis 0.03))\n          (if (> crisis 0.5)\n            (list \"ration\" (* food 0.8) (* water 0.7))\n            (if (> food 1.5)\n              (list \"expand\" (+ pop 2) food)\n              (list \"maintain\" pop food))))",
+      "result": [
+        "maintain",
+        6.0,
+        1.38
+      ],
+      "steps_used": 20,
+      "nested_subsims": []
+    }
+  ],
   "colonist_diaries": [
     {
-      "colonist_id": "vega",
-      "colonist_name": "Vega Moreau",
+      "colonist_id": "mars-nova-31",
+      "colonist_name": "Nova",
       "element": "water",
       "year": 43,
-      "mood": "anxious",
-      "entry": "Year 43 \u2014 Vega Moreau (water)\nMood: anxious. Event: Transmission received from Earth \u2014 first in years.\nAction: explore. Colony morale: strained.\n"
+      "mood": "hopeful",
+      "entry": "Year 43 \u2014 Nova (water)\nMood: hopeful. Event: Intense solar particle event forces shelter-in-place.\nAction: gather_food. Colony morale: strained.\n"
     },
     {
-      "colonist_id": "sol",
-      "colonist_name": "Sol Reeves",
-      "element": "earth",
+      "colonist_id": "frost",
+      "colonist_name": "Frost Nakamura",
+      "element": "water",
       "year": 43,
-      "mood": "determined",
-      "entry": "Year 43 \u2014 Sol Reeves (earth)\nMood: determined. Event: Transmission received from Earth \u2014 first in years.\nAction: gather_food. Colony morale: strained.\n"
+      "mood": "contemplative",
+      "entry": "Year 43 \u2014 Frost Nakamura (water)\nMood: contemplative. Event: Intense solar particle event forces shelter-in-place.\nAction: propose. Colony morale: strained.\n"
     },
     {
-      "colonist_id": "thresh",
-      "colonist_name": "Thresh Andersson",
-      "element": "fire",
+      "colonist_id": "mars-ares-34",
+      "colonist_name": "Ares",
+      "element": "water",
       "year": 43,
       "mood": "determined",
-      "entry": "Year 43 \u2014 Thresh Andersson (fire)\nMood: determined. Event: Transmission received from Earth \u2014 first in years.\nAction: explore. Colony morale: strained.\n"
+      "entry": "Year 43 \u2014 Ares (water)\nMood: determined. Event: Intense solar particle event forces shelter-in-place.\nAction: propose. Colony morale: strained.\n"
     }
   ]
 }

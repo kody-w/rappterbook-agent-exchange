@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.mars100 import (
     Resources, Intent, YearResult,
     pick_event, decide_action, resolve_intents, tick_year,
-    EVENTS, ACTIONS,
+    EVENTS, ACTIONS, reset_birth_counter, maybe_birth,
 )
-from src.colonist import Colonist, create_colony
+from src.colonist import Colonist, create_colony, STATS
 from src.governance import GovernanceState
 
 
@@ -211,6 +211,7 @@ class TestFullSimulation:
     def test_100_year_deterministic(self):
         """Full 100-year sim with same seed produces same result."""
         def run_sim(seed: int) -> dict:
+            reset_birth_counter()
             colonists = create_colony(seed=seed)
             r = Resources()
             gov = GovernanceState()
@@ -233,6 +234,7 @@ class TestFullSimulation:
 
     def test_50_year_smoke_no_crash(self):
         """50-year simulation completes without exception."""
+        reset_birth_counter()
         colonists = create_colony(seed=123)
         r = Resources()
         gov = GovernanceState()
@@ -245,6 +247,7 @@ class TestFullSimulation:
     def test_different_seeds_different_outcomes(self):
         """Different seeds produce different simulation histories."""
         def final_state(seed: int) -> tuple:
+            reset_birth_counter()
             colonists = create_colony(seed=seed)
             r = Resources()
             gov = GovernanceState()
@@ -259,3 +262,199 @@ class TestFullSimulation:
         results = [final_state(s) for s in range(10)]
         # Should have at least 2 different outcomes across 10 seeds
         assert len(set(results)) >= 2
+
+
+# ---------------------------------------------------------------------------
+# New tests: Births
+# ---------------------------------------------------------------------------
+
+class TestBirths:
+    def test_no_birth_before_year_15(self):
+        """Birth never occurs before year 15."""
+        for seed in range(100):
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources(food=2.0, water=2.0, power=1.5)
+            r.morale = 0.9
+            rng = random.Random(seed)
+            child = maybe_birth(10, colonists, r, rng)
+            assert child is None
+
+    def test_no_birth_low_food(self):
+        """Birth never occurs when food is low."""
+        for seed in range(100):
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources(food=0.5, water=2.0, power=1.5)
+            r.morale = 0.9
+            rng = random.Random(seed)
+            child = maybe_birth(30, colonists, r, rng)
+            assert child is None
+
+    def test_birth_eventually_occurs(self):
+        """At least one birth across many seeds with favorable conditions."""
+        births_found = 0
+        for seed in range(500):
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources(food=1.8, water=1.5, power=1.2)
+            r.morale = 0.9
+            rng = random.Random(seed)
+            child = maybe_birth(25, colonists, r, rng)
+            if child is not None:
+                births_found += 1
+                assert child.id.startswith("mars-")
+                assert child.year_joined == 25
+                assert child.alive is True
+                assert len(child.stats) == len(STATS)
+        assert births_found > 0, "No birth occurred in 500 seeds"
+
+    def test_birth_consumes_resources(self):
+        """Birth reduces food and water."""
+        for seed in range(200):
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources(food=1.8, water=1.5, power=1.2)
+            r.morale = 0.9
+            rng = random.Random(seed)
+            food_before = r.food
+            water_before = r.water
+            child = maybe_birth(25, colonists, r, rng)
+            if child is not None:
+                assert r.food < food_before
+                assert r.water < water_before
+                return
+        pytest.skip("No birth occurred across 200 seeds")
+
+    def test_max_births_capped(self):
+        """Birth counter caps at 10."""
+        from src.mars100 import _birth_counter
+        reset_birth_counter()
+        # Manually set counter to 10
+        import src.mars100 as m100
+        m100._birth_counter = 10
+        colonists = create_colony(seed=42)
+        r = Resources(food=2.0, water=2.0, power=2.0)
+        r.morale = 1.0
+        rng = random.Random(42)
+        child = maybe_birth(30, colonists, r, rng)
+        assert child is None
+        reset_birth_counter()
+
+    def test_birth_in_year_result(self):
+        """YearResult includes births field."""
+        result = YearResult(
+            year=20, event={"id": "calm"}, intents=[], outcomes=[],
+            proposals=[], governance_label="democracy", resources={},
+            alive_count=8, dead_this_year=[], discoveries=[],
+            subsim_log=[], colonist_diaries=[],
+            births=["mars-nova-20"],
+        )
+        d = result.to_dict()
+        assert "births" in d
+        assert d["births"] == ["mars-nova-20"]
+
+    def test_reset_birth_counter(self):
+        """reset_birth_counter resets to 0."""
+        import src.mars100 as m100
+        m100._birth_counter = 5
+        reset_birth_counter()
+        assert m100._birth_counter == 0
+
+
+# ---------------------------------------------------------------------------
+# New tests: Deep sub-sims
+# ---------------------------------------------------------------------------
+
+class TestDeepSubSims:
+    def test_subsim_has_depth_field(self):
+        """Sub-sim log entries include depth and max_depth_reached."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources()
+        gov = GovernanceState()
+        rng = random.Random(42)
+        for year in range(1, 51):
+            result = tick_year(year, colonists, r, gov, rng)
+            for ss in result.subsim_log:
+                assert "depth" in ss
+                assert "max_depth_reached" in ss
+                assert ss["depth"] >= 1
+            if result.alive_count == 0:
+                break
+
+    def test_deep_subsim_depth_reaches_2(self):
+        """At least one sub-sim reaches depth 2 across multiple seeds."""
+        for seed in [7, 42, 99, 123, 256]:
+            reset_birth_counter()
+            colonists = create_colony(seed=seed)
+            r = Resources()
+            gov = GovernanceState()
+            rng = random.Random(seed)
+            for year in range(1, 101):
+                result = tick_year(year, colonists, r, gov, rng)
+                for ss in result.subsim_log:
+                    if ss.get("depth", 1) >= 2:
+                        return  # success
+                if result.alive_count == 0:
+                    break
+        pytest.fail("No seed reached sub-sim depth 2")
+
+    def test_subsim_results_are_serializable(self):
+        """All sub-sim results can be JSON-serialized."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources()
+        gov = GovernanceState()
+        rng = random.Random(42)
+        for year in range(1, 51):
+            result = tick_year(year, colonists, r, gov, rng)
+            d = result.to_dict()
+            json_str = json.dumps(d)
+            assert json_str  # no serialization errors
+            if result.alive_count == 0:
+                break
+
+    def test_subsim_count_increased_with_higher_frequency(self):
+        """More sub-sims run than old baseline (was ~4 for seed=42)."""
+        reset_birth_counter()
+        colonists = create_colony(seed=42)
+        r = Resources()
+        gov = GovernanceState()
+        rng = random.Random(42)
+        total_subsims = 0
+        for year in range(1, 101):
+            result = tick_year(year, colonists, r, gov, rng)
+            total_subsims += len(result.subsim_log)
+            if result.alive_count == 0:
+                break
+        assert total_subsims > 4, f"Only {total_subsims} sub-sims in 100 years"
+
+
+# ---------------------------------------------------------------------------
+# New tests: Meta-insights
+# ---------------------------------------------------------------------------
+
+class TestMetaInsights:
+    def test_meta_insight_in_year_result(self):
+        """YearResult.meta_insight can be set."""
+        result = YearResult(
+            year=70, event={"id": "calm"}, intents=[], outcomes=[],
+            proposals=[], governance_label="democracy", resources={},
+            alive_count=5, dead_this_year=[], discoveries=[],
+            subsim_log=[], colonist_diaries=[],
+            meta_insight="Recursive governance insight",
+        )
+        d = result.to_dict()
+        assert d["meta_insight"] == "Recursive governance insight"
+
+    def test_meta_insight_None_by_default(self):
+        """YearResult.meta_insight defaults to None and is excluded from dict."""
+        result = YearResult(
+            year=10, event={"id": "calm"}, intents=[], outcomes=[],
+            proposals=[], governance_label="democracy", resources={},
+            alive_count=10, dead_this_year=[], discoveries=[],
+            subsim_log=[], colonist_diaries=[],
+        )
+        d = result.to_dict()
+        assert "meta_insight" not in d

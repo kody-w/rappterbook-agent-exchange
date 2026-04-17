@@ -31,9 +31,9 @@
     },
     {
       "colonist": "nyx",
-      "action": "gather_water",
+      "action": "run_subsim",
       "year": 7,
-      "gain": 0.0511
+      "subsim": "queued"
     },
     {
       "colonist": "sol",
@@ -69,16 +69,39 @@
   "proposals": [],
   "governance_label": "republic",
   "resources": {
-    "food": 0.7252,
-    "water": 0.6588,
+    "food": 0.725,
+    "water": 0.6127,
     "power": 1.4198,
     "oxygen": 0.86,
-    "hab_integrity": 1.0009,
-    "morale": 0.5477
+    "hab_integrity": 0.997,
+    "morale": 0.5428
   },
   "alive_count": 10,
   "dead_this_year": [],
-  "subsim_log": [],
+  "births": [],
+  "subsim_log": [
+    {
+      "colonist": "nyx",
+      "year": 7,
+      "depth": 2,
+      "max_depth_reached": 2,
+      "sexpr": "(let ((food 0.73)\n              (water 0.61)\n              (pop 10)\n              (crisis 0.39)\n              (trust 0.06))\n          (let ((vote-sim (sub-sim 2\n                  (let ((support (* trust (- 1.0 crisis)))\n                        (opposition (* (- 1.0 trust) crisis)))\n                    (if (> support opposition)\n                      (list \"proposal-passes\" support)\n                      (list \"proposal-fails\" opposition))))))\n            (if (> crisis 0.7)\n              (list \"emergency-ration\" vote-sim (* food 0.6))\n              (list \"governance-model\" vote-sim trust))))",
+      "result": [
+        "governance-model",
+        2.0,
+        0.06
+      ],
+      "steps_used": 18,
+      "nested_subsims": [
+        {
+          "depth": 1,
+          "steps_used": 1,
+          "budget": 2500,
+          "result": 2.0
+        }
+      ]
+    }
+  ],
   "colonist_diaries": [
     {
       "colonist_id": "lyra",
