@@ -50,6 +50,12 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences,
 )
+from src.mars100.recursive_sim import (
+    WorldSimBudget, WorldSimResult, spawn_world_sim,
+)
+from src.mars100.amendment import (
+    GovernanceEvidence, extract_governance_evidence, evaluate_amendments,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,6 +92,7 @@ class YearResult:
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
+    recursive_sims: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +116,7 @@ class YearResult:
             "economics": self.economics,
             "psychology": self.psychology,
             "behavior": self.behavior,
+            "recursive_sims": self.recursive_sims,
         }
 
 
@@ -137,10 +145,12 @@ class SimulationResult:
     final_psychology: dict = field(default_factory=dict)
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
+    total_world_sims: int = 0
+    amendment_proposals: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "9.0",
+            "_meta": {"engine": "mars-100", "version": "10.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -155,6 +165,8 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_world_sims": self.total_world_sims,
+                "amendment_proposals": len(self.amendment_proposals),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -166,6 +178,7 @@ class SimulationResult:
             "final_economics": self.final_economics,
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
+            "amendment_proposals": self.amendment_proposals,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -195,6 +208,9 @@ class Mars100Engine:
         self.psych_map: dict[str, PsychState] = {}
         self.psych_rng = random.Random(seed + 9049)
         self.behavior_map: dict[str, BehaviorProfile] = {}
+        self.recursive_rng = random.Random(seed + 11213)
+        self.world_sim_evidence: list[dict] = []
+        self.world_sim_results: list[dict] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -504,6 +520,72 @@ class Mars100Engine:
         score += (rel.trust - 0.5) * 0.3
         return score + self.rng.gauss(0, 0.15) > 0.5
 
+    def _maybe_spawn_world_sim(
+        self, colonist: "Colonist", budget: WorldSimBudget,
+        trigger: str,
+    ) -> WorldSimResult | None:
+        """Spawn a recursive world-sim if conditions are met.
+
+        Triggers:
+        - 'governance': a governance proposal is pending
+        - 'crisis': resources are critically low
+        - 'maturity': colony is mature (year > 30)
+        """
+        if not budget.can_spawn(1):
+            return None
+        chance = 0.0
+        if trigger == "governance":
+            chance = 0.3 + colonist.stats.empathy * 0.2
+        elif trigger == "crisis":
+            chance = 0.25 + colonist.stats.improvisation * 0.2
+        elif trigger == "maturity":
+            chance = 0.1 + colonist.skills.coding * 0.15
+        if self.recursive_rng.random() > chance:
+            return None
+
+        bindings = colonist.lispy_bindings()
+        bindings.update({name: getattr(self.resources, name)
+                         for name in RESOURCE_NAMES})
+        result = spawn_world_sim(
+            colonist_id=colonist.id, year=self.year,
+            parent_bindings=bindings,
+            parent_gov=self.governance.gov_type,
+            depth=1, rng=self.recursive_rng,
+            budget=budget,
+        )
+        if result.succeeded:
+            self.world_sim_results.append(result.compact_summary())
+        return result
+
+    def _extract_world_sim_evidence(self,
+                                    results: list[WorldSimResult]) -> None:
+        """Collect governance evidence from world-sim results."""
+        dicts = [r.to_dict() for r in results if r.succeeded]
+        evidence = extract_governance_evidence(dicts)
+        for ev in evidence:
+            self.world_sim_evidence.append(ev.to_dict())
+
+    def _maybe_promote_world_sim_amendment(self) -> None:
+        """Promote world-sim governance patterns to amendments."""
+        all_ev = extract_governance_evidence(
+            [{"colonist_id": e["colonist_id"], "year": e["year"],
+              "depth": e["depth"], "dominant_governance": e["gov_type"],
+              "stability_score": e["stability_score"],
+              "survived": e["survived"], "frames_run": e["frames_run"]}
+             for e in self.world_sim_evidence])
+        proposals = evaluate_amendments(all_ev)
+        for proposal in proposals:
+            amendment = {
+                "source": "world_sim",
+                "theme": proposal.gov_type,
+                "score": proposal.score,
+                "text": proposal.text,
+                "evidence_count": len(proposal.evidence),
+                "status": proposal.status,
+            }
+            if amendment not in self.promoted_insights:
+                self.promoted_insights.append(amendment)
+
     def _extract_insight(self, subsim_log: list[dict]) -> None:
         """Extract insights from deep sub-simulations (depth >= 2)."""
         for entry in subsim_log:
@@ -576,6 +658,22 @@ class Mars100Engine:
             colonist.evolve_skills(action, self.rng)
             self._maybe_spawn_subsim(colonist, events, subsim_budget, subsim_log)
 
+        # --- recursive world simulations (v10.0) ---
+        world_budget = WorldSimBudget(year=self.year)
+        world_results: list[WorldSimResult] = []
+        if self.year > 30 and active:
+            # Maturity trigger: colony is old enough for recursive self-modeling
+            for colonist in active[:3]:
+                wr = self._maybe_spawn_world_sim(colonist, world_budget, "maturity")
+                if wr is not None:
+                    world_results.append(wr)
+        if self.resources.critical() and active:
+            # Crisis trigger: resources dangerously low
+            best_coder = max(active, key=lambda c: c.skills.coding)
+            wr = self._maybe_spawn_world_sim(best_coder, world_budget, "crisis")
+            if wr is not None:
+                world_results.append(wr)
+
         gov_proposal: GovernanceProposal | None = None
         if should_propose(self.year, self.governance, self.rng) and active:
             proposer = self.rng.choice(active)
@@ -586,6 +684,10 @@ class Mars100Engine:
                                        year=self.year, bindings=proposer.lispy_bindings(),
                                        depth=1, budget=subsim_budget, log=subsim_log)
                 gov_proposal.subsim_result = gov_sim.to_dict()
+            # Governance-trigger world sim: model the proposal's consequences
+            gov_wr = self._maybe_spawn_world_sim(proposer, world_budget, "governance")
+            if gov_wr is not None:
+                world_results.append(gov_wr)
             for colonist in active:
                 if colonist.id == gov_proposal.proposer_id:
                     gov_proposal.votes_for.append(colonist.id)
@@ -863,7 +965,9 @@ class Mars100Engine:
 
         convergence = compute_value_convergence(self._active_colonists())
         self._extract_insight([s.to_dict() for s in subsim_log])
+        self._extract_world_sim_evidence(world_results)
         self._maybe_promote_insight()
+        self._maybe_promote_world_sim_amendment()
 
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
@@ -886,6 +990,7 @@ class Mars100Engine:
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
+            recursive_sims=[r.compact_summary() for r in world_results],
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -893,6 +998,7 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_world_sims = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -903,6 +1009,7 @@ class Mars100Engine:
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
             total_immigrants += len(result.immigrants)
+            total_world_sims += len(result.recursive_sims)
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -927,6 +1034,9 @@ class Mars100Engine:
             final_economics=self.economics.to_dict(),
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
+            total_world_sims=total_world_sims,
+            amendment_proposals=[p for p in self.promoted_insights
+                                 if isinstance(p, dict) and p.get("source") == "world_sim"],
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),

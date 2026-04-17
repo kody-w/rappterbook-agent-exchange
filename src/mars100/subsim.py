@@ -55,6 +55,10 @@ def _safe_serialize(value: Any) -> Any:
         return value
     if isinstance(value, list):
         return [_safe_serialize(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _safe_serialize(v) for k, v in value.items()}
+    if hasattr(value, "to_dict"):
+        return _safe_serialize(value.to_dict())
     return str(value)
 
 
