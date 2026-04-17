@@ -147,6 +147,8 @@ class Colonist:
     subsim_count: int = 0
     governance_votes: int = 0
     wallet: Wallet = field(default_factory=Wallet)
+    genome: Any = None          # genetics.Genome (None = not yet bootstrapped)
+    epigenetic_marks: Any = None  # genetics.EpigeneticMarks
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -163,12 +165,24 @@ class Colonist:
             d["death_cause"] = self.death_cause
         if self.exile_year is not None:
             d["exile_year"] = self.exile_year
+        if self.genome is not None:
+            d["genome"] = self.genome.to_dict()
+        if self.epigenetic_marks is not None:
+            d["epigenetic_marks"] = self.epigenetic_marks.to_dict()
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Colonist:
         memories = [MemoryEntry(m["year"], m["event"], m["valence"]) for m in d.get("memories", [])]
         wallet = Wallet.from_dict(d.get("wallet", {}))
+        genome = None
+        if "genome" in d:
+            from src.mars100.genetics import Genome
+            genome = Genome.from_dict(d["genome"])
+        epi_marks = None
+        if "epigenetic_marks" in d:
+            from src.mars100.genetics import EpigeneticMarks
+            epi_marks = EpigeneticMarks.from_dict(d["epigenetic_marks"])
         return cls(
             id=d["id"], name=d["name"], element=d["element"], archetype=d["archetype"],
             stats=ColonistStats.from_dict(d["stats"]), skills=ColonistSkills.from_dict(d["skills"]),
@@ -178,7 +192,7 @@ class Colonist:
             death_year=d.get("death_year"), death_cause=d.get("death_cause"),
             exile_year=d.get("exile_year"), memories=memories,
             subsim_count=d.get("subsim_count", 0), governance_votes=d.get("governance_votes", 0),
-            wallet=wallet,
+            wallet=wallet, genome=genome, epigenetic_marks=epi_marks,
         )
 
     def is_active(self) -> bool:
@@ -200,6 +214,12 @@ class Colonist:
 
     def evolve_stats(self, event_type: str, rng: random.Random) -> None:
         drift = 0.03
+        # Genome bias targets (if genome bootstrapped)
+        trait_biases: dict[str, float] = {}
+        if self.genome is not None:
+            from src.mars100.genetics import compute_trait_biases, EpigeneticMarks, TRAIT_BIAS_STRENGTH
+            marks = self.epigenetic_marks or EpigeneticMarks()
+            trait_biases = compute_trait_biases(self.genome, marks)
         for name in STAT_NAMES:
             current = getattr(self.stats, name)
             delta = rng.gauss(0, drift)
@@ -207,6 +227,11 @@ class Colonist:
             elif self.element == "water" and name == "empathy": delta += 0.005
             elif self.element == "earth" and name == "hoarding": delta += 0.005
             elif self.element == "air" and name == "improvisation": delta += 0.005
+            # Genome: nudge toward trait bias target
+            if name in trait_biases:
+                from src.mars100.genetics import TRAIT_BIAS_STRENGTH
+                target = trait_biases[name]
+                delta += TRAIT_BIAS_STRENGTH * (target - current)
             setattr(self.stats, name, max(0.0, min(1.0, current + delta)))
 
     def evolve_skills(self, action: str, rng: random.Random) -> None:
@@ -218,6 +243,12 @@ class Colonist:
         if target:
             current = getattr(self.skills, target)
             gain = rng.uniform(0.01, 0.03) * (1.0 - current)
+            # Genome aptitude: modulates learning rate
+            if self.genome is not None:
+                from src.mars100.genetics import compute_skill_aptitudes, EpigeneticMarks
+                marks = self.epigenetic_marks or EpigeneticMarks()
+                aptitudes = compute_skill_aptitudes(self.genome, marks)
+                gain *= aptitudes.get(target, 1.0)
             setattr(self.skills, target, min(1.0, current + gain))
 
     def lispy_bindings(self) -> dict[str, Any]:
@@ -293,16 +324,29 @@ def create_founding_ten(seed: int = 42) -> list[Colonist]:
 
 
 def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
-                 birth_year: int, rng: random.Random) -> Colonist:
+                 birth_year: int, rng: random.Random,
+                 mutation_rate: float = 0.02) -> Colonist:
     """Create a child colonist by blending two parents' stats/skills with mutation.
 
-    Stats are averaged from parents with gaussian noise.  Skills start near zero
-    (children must learn).  Element is randomly inherited from one parent.
+    If parents have genomes, uses proper genetic crossover with per-locus
+    independent assortment.  Otherwise falls back to stat averaging.
     """
+    from src.mars100.genetics import (
+        crossover, bootstrap_genome, EpigeneticMarks,
+        compute_trait_biases, BASE_MUTATION_RATE,
+    )
+
     name_pool = [n for n in COLONIST_NAMES]
     name = rng.choice(name_pool) if name_pool else f"Child-{child_id}"
 
     element = rng.choice([parent_a.element, parent_b.element])
+
+    # Genome crossover if both parents have genomes
+    child_genome = None
+    mutations = 0
+    if parent_a.genome is not None and parent_b.genome is not None:
+        child_genome, mutations = crossover(
+            parent_a.genome, parent_b.genome, mutation_rate, rng)
 
     stats_dict: dict[str, float] = {}
     for sn in STAT_NAMES:
@@ -321,6 +365,7 @@ def create_child(parent_a: Colonist, parent_b: Colonist, child_id: str,
         stats=ColonistStats.from_dict(stats_dict),
         skills=ColonistSkills.from_dict(skills_dict),
         decision_expr=decision_expr, birth_year=birth_year,
+        genome=child_genome, epigenetic_marks=EpigeneticMarks(),
     )
 
 

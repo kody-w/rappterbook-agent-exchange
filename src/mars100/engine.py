@@ -55,6 +55,11 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.genetics import (
+    GeneticsState, GeneticsTickResult, EpigeneticMarks,
+    bootstrap_genome, crossover, compute_mutation_rate,
+    tick_genetics as _tick_genetics,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -92,6 +97,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -116,6 +122,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "genetics": self.genetics,
         }
 
 
@@ -145,10 +152,11 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_genetics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -175,6 +183,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_genetics": self.final_genetics,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -207,6 +216,15 @@ class Mars100Engine:
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
         self.pending_ecology_mods: dict[str, float] = {}
+        self.genetics_state = GeneticsState()
+        self.genetics_rng = random.Random(seed + 12553)
+        self.epigenetic_map: dict[str, EpigeneticMarks] = {}
+        # Bootstrap genomes for founding colonists (dedicated sub-seed)
+        for c in self.colonists:
+            c.genome = bootstrap_genome(
+                c.stats.to_dict(), c.skills.to_dict(), seed, c.id)
+            c.epigenetic_marks = EpigeneticMarks()
+            self.epigenetic_map[c.id] = c.epigenetic_marks
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
         self.social.initialize(active_ids, self.rng)
@@ -401,8 +419,17 @@ class Mars100Engine:
             if self.rng.random() < birth_prob:
                 child_id = f"child-{self.next_id}"
                 self.next_id += 1
-                child = create_child(parent_a, parent_b, child_id, self.year, self.rng)
+                child = create_child(parent_a, parent_b, child_id,
+                                     self.year, self.rng,
+                                     mutation_rate=compute_mutation_rate(
+                                         self.ecology.pressure_kpa, False))
                 self.colonists.append(child)
+                # Register genome/epigenetics for child
+                if child.genome is not None:
+                    self.genetics_state.generation_count += 1
+                if child.epigenetic_marks is None:
+                    child.epigenetic_marks = EpigeneticMarks()
+                self.epigenetic_map[child.id] = child.epigenetic_marks
                 active_ids = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(child.id, active_ids, self.rng)
                 births.append({
@@ -791,6 +818,21 @@ class Mars100Engine:
             for ps in self.psych_map.values():
                 ps.stress = max(0.0, ps.stress - nature_reduction)
 
+        # --- genetics: epigenetic updates + population metrics ---
+        active_genomes = [c.genome for c in active if c.genome is not None]
+        colonist_stress = {cid: self.psych_map[cid].stress
+                           for cid in active_ids if cid in self.psych_map}
+        has_radiation = any(e.name == "solar_flare" for e in events)
+        genetics_result = _tick_genetics(
+            self.genetics_state, active_genomes, self.epigenetic_map,
+            colonist_stress, self.resources.average(),
+            has_radiation, self.genetics_rng)
+
+        # Propagate epigenetic marks back to colonists
+        for c in active:
+            if c.id in self.epigenetic_map:
+                c.epigenetic_marks = self.epigenetic_map[c.id]
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -884,6 +926,12 @@ class Mars100Engine:
                 self.next_id += 1
                 immigrant = create_immigrant(imm_id, self.year, self.earth_rng)
                 econ_endow_immigrant(immigrant)
+                # Bootstrap genome for immigrant (Earth-standard diversity)
+                immigrant.genome = bootstrap_genome(
+                    immigrant.stats.to_dict(), immigrant.skills.to_dict(),
+                    self.seed, immigrant.id)
+                immigrant.epigenetic_marks = EpigeneticMarks()
+                self.epigenetic_map[immigrant.id] = immigrant.epigenetic_marks
                 self.colonists.append(immigrant)
                 active_ids_now = [c.id for c in self._active_colonists()]
                 self.social.add_colonist(immigrant.id, active_ids_now,
@@ -929,6 +977,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            genetics=genetics_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -971,6 +1020,7 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_genetics=self.genetics_state.to_dict(),
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
