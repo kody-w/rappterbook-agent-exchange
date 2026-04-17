@@ -65,7 +65,7 @@ class TestEngineEarthIntegration:
         for yr in r.years:
             d = yr.to_dict()
             assert "earth" in d
-            assert "diplomacy" in d
+            assert "earth_events" in d
             assert "immigrants" in d
 
     def test_simulation_result_fields(self) -> None:
@@ -73,7 +73,7 @@ class TestEngineEarthIntegration:
         r = e.run()
         d = r.to_dict()
         assert "final_earth" in d
-        assert d["_meta"]["version"] == "10.0"
+        assert d["_meta"]["version"] == "11.0"
         assert "total_immigrants" in d["summary"]
 
     def test_earth_state_evolves(self) -> None:

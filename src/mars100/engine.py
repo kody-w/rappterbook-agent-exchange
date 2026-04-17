@@ -55,6 +55,10 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult,
+    tick_diplomacy, compute_bloc_pressure, compute_faction_vote_bias,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -86,7 +90,8 @@ class YearResult:
     infrastructure: dict = field(default_factory=dict)
     culture: dict = field(default_factory=dict)
     earth: dict = field(default_factory=dict)
-    diplomacy: list[dict] = field(default_factory=list)
+    earth_events: list[dict] = field(default_factory=list)
+    diplomacy: dict = field(default_factory=dict)
     immigrants: list[dict] = field(default_factory=list)
     economics: dict = field(default_factory=dict)
     psychology: dict = field(default_factory=dict)
@@ -110,6 +115,7 @@ class YearResult:
             "infrastructure": self.infrastructure,
             "culture": self.culture,
             "earth": self.earth,
+            "earth_events": self.earth_events,
             "diplomacy": self.diplomacy,
             "immigrants": self.immigrants,
             "economics": self.economics,
@@ -145,10 +151,13 @@ class SimulationResult:
     total_crises: int = 0
     final_behavior: dict = field(default_factory=dict)
     final_ecology: dict = field(default_factory=dict)
+    final_diplomacy: dict = field(default_factory=dict)
+    total_factions_formed: int = 0
+    total_schisms: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "10.0",
+            "_meta": {"engine": "mars-100", "version": "11.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -163,6 +172,8 @@ class SimulationResult:
                 "total_ships": self.total_ships,
                 "promoted_insights": len(self.promoted_insights),
                 "total_crises": self.total_crises,
+                "total_factions_formed": self.total_factions_formed,
+                "total_schisms": self.total_schisms,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -175,6 +186,7 @@ class SimulationResult:
             "final_psychology": self.final_psychology,
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
+            "final_diplomacy": self.final_diplomacy,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -206,6 +218,8 @@ class Mars100Engine:
         self.behavior_map: dict[str, BehaviorProfile] = {}
         self.ecology = EcologyState()
         self.ecology_rng = random.Random(seed + 11213)
+        self.diplo = DiplomacyState()
+        self.diplo_rng = random.Random(seed + 12553)
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -282,10 +296,12 @@ class Mars100Engine:
             psych.purpose if psych else 0.5,
             profile, ACTIONS,
         ) if psych else {}
+        diplo_pressure = compute_bloc_pressure(self.diplo, colonist.id, ACTIONS)
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
-                        + behavior_pressure.get(act, 0.0))
+                        + behavior_pressure.get(act, 0.0)
+                        + diplo_pressure.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -514,6 +530,9 @@ class Mars100Engine:
                 pass
         rel = self.social.get(colonist.id, proposal.proposer_id)
         score += (rel.trust - 0.5) * 0.3
+        # Faction loyalty bias
+        score += compute_faction_vote_bias(
+            self.diplo, colonist.id, proposal.proposer_id)
         return score + self.rng.gauss(0, 0.15) > 0.5
 
     def _extract_insight(self, subsim_log: list[dict]) -> None:
@@ -894,6 +913,16 @@ class Mars100Engine:
                     "element": immigrant.element,
                 })
 
+        # --- diplomacy: faction formation, alliances, tensions ---
+        # Ticked LATE so faction membership reflects end-of-year population
+        diplo_result = tick_diplomacy(
+            state=self.diplo,
+            active_colonists=[c.to_dict() for c in self._active_colonists()],
+            social_get=self.social.get,
+            actions=actions,
+            year=self.year,
+            rng=self.diplo_rng)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -923,7 +952,8 @@ class Mars100Engine:
             infrastructure=self.infra.to_dict(),
             culture=self.culture.summary(),
             earth=self.earth.to_dict(),
-            diplomacy=[earth_result.to_dict()],
+            earth_events=[earth_result.to_dict()],
+            diplomacy=diplo_result.to_dict(),
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
@@ -936,6 +966,7 @@ class Mars100Engine:
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
+        total_factions_formed = total_schisms = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -949,6 +980,8 @@ class Mars100Engine:
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
+            total_factions_formed += len(result.diplomacy.get("factions_formed", []))
+            total_schisms += len(result.diplomacy.get("schisms", []))
             if callback:
                 callback(result)
         return SimulationResult(
@@ -971,6 +1004,9 @@ class Mars100Engine:
             final_psychology={cid: p.to_dict() for cid, p in self.psych_map.items()},
             final_behavior={cid: b.to_dict() for cid, b in self.behavior_map.items()},
             final_ecology=self.ecology.to_dict(),
+            final_diplomacy=self.diplo.to_dict(),
+            total_factions_formed=total_factions_formed,
+            total_schisms=total_schisms,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),

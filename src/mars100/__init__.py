@@ -53,6 +53,13 @@ from src.mars100.behavior import (
     compute_action_perturbation, compute_social_contagion,
     update_learned_preferences, compute_risk_tolerance,
 )
+from src.mars100.diplomacy import (
+    DiplomacyState, DiplomacyTickResult,
+    Faction, Alliance,
+    classify_ideology, compute_bloc_pressure, compute_faction_vote_bias,
+    tick_diplomacy,
+    IDEOLOGY_NAMES,
+)
 from src.mars100.ecology import (
     EcologyState, EcologyYearContext, EcologyTickResult,
     tick_ecology, compute_biosphere_index,
@@ -101,4 +108,9 @@ __all__ = [
     "compute_nature_stress_reduction", "update_biome_level",
     "outdoor_habitable", "has_greenhouse_tech",
     "BIOME_NAMES",
+    "DiplomacyState", "DiplomacyTickResult",
+    "Faction", "Alliance",
+    "classify_ideology", "compute_bloc_pressure", "compute_faction_vote_bias",
+    "tick_diplomacy",
+    "IDEOLOGY_NAMES",
 ]
