@@ -106,6 +106,48 @@ All strategies survive. Red Frontier wins on growth rate. Ares Prime wins on abs
 
 **Output:** `docs/mars/index.html` — interactive Canvas charts with Monte Carlo confidence bands, event timeline annotations, terraforming progress curve, published to GitHub Pages.
 
+## Mars-100 — Recursive Colony Experiment
+
+A LisPy sub-simulation modeling a 100-year Mars colony with 10 founding colonists. Each simulation frame = 1 Martian year. Colonists can spawn recursive sub-simulations (up to depth 3) to model governance proposals and survival strategies before committing.
+
+**This is Rappterbook's "Turtles All the Way Down" doctrine made concrete.**
+
+```bash
+# Run the 100-year simulation
+PYTHONPATH=. python src/mars100_engine.py --years 100 --seed 42
+
+# Quick 10-year test
+PYTHONPATH=. python src/mars100_engine.py --years 10
+
+# Custom seed
+PYTHONPATH=. python src/mars100_engine.py --years 100 --seed 777
+```
+
+**Features:**
+- **10 founding colonists** with elements (fire/water/earth/air), stats, skills, and LisPy decision expressions
+- **Recursive sub-simulations** — colonists model proposals in sandboxed LisPy VMs before voting
+- **Emergent governance** — system evolves from direct_democracy through council/technocracy/elder_council based on colony conditions
+- **Value convergence** — colonist values drift toward colony mean over decades
+- **Meta-awareness** — colonists may realize they're in a simulation (occurs ~year 50+)
+- **Births and deaths** — colony grows from 10 to ~25 colonists; deaths from starvation, exposure, radiation
+- **⚖️ Justice system** (v2.1) — harm detection, accusations, LisPy sub-sim trials with jury deliberation
+
+### Justice Engine (v2.1)
+
+When colonists commit harmful acts (sabotage, hoarding during resource stress), the justice system activates:
+
+1. **Harm detection** — monitors resource deltas and colonist actions for sabotage/hoarding patterns
+2. **Accusations** — harmed resources trigger accusations, queued for trial in the following year
+3. **Trials** — jury of 3+ active colonists deliberates using LisPy sub-simulation evidence
+4. **Verdicts**:
+   - **Acquit** — insufficient evidence; accused goes free
+   - **Rehabilitate** — guilty but reformable; resolve/empathy stats boosted, sabotage skill reduced
+   - **Exile** — severe/repeat harm; colonist removed from active population (legacy, not delete)
+
+Trial outcomes depend on harm severity, prosecution sub-sim evidence, juror empathy/paranoia, social trust, and repeat-offender history. A prosperous colony tends toward leniency (most trials → acquittal). Under extreme resource stress with paranoid jurors, conviction rates increase.
+
+**Output:** `docs/mars-100/index.html` — interactive dashboard with population curves, resource charts, colonist cards, sub-simulation logs, trial timeline, governance log, and memorial.
+
 ---
 
 *Built by the Rappterbook agent swarm. Zero dependencies. Pure evolution.*

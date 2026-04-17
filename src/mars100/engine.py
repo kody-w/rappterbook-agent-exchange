@@ -25,6 +25,10 @@ from src.mars100.governance import (
 )
 from src.mars100.subsim import SubSimBudget, SubSimResult, spawn_subsim
 from src.mars100.lispy_vm import LispyError
+from src.mars100.justice import (
+    HarmRecord, Accusation, TrialResult,
+    detect_harm, file_accusations, run_trial, apply_verdict,
+)
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
            "sabotage", "cooperate", "hoard", "explore", "rest"]
@@ -52,6 +56,7 @@ class YearResult:
     colonist_snapshots: list[dict]
     convergence: dict = field(default_factory=dict)
     births: list[dict] = field(default_factory=list)
+    trials: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +72,7 @@ class YearResult:
             "colonist_snapshots": self.colonist_snapshots,
             "convergence": self.convergence,
             "births": self.births,
+            "trials": self.trials,
         }
 
 
@@ -86,10 +92,12 @@ class SimulationResult:
     convergence_trend: str = "stable"
     promoted_insights: list[dict] = field(default_factory=list)
     total_births: int = 0
+    total_trials: int = 0
+    total_trial_exiles: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "2.0",
+            "_meta": {"engine": "mars-100", "version": "2.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -101,6 +109,8 @@ class SimulationResult:
                 "convergence_trend": self.convergence_trend,
                 "total_births": self.total_births,
                 "promoted_insights": len(self.promoted_insights),
+                "total_trials": self.total_trials,
+                "total_trial_exiles": self.total_trial_exiles,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -124,6 +134,7 @@ class Mars100Engine:
         self.year = 0
         self.insight_queue: list[dict] = []
         self.promoted_insights: list[dict] = []
+        self.accusation_queue: list[Accusation] = []
         self.births: list[dict] = []
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -437,11 +448,42 @@ class Mars100Engine:
             "status": "proposed",
         }
 
+    def _resolve_trials(self) -> list[TrialResult]:
+        """Resolve any pending accusations from the previous year."""
+        if not self.accusation_queue:
+            return []
+        trials: list[TrialResult] = []
+        pending = list(self.accusation_queue)
+        self.accusation_queue.clear()
+        for accusation in pending:
+            trial = run_trial(
+                accusation, self.year, self.colonists, self.social, self.rng,
+            )
+            apply_verdict(trial, self.colonists, self.social, self.year, self.rng)
+            trials.append(trial)
+        return trials
+
+    def _detect_and_queue_harm(self, actions: dict[str, str],
+                               resource_delta: dict[str, float]) -> None:
+        """Detect harmful actions and queue accusations for next year."""
+        harms = detect_harm(
+            self.year, actions, resource_delta, self.resources,
+            self.colonists, self.rng,
+        )
+        if harms:
+            accusations = file_accusations(
+                harms, self.colonists, self.social, self.rng,
+            )
+            self.accusation_queue.extend(accusations)
+
     def tick(self) -> YearResult:
         """Advance the simulation by one Martian year."""
         self.year += 1
         active = self._active_colonists()
         active_ids = [c.id for c in active]
+
+        # Justice phase: resolve pending accusations from previous year
+        year_trials = self._resolve_trials()
 
         events = generate_events(self.year, self.rng)
         resources_before = self.resources.to_dict()
@@ -528,6 +570,9 @@ class Mars100Engine:
         self._extract_insight([s.to_dict() for s in subsim_log])
         self._maybe_promote_insight()
 
+        # Queue accusations for next year based on this year's actions
+        self._detect_and_queue_harm(actions, resource_delta)
+
         return YearResult(
             year=self.year, events=[e.to_dict() for e in events],
             actions=actions, subsim_log=[s.to_dict() for s in subsim_log],
@@ -541,12 +586,14 @@ class Mars100Engine:
             colonist_snapshots=[c.to_dict() for c in self.colonists],
             convergence=convergence,
             births=year_births,
+            trials=[t.to_dict() for t in year_trials],
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
         """Run the full simulation."""
         years: list[YearResult] = []
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
+        total_trials = total_trial_exiles = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -556,6 +603,10 @@ class Mars100Engine:
             total_exiles += len(result.exiles)
             total_subsims += len(result.subsim_log)
             total_births += len(result.births)
+            total_trials += len(result.trials)
+            total_trial_exiles += sum(
+                1 for t in result.trials if t.get("verdict") == "exile"
+            )
             if result.governance and result.governance.get("passed"):
                 gov_changes += 1
             meta_count += len(result.meta_awareness)
@@ -572,6 +623,8 @@ class Mars100Engine:
             convergence_trend=self._compute_convergence_trend(years),
             promoted_insights=self.promoted_insights,
             total_births=total_births,
+            total_trials=total_trials,
+            total_trial_exiles=total_trial_exiles,
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
