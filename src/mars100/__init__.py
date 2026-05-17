@@ -60,6 +60,11 @@ from src.mars100.diplomacy import (
     tick_diplomacy,
     IDEOLOGY_NAMES,
 )
+from src.mars100.vigil import (
+    VigilState, VigilTickResult, ChannelVitals,
+    tick_vigil, compute_revival_pressure as compute_vigil_revival_pressure,
+    DORMANCY_THRESHOLD, EXTINCTION_THRESHOLD,
+)
 from src.mars100.ecology import (
     EcologyState, EcologyYearContext, EcologyTickResult,
     tick_ecology, compute_biosphere_index,
@@ -113,4 +118,7 @@ __all__ = [
     "classify_ideology", "compute_bloc_pressure", "compute_faction_vote_bias",
     "tick_diplomacy",
     "IDEOLOGY_NAMES",
+    "VigilState", "VigilTickResult", "ChannelVitals",
+    "tick_vigil", "compute_vigil_revival_pressure",
+    "DORMANCY_THRESHOLD", "EXTINCTION_THRESHOLD",
 ]

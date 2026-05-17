@@ -59,6 +59,10 @@ from src.mars100.diplomacy import (
     DiplomacyState, DiplomacyTickResult,
     tick_diplomacy, compute_bloc_pressure, compute_faction_vote_bias,
 )
+from src.mars100.vigil import (
+    VigilState, tick_vigil,
+    compute_revival_pressure as compute_vigil_revival_pressure,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -97,6 +101,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    vigil: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +127,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "vigil": self.vigil,
         }
 
 
@@ -154,10 +160,14 @@ class SimulationResult:
     final_diplomacy: dict = field(default_factory=dict)
     total_factions_formed: int = 0
     total_schisms: int = 0
+    final_vigil: dict = field(default_factory=dict)
+    total_flatlines: int = 0
+    total_revivals: int = 0
+    total_extinctions: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "11.0",
+            "_meta": {"engine": "mars-100", "version": "12.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -174,6 +184,9 @@ class SimulationResult:
                 "total_crises": self.total_crises,
                 "total_factions_formed": self.total_factions_formed,
                 "total_schisms": self.total_schisms,
+                "total_flatlines": self.total_flatlines,
+                "total_revivals": self.total_revivals,
+                "total_extinctions": self.total_extinctions,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -187,6 +200,7 @@ class SimulationResult:
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
             "final_diplomacy": self.final_diplomacy,
+            "final_vigil": self.final_vigil,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -220,6 +234,8 @@ class Mars100Engine:
         self.ecology_rng = random.Random(seed + 11213)
         self.diplo = DiplomacyState()
         self.diplo_rng = random.Random(seed + 12553)
+        self.vigil = VigilState()
+        self.vigil_rng = random.Random(seed + 13591)
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -297,11 +313,13 @@ class Mars100Engine:
             profile, ACTIONS,
         ) if psych else {}
         diplo_pressure = compute_bloc_pressure(self.diplo, colonist.id, ACTIONS)
+        vigil_pressure = compute_vigil_revival_pressure(self.vigil, ACTIONS)
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
                         + behavior_pressure.get(act, 0.0)
-                        + diplo_pressure.get(act, 0.0))
+                        + diplo_pressure.get(act, 0.0)
+                        + vigil_pressure.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -923,6 +941,19 @@ class Mars100Engine:
             year=self.year,
             rng=self.diplo_rng)
 
+        # --- vigil: watch for dormant practices, emit revival prompts ---
+        # Ticked LAST so all other organs' activity counts as a spark.
+        vigil_result = tick_vigil(
+            state=self.vigil,
+            year=self.year,
+            active_colonists=[c.to_dict() for c in self._active_colonists()],
+            actions=actions,
+            action_channel_list=ACTIONS,
+            diplomacy=diplo_result.to_dict(),
+            culture=self.culture.to_dict(),
+            rng=self.vigil_rng,
+        )
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -959,6 +990,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            vigil=vigil_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -1007,6 +1039,10 @@ class Mars100Engine:
             final_diplomacy=self.diplo.to_dict(),
             total_factions_formed=total_factions_formed,
             total_schisms=total_schisms,
+            final_vigil=self.vigil.to_dict(),
+            total_flatlines=self.vigil.total_flatlines,
+            total_revivals=self.vigil.total_revivals,
+            total_extinctions=self.vigil.total_extinctions,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
