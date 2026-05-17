@@ -59,6 +59,9 @@ from src.mars100.diplomacy import (
     DiplomacyState, DiplomacyTickResult,
     tick_diplomacy, compute_bloc_pressure, compute_faction_vote_bias,
 )
+from src.mars100.vitals import (
+    VitalsState, tick_vitals, colony_health_report, compute_action_nudges,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -97,6 +100,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    vitals: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +126,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "vitals": self.vitals,
         }
 
 
@@ -154,10 +159,12 @@ class SimulationResult:
     final_diplomacy: dict = field(default_factory=dict)
     total_factions_formed: int = 0
     total_schisms: int = 0
+    final_vitals: dict = field(default_factory=dict)
+    total_revivals_emitted: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "11.0",
+            "_meta": {"engine": "mars-100", "version": "12.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -174,6 +181,8 @@ class SimulationResult:
                 "total_crises": self.total_crises,
                 "total_factions_formed": self.total_factions_formed,
                 "total_schisms": self.total_schisms,
+                "total_revivals_emitted": self.total_revivals_emitted,
+                "final_vitality": self.final_vitals.get("overall_vitality", 0.0),
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -187,6 +196,7 @@ class SimulationResult:
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
             "final_diplomacy": self.final_diplomacy,
+            "final_vitals": self.final_vitals,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -220,6 +230,10 @@ class Mars100Engine:
         self.ecology_rng = random.Random(seed + 11213)
         self.diplo = DiplomacyState()
         self.diplo_rng = random.Random(seed + 12553)
+        self.vitals = VitalsState()
+        self._prev_biosphere: float | None = None
+        self._prev_cohesion: float | None = None
+        self._pending_action_nudges: dict[str, float] = {}
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -297,11 +311,13 @@ class Mars100Engine:
             profile, ACTIONS,
         ) if psych else {}
         diplo_pressure = compute_bloc_pressure(self.diplo, colonist.id, ACTIONS)
+        vitals_nudges = self._pending_action_nudges
         for act in ACTIONS:
             combined = (cultural_pressure.get(act, 0.0)
                         + econ_pressure.get(act, 0.0)
                         + behavior_pressure.get(act, 0.0)
-                        + diplo_pressure.get(act, 0.0))
+                        + diplo_pressure.get(act, 0.0)
+                        + vitals_nudges.get(act, 0.0))
             if act in weights:
                 weights[act] = max(0.01, weights[act] + combined)
 
@@ -923,6 +939,38 @@ class Mars100Engine:
             year=self.year,
             rng=self.diplo_rng)
 
+        # --- vitals: homeostasis monitor over every subsystem this year ---
+        # Pure observation; runs LAST so all other organs have written.
+        # Builds a year-shaped snapshot from current subsystem state so the
+        # vitals organ doesn't have to know about engine internals.
+        vitals_input = {
+            "year": self.year,
+            "resource_delta": resource_delta,
+            "births": year_births,
+            "immigrants": year_immigrants,
+            "governance": (gov_proposal.to_dict() if gov_proposal else None),
+            "infrastructure": self.infra.to_dict(),
+            "culture": self.culture.summary(),
+            "economics": econ_result.to_dict(),
+            "diplomacy": diplo_result.to_dict(),
+            "ecology": ecology_result.to_dict(),
+            "psychology": psych_result.to_dict(),
+            "earth_events": [earth_result.to_dict()],
+            "social_cohesion": self.social.colony_cohesion(self._active_ids()),
+        }
+        vitals_result = tick_vitals(
+            state=self.vitals,
+            year=self.year,
+            year_result=vitals_input,
+            prev_ecology_biosphere=self._prev_biosphere,
+            prev_social_cohesion=self._prev_cohesion,
+        )
+        self._prev_biosphere = vitals_input["ecology"].get("biosphere_index", 0.0)
+        self._prev_cohesion = vitals_input["social_cohesion"]
+        # Feed revival pressure into NEXT year's action selection
+        self._pending_action_nudges = compute_action_nudges(
+            self.vitals, ACTIONS)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -954,6 +1002,7 @@ class Mars100Engine:
             earth=self.earth.to_dict(),
             earth_events=[earth_result.to_dict()],
             diplomacy=diplo_result.to_dict(),
+            vitals=vitals_result.to_dict(),
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
@@ -1010,6 +1059,10 @@ class Mars100Engine:
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
+            final_vitals=colony_health_report(self.vitals),
+            total_revivals_emitted=sum(
+                len(y.vitals.get("revivals", []))
+                for y in years if isinstance(y.vitals, dict)),
         )
 
     def _compute_convergence_trend(self, years: list[YearResult]) -> str:
