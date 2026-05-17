@@ -55,6 +55,9 @@ from src.mars100.ecology import (
     tick_ecology, compute_resource_modifiers as compute_ecology_modifiers,
     compute_nature_stress_reduction,
 )
+from src.mars100.channels import (
+    ChannelsState, tick_channels, compute_revival_pressure as compute_channels_pressure,
+)
 from src.mars100.diplomacy import (
     DiplomacyState, DiplomacyTickResult,
     tick_diplomacy, compute_bloc_pressure, compute_faction_vote_bias,
@@ -97,6 +100,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    channels: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -157,7 +161,7 @@ class SimulationResult:
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "11.0",
+            "_meta": {"engine": "mars-100", "version": "12.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -220,6 +224,8 @@ class Mars100Engine:
         self.ecology_rng = random.Random(seed + 11213)
         self.diplo = DiplomacyState()
         self.diplo_rng = random.Random(seed + 12553)
+        self.channels_state = ChannelsState()
+        self.channels_rng = random.Random(seed + 13841)
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -923,6 +929,18 @@ class Mars100Engine:
             year=self.year,
             rng=self.diplo_rng)
 
+        # --- channels: discourse health, flatline detection, revival prompts ---
+        # Ticked AFTER diplomacy so faction channels mirror end-of-year factions.
+        channels_result = tick_channels(
+            state=self.channels_state,
+            factions=[f.to_dict() for f in self.diplo.factions.values()],
+            actions=actions,
+            active_colonist_ids=self._active_ids(),
+            year=self.year,
+            social_get=self.social.get,
+            rng=self.channels_rng,
+        )
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -954,6 +972,7 @@ class Mars100Engine:
             earth=self.earth.to_dict(),
             earth_events=[earth_result.to_dict()],
             diplomacy=diplo_result.to_dict(),
+            channels=channels_result.to_dict(),
             immigrants=year_immigrants,
             economics=econ_result.to_dict(),
             psychology=psych_result.to_dict(),
