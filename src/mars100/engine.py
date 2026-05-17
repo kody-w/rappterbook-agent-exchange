@@ -59,6 +59,9 @@ from src.mars100.diplomacy import (
     DiplomacyState, DiplomacyTickResult,
     tick_diplomacy, compute_bloc_pressure, compute_faction_vote_bias,
 )
+from src.mars100.comm_channels import (
+    CommChannelsState, tick_comm_channels, compute_revival_pressure,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -97,6 +100,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    comm_channels: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +126,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "comm_channels": self.comm_channels,
         }
 
 
@@ -154,10 +159,13 @@ class SimulationResult:
     final_diplomacy: dict = field(default_factory=dict)
     total_factions_formed: int = 0
     total_schisms: int = 0
+    final_comm_channels: dict = field(default_factory=dict)
+    total_comm_flatlines: int = 0
+    total_comm_revival_prompts: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "11.0",
+            "_meta": {"engine": "mars-100", "version": "12.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -174,6 +182,8 @@ class SimulationResult:
                 "total_crises": self.total_crises,
                 "total_factions_formed": self.total_factions_formed,
                 "total_schisms": self.total_schisms,
+                "total_comm_flatlines": self.total_comm_flatlines,
+                "total_comm_revival_prompts": self.total_comm_revival_prompts,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -187,6 +197,7 @@ class SimulationResult:
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
             "final_diplomacy": self.final_diplomacy,
+            "final_comm_channels": self.final_comm_channels,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -220,6 +231,8 @@ class Mars100Engine:
         self.ecology_rng = random.Random(seed + 11213)
         self.diplo = DiplomacyState()
         self.diplo_rng = random.Random(seed + 12553)
+        self.comm_channels = CommChannelsState()
+        self.comm_rng = random.Random(seed + 14401)
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -923,6 +936,22 @@ class Mars100Engine:
             year=self.year,
             rng=self.diplo_rng)
 
+        # --- comm channels: per-pair communication health, flatline detection ---
+        # Ticked AFTER diplomacy so faction membership feeds the contact signal
+        active_ids_for_comm = [c.id for c in self._active_colonists()]
+        faction_membership: dict[str, str] = {}
+        for fac_id, faction in self.diplo.factions.items():
+            for member_id in getattr(faction, "members", []):
+                faction_membership[member_id] = fac_id
+        comm_result = tick_comm_channels(
+            state=self.comm_channels,
+            active_ids=active_ids_for_comm,
+            actions=actions,
+            social_get=self.social.get,
+            faction_membership=faction_membership,
+            year=self.year,
+            rng=self.comm_rng)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -959,6 +988,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            comm_channels=comm_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -967,6 +997,7 @@ class Mars100Engine:
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
         total_factions_formed = total_schisms = 0
+        total_comm_flatlines = total_comm_revival_prompts = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -982,6 +1013,9 @@ class Mars100Engine:
             meta_count += len(result.meta_awareness)
             total_factions_formed += len(result.diplomacy.get("factions_formed", []))
             total_schisms += len(result.diplomacy.get("schisms", []))
+            total_comm_flatlines += len(result.comm_channels.get("flatlined", []))
+            total_comm_revival_prompts += len(
+                result.comm_channels.get("revival_prompts", []))
             if callback:
                 callback(result)
         return SimulationResult(
@@ -1007,6 +1041,9 @@ class Mars100Engine:
             final_diplomacy=self.diplo.to_dict(),
             total_factions_formed=total_factions_formed,
             total_schisms=total_schisms,
+            final_comm_channels=self.comm_channels.to_dict(),
+            total_comm_flatlines=total_comm_flatlines,
+            total_comm_revival_prompts=total_comm_revival_prompts,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
