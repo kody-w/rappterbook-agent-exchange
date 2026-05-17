@@ -60,6 +60,21 @@ from src.mars100.diplomacy import (
     tick_diplomacy,
     IDEOLOGY_NAMES,
 )
+from src.mars100.comm_channels import (
+    Channel as CommChannel, CommChannelsState, CommChannelsTickResult,
+    RevivalPrompt as CommRevivalPrompt,
+    tick_comm_channels, compute_vitality, classify_status,
+    infer_contacts, generate_revival_prompt, compute_revival_pressure,
+    compute_colony_comm_health, pair_key,
+    FLATLINE_SILENCE_YEARS, FADING_SILENCE_YEARS,
+    MAX_REVIVAL_PROMPTS_PER_TICK,
+    STATUS_VITAL as CHANNEL_STATUS_VITAL,
+    STATUS_FADING as CHANNEL_STATUS_FADING,
+    STATUS_FLATLINED as CHANNEL_STATUS_FLATLINED,
+    STATUS_REVIVED as CHANNEL_STATUS_REVIVED,
+    STATUS_DORMANT as CHANNEL_STATUS_DORMANT,
+    STATUS_INACTIVE as CHANNEL_STATUS_INACTIVE,
+)
 from src.mars100.ecology import (
     EcologyState, EcologyYearContext, EcologyTickResult,
     tick_ecology, compute_biosphere_index,
@@ -113,4 +128,14 @@ __all__ = [
     "classify_ideology", "compute_bloc_pressure", "compute_faction_vote_bias",
     "tick_diplomacy",
     "IDEOLOGY_NAMES",
+    "CommChannel", "CommChannelsState", "CommChannelsTickResult",
+    "CommRevivalPrompt",
+    "tick_comm_channels", "compute_vitality", "classify_status",
+    "infer_contacts", "generate_revival_prompt", "compute_revival_pressure",
+    "compute_colony_comm_health", "pair_key",
+    "FLATLINE_SILENCE_YEARS", "FADING_SILENCE_YEARS",
+    "MAX_REVIVAL_PROMPTS_PER_TICK",
+    "CHANNEL_STATUS_VITAL", "CHANNEL_STATUS_FADING",
+    "CHANNEL_STATUS_FLATLINED", "CHANNEL_STATUS_REVIVED",
+    "CHANNEL_STATUS_DORMANT", "CHANNEL_STATUS_INACTIVE",
 ]
