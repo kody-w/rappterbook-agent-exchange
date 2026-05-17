@@ -73,7 +73,7 @@ class TestEngineEarthIntegration:
         r = e.run()
         d = r.to_dict()
         assert "final_earth" in d
-        assert d["_meta"]["version"] == "11.0"
+        assert d["_meta"]["version"] == "12.0"
         assert "total_immigrants" in d["summary"]
 
     def test_earth_state_evolves(self) -> None:
@@ -123,7 +123,8 @@ class TestResourceAwareDeathCauses:
                  "medical emergency", "habitat breach",
                  "suspicious accident"}
         for cause in causes:
-            assert cause in known, f"Unknown cause: {cause}"
+            assert cause in known or cause.startswith("plague ("), \
+                f"Unknown cause: {cause}"
 
     def test_resource_deaths_present(self) -> None:
         """Over 100 years, deaths should have known causes."""
@@ -135,8 +136,10 @@ class TestResourceAwareDeathCauses:
                  "equipment malfunction", "radiation exposure",
                  "medical emergency", "habitat breach",
                  "suspicious accident"}
-        # All causes should be from the known set
-        assert causes <= known, f"Unknown causes: {causes - known}"
+        # All causes should be from the known set (plague causes accepted)
+        unknown = {c for c in causes
+                   if c not in known and not c.startswith("plague (")}
+        assert not unknown, f"Unknown causes: {unknown}"
         # At least some deaths should occur over 100 years
         assert len(causes) > 0
 
