@@ -68,6 +68,12 @@ from src.mars100.ecology import (
     outdoor_habitable, has_greenhouse_tech,
     BIOME_NAMES,
 )
+from src.mars100.vitality import (
+    VitalityState, VitalitySubject, VitalityTickResult, RevivalPrompt,
+    DORMANCY_THRESHOLD, CRITICAL_THRESHOLD,
+    TRACKED_ACTIONS, TRACKED_IDEOLOGIES, SUBJECT_TYPES,
+    gather_activity, tick_vitality, compute_colony_vitality_index,
+)
 
 __all__ = [
     "Mars100Engine", "YearResult", "SimulationResult",
@@ -113,4 +119,8 @@ __all__ = [
     "classify_ideology", "compute_bloc_pressure", "compute_faction_vote_bias",
     "tick_diplomacy",
     "IDEOLOGY_NAMES",
+    "VitalityState", "VitalitySubject", "VitalityTickResult", "RevivalPrompt",
+    "DORMANCY_THRESHOLD", "CRITICAL_THRESHOLD",
+    "TRACKED_ACTIONS", "TRACKED_IDEOLOGIES", "SUBJECT_TYPES",
+    "gather_activity", "tick_vitality", "compute_colony_vitality_index",
 ]
