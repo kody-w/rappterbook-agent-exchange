@@ -60,6 +60,16 @@ from src.mars100.diplomacy import (
     tick_diplomacy,
     IDEOLOGY_NAMES,
 )
+from src.mars100.epidemiology import (
+    Disease, HealthRecord, EpidemiologyState,
+    EpidemiologyTickResult, EpidemiologyYearContext, InfectionEvent,
+    tick_epidemiology, compute_effective_r0, compute_emergence_probability,
+    colonist_is_infected, colonist_strain, colonist_health_summary,
+    behavior_action_bias as epidemiology_action_bias,
+    diplomacy_cohesion_penalty as epidemiology_cohesion_penalty,
+    stress_bump as epidemiology_stress_bump,
+    QUARANTINE_PREVALENCE, PANDEMIC_PREVALENCE,
+)
 from src.mars100.ecology import (
     EcologyState, EcologyYearContext, EcologyTickResult,
     tick_ecology, compute_biosphere_index,
@@ -113,4 +123,11 @@ __all__ = [
     "classify_ideology", "compute_bloc_pressure", "compute_faction_vote_bias",
     "tick_diplomacy",
     "IDEOLOGY_NAMES",
+    "Disease", "HealthRecord", "EpidemiologyState",
+    "EpidemiologyTickResult", "EpidemiologyYearContext", "InfectionEvent",
+    "tick_epidemiology", "compute_effective_r0", "compute_emergence_probability",
+    "colonist_is_infected", "colonist_strain", "colonist_health_summary",
+    "epidemiology_action_bias", "epidemiology_cohesion_penalty",
+    "epidemiology_stress_bump",
+    "QUARANTINE_PREVALENCE", "PANDEMIC_PREVALENCE",
 ]

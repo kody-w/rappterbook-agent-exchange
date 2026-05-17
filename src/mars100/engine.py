@@ -59,6 +59,12 @@ from src.mars100.diplomacy import (
     DiplomacyState, DiplomacyTickResult,
     tick_diplomacy, compute_bloc_pressure, compute_faction_vote_bias,
 )
+from src.mars100.epidemiology import (
+    EpidemiologyState, EpidemiologyYearContext, EpidemiologyTickResult,
+    tick_epidemiology,
+    behavior_action_bias as epi_action_bias,
+    stress_bump as epi_stress_bump,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -97,6 +103,7 @@ class YearResult:
     psychology: dict = field(default_factory=dict)
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
+    epidemiology: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +129,7 @@ class YearResult:
             "psychology": self.psychology,
             "behavior": self.behavior,
             "ecology": self.ecology,
+            "epidemiology": self.epidemiology,
         }
 
 
@@ -154,10 +162,14 @@ class SimulationResult:
     final_diplomacy: dict = field(default_factory=dict)
     total_factions_formed: int = 0
     total_schisms: int = 0
+    final_epidemiology: dict = field(default_factory=dict)
+    total_plague_deaths: int = 0
+    total_strains_emerged: int = 0
+    total_pandemics: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "11.0",
+            "_meta": {"engine": "mars-100", "version": "12.0",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -174,6 +186,9 @@ class SimulationResult:
                 "total_crises": self.total_crises,
                 "total_factions_formed": self.total_factions_formed,
                 "total_schisms": self.total_schisms,
+                "total_plague_deaths": self.total_plague_deaths,
+                "total_strains_emerged": self.total_strains_emerged,
+                "total_pandemics": self.total_pandemics,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -187,6 +202,7 @@ class SimulationResult:
             "final_behavior": self.final_behavior,
             "final_ecology": self.final_ecology,
             "final_diplomacy": self.final_diplomacy,
+            "final_epidemiology": self.final_epidemiology,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -220,6 +236,9 @@ class Mars100Engine:
         self.ecology_rng = random.Random(seed + 11213)
         self.diplo = DiplomacyState()
         self.diplo_rng = random.Random(seed + 12553)
+        self.epi = EpidemiologyState()
+        self.epi_rng = random.Random(seed + 13367)
+        self.last_epi_result: EpidemiologyTickResult | None = None
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -430,7 +449,18 @@ class Mars100Engine:
         return births
 
     def _check_death(self, colonist: Colonist) -> str | None:
+        # Plague deaths take priority — consume from latest epi result.
+        if self.last_epi_result and self.last_epi_result.deaths:
+            for i, death in enumerate(self.last_epi_result.deaths):
+                if death.get("colonist_id") == colonist.id:
+                    self.last_epi_result.deaths.pop(i)
+                    return f"plague ({death.get('strain_name', 'unknown')})"
         rate = BASE_DEATH_RATE
+        # Infected colonists have elevated baseline mortality
+        if self.last_epi_result:
+            health = self.epi.health.get(colonist.id)
+            if health and health.status == "infected":
+                rate *= 1.4
         # Psychology: low morale increases death rate
         psych = self.psych_map.get(colonist.id)
         if psych:
@@ -810,6 +840,27 @@ class Mars100Engine:
             for ps in self.psych_map.values():
                 ps.stress = max(0.0, ps.stress - nature_reduction)
 
+        # --- epidemiology: SEIR disease model with social-graph spread ---
+        epi_ctx = EpidemiologyYearContext(
+            year=self.year,
+            active_colonists=[c.to_dict() for c in active],
+            actions=actions,
+            social_get=self.social.get,
+            medicine_level=getattr(self.resources, "medicine", 0.5),
+            population=len(active),
+            infrastructure_completed=self.infra.completed,
+            ecology_pollution=1.0 - getattr(self.ecology, "biosphere_index", 0.5),
+            immigrants_this_year=0,
+            quarantine_active=(self.governance.gov_type == "lockdown"),
+        )
+        epi_result = tick_epidemiology(self.epi, epi_ctx, self.epi_rng)
+        self.last_epi_result = epi_result
+        # Feed disease stress back into psychology
+        epi_stress = epi_stress_bump(epi_result)
+        if epi_stress > 0:
+            for ps in self.psych_map.values():
+                ps.stress = min(1.0, ps.stress + epi_stress)
+
         year_births = self._check_births()
 
         deaths: list[dict] = []
@@ -959,6 +1010,7 @@ class Mars100Engine:
             psychology=psych_result.to_dict(),
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
+            epidemiology=epi_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -967,6 +1019,7 @@ class Mars100Engine:
         total_deaths = total_exiles = total_subsims = gov_changes = meta_count = total_births = 0
         total_immigrants = 0
         total_factions_formed = total_schisms = 0
+        total_plague_deaths = total_strains_emerged = total_pandemics = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -982,6 +1035,12 @@ class Mars100Engine:
             meta_count += len(result.meta_awareness)
             total_factions_formed += len(result.diplomacy.get("factions_formed", []))
             total_schisms += len(result.diplomacy.get("schisms", []))
+            epi = result.epidemiology if isinstance(result.epidemiology, dict) else {}
+            total_plague_deaths += len(epi.get("deaths", []))
+            total_strains_emerged += sum(
+                1 for e in epi.get("events", []) if e.get("event") == "strain_emerged")
+            if epi.get("pandemic"):
+                total_pandemics += 1
             if callback:
                 callback(result)
         return SimulationResult(
@@ -1007,6 +1066,10 @@ class Mars100Engine:
             final_diplomacy=self.diplo.to_dict(),
             total_factions_formed=total_factions_formed,
             total_schisms=total_schisms,
+            final_epidemiology=self.epi.to_dict(),
+            total_plague_deaths=total_plague_deaths,
+            total_strains_emerged=total_strains_emerged,
+            total_pandemics=total_pandemics,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
