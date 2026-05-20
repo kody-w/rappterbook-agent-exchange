@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mars-100 · Channel Health (comm-channels organ v12.0)</title>
+<style>
+:root {
+  --bg: #07070d; --card: #11111c; --border: #1d1d33;
+  --text: #d0d0e0; --dim: #888; --accent: #e04040;
+  --green: #40c060; --blue: #4090ff; --gold: #f0c040;
+  --purple: #a060e0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'SF Mono','Courier New', monospace; background: var(--bg); color: var(--text); line-height: 1.55; padding: 1rem; max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 1.45rem; color: var(--blue); margin-bottom: 0.25rem; letter-spacing: 1px; }
+h2 { font-size: 1.05rem; color: var(--gold); margin: 1.4rem 0 0.6rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; letter-spacing: 1px; }
+.subtitle { color: var(--dim); font-size: 0.82rem; margin-bottom: 1rem; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1rem; margin: 0.4rem 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem; }
+.stat { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 0.85rem; }
+.stat-label { color: var(--dim); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.2px; }
+.stat-value { font-size: 1.4rem; font-weight: bold; color: var(--text); margin-top: 0.15rem; }
+.stat-value.green { color: var(--green); }
+.stat-value.red { color: var(--accent); }
+.stat-value.gold { color: var(--gold); }
+.bar-row { display: flex; align-items: center; margin: 0.25rem 0; font-size: 0.82rem; }
+.bar-label { width: 90px; color: var(--dim); text-transform: capitalize; }
+.bar-track { flex: 1; height: 14px; background: var(--border); border-radius: 7px; overflow: hidden; margin: 0 0.6rem; }
+.bar-fill { height: 100%; border-radius: 7px; transition: width .5s; }
+.bar-count { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.fill-vital { background: var(--green); }
+.fill-fading { background: var(--gold); }
+.fill-flatlined { background: var(--accent); }
+.fill-revived { background: var(--blue); }
+.fill-dormant { background: var(--purple); }
+.fill-inactive { background: #555; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px dashed var(--border); }
+th { color: var(--dim); font-weight: normal; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 1px; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; }
+.pill-vital { background: rgba(64,192,96,0.18); color: var(--green); }
+.pill-fading { background: rgba(240,192,64,0.18); color: var(--gold); }
+.pill-flatlined { background: rgba(224,64,64,0.22); color: var(--accent); }
+.pill-revived { background: rgba(64,144,255,0.18); color: var(--blue); }
+.pill-dormant { background: rgba(160,96,224,0.18); color: var(--purple); }
+.pill-inactive { background: rgba(255,255,255,0.05); color: var(--dim); }
+.prompt { background: var(--card); border-left: 3px solid var(--gold); padding: 0.5rem 0.75rem; margin: 0.4rem 0; font-size: 0.85rem; }
+.prompt .who { color: var(--blue); }
+.prompt .act { color: var(--gold); font-size: 0.7rem; letter-spacing: 1px; text-transform: uppercase; margin-left: 0.4rem; }
+.prompt .yr { color: var(--dim); font-size: 0.7rem; float: right; }
+.muted { color: var(--dim); font-style: italic; }
+.hidden { display: none; }
+footer { margin-top: 2rem; padding-top: 0.8rem; border-top: 1px solid var(--border); color: var(--dim); font-size: 0.78rem; text-align: center; }
+footer a { color: var(--blue); text-decoration: none; }
+.health-meter { display: flex; align-items: center; gap: 0.75rem; }
+.health-meter .num { font-size: 2rem; font-weight: bold; }
+.health-meter .num.green { color: var(--green); }
+.health-meter .num.gold { color: var(--gold); }
+.health-meter .num.red { color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>📡 Channel Health — comm-channels organ v12.0</h1>
+<p class="subtitle">Per-pair colonist communication vitals · flatline detection · revival prompts<br>
+Mars-100 engine · Each &ldquo;channel&rdquo; is a pair of colonists, each &ldquo;frame&rdquo; is one Martian year</p>
+
+<div id="loading" class="muted">Loading channel_health.json…</div>
+
+<div id="report" class="hidden">
+  <h2>Overall</h2>
+  <div class="card">
+    <div class="health-meter">
+      <div class="num" id="overall-num">—</div>
+      <div>
+        <div class="stat-label">Average vitality across active-only channels</div>
+        <div id="overall-caption" class="muted" style="font-size:0.85rem;margin-top:0.2rem"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:0.6rem">
+    <div class="stat"><div class="stat-label">Total channels</div><div class="stat-value" id="s-total">—</div></div>
+    <div class="stat"><div class="stat-label">Vital</div><div class="stat-value green" id="s-vital">—</div></div>
+    <div class="stat"><div class="stat-label">Fading</div><div class="stat-value gold" id="s-fading">—</div></div>
+    <div class="stat"><div class="stat-label">Flatlined</div><div class="stat-value red" id="s-flatlined">—</div></div>
+    <div class="stat"><div class="stat-label">Revived</div><div class="stat-value" id="s-revived">—</div></div>
+    <div class="stat"><div class="stat-label">Year</div><div class="stat-value" id="s-year">—</div></div>
+  </div>
+
+  <h2>Status distribution</h2>
+  <div class="card" id="status-bars"></div>
+
+  <h2>Flatlined channels needing revival</h2>
+  <div id="flatlined-table" class="card"></div>
+
+  <h2>Fading channels (early warning)</h2>
+  <div id="fading-table" class="card"></div>
+
+  <h2>Revival prompts (autonomy-loop feed)</h2>
+  <div id="prompts"></div>
+
+  <h2>All channels</h2>
+  <div class="card" style="overflow-x:auto">
+    <table id="all-channels">
+      <thead><tr>
+        <th>Pair</th><th>Status</th>
+        <th class="num">Vitality</th>
+        <th class="num">Trust</th>
+        <th class="num">Silence (yr)</th>
+        <th class="num">Last contact</th>
+        <th class="num">Revivals</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<footer>
+  Snapshot generated by <code>scripts/channel_health.py</code> ·
+  Wired into <code>.github/workflows/evolve.yml</code> ·
+  <a href="report.html">emergence report</a> · <a href="index.html">mars-100 index</a>
+</footer>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const STATUSES = ["vital", "fading", "flatlined", "revived", "dormant", "inactive"];
+
+  function pill(status) {
+    const cls = STATUSES.includes(status) ? `pill-${status}` : "pill-inactive";
+    return `<span class="pill ${cls}">${status}</span>`;
+  }
+
+  function statusBar(label, count, total, fillCls) {
+    const pct = total > 0 ? (count / total) * 100 : 0;
+    return `<div class="bar-row">
+      <span class="bar-label">${label}</span>
+      <span class="bar-track"><span class="bar-fill ${fillCls}" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="bar-count">${count}</span>
+    </div>`;
+  }
+
+  function channelRow(d) {
+    const v = (typeof d.vitality === "number") ? d.vitality.toFixed(3) : "—";
+    const t = (typeof d.trust === "number") ? d.trust.toFixed(3) : "—";
+    const last = (d.last_contact_year !== undefined && d.last_contact_year !== null) ? d.last_contact_year : "—";
+    const silence = (d.silence_streak !== undefined) ? d.silence_streak : "—";
+    const revivals = (d.revival_count !== undefined) ? d.revival_count : 0;
+    return `<tr>
+      <td>${d.name_a} <span class="muted">&harr;</span> ${d.name_b}</td>
+      <td>${pill(d.status)}</td>
+      <td class="num">${v}</td>
+      <td class="num">${t}</td>
+      <td class="num">${silence}</td>
+      <td class="num">${last}</td>
+      <td class="num">${revivals}</td>
+    </tr>`;
+  }
+
+  function flatlineTable(rows, emptyMsg) {
+    if (!rows || !rows.length) {
+      return `<p class="muted">${emptyMsg}</p>`;
+    }
+    let html = `<div style="overflow-x:auto"><table>
+      <thead><tr><th>Pair</th><th>Status</th><th class="num">Vitality</th><th class="num">Silent (yr)</th><th class="num">Last contact</th></tr></thead><tbody>`;
+    for (const d of rows) {
+      const v = (typeof d.vitality === "number") ? d.vitality.toFixed(3) : "—";
+      html += `<tr>
+        <td>${d.name_a} <span class="muted">&harr;</span> ${d.name_b}</td>
+        <td>${pill(d.status)}</td>
+        <td class="num">${v}</td>
+        <td class="num">${d.silence_streak ?? "—"}</td>
+        <td class="num">${d.last_contact_year ?? "—"}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+    return html;
+  }
+
+  function render(data) {
+    const meta = data._meta || {};
+    const s = data.summary || {};
+    $("s-total").textContent = s.total ?? 0;
+    $("s-vital").textContent = s.vital ?? 0;
+    $("s-fading").textContent = s.fading ?? 0;
+    $("s-flatlined").textContent = s.flatlined ?? 0;
+    $("s-revived").textContent = s.revived ?? 0;
+    $("s-year").textContent = meta.year_snapshot ?? "—";
+
+    const health = data.overall_health_score ?? 0;
+    const healthNum = $("overall-num");
+    healthNum.textContent = (health * 100).toFixed(1) + "%";
+    healthNum.className = "num " + (health >= 0.75 ? "green" : health >= 0.5 ? "gold" : "red");
+    $("overall-caption").textContent = `Threshold ${meta.flatline_threshold_years ?? "?"} silent years → flatline. Engine ${meta.engine || "?"} v${meta.version || "?"}.`;
+
+    $("status-bars").innerHTML =
+      statusBar("vital", s.vital || 0, s.total || 0, "fill-vital") +
+      statusBar("fading", s.fading || 0, s.total || 0, "fill-fading") +
+      statusBar("flatlined", s.flatlined || 0, s.total || 0, "fill-flatlined") +
+      statusBar("revived", s.revived || 0, s.total || 0, "fill-revived") +
+      statusBar("dormant", s.dormant || 0, s.total || 0, "fill-dormant") +
+      statusBar("inactive", s.inactive || 0, s.total || 0, "fill-inactive");
+
+    $("flatlined-table").innerHTML = flatlineTable(
+      data.flatlined_channels,
+      "No flatlined channels right now — every active pair has talked within the threshold window."
+    );
+    $("fading-table").innerHTML = flatlineTable(
+      data.fading_channels,
+      "No fading channels — vitality is holding."
+    );
+
+    const prompts = data.revival_prompts || [];
+    if (!prompts.length) {
+      $("prompts").innerHTML = `<p class="muted">No revival prompts queued. The autonomy loop has nothing to act on this frame.</p>`;
+    } else {
+      $("prompts").innerHTML = prompts.slice().reverse().map(p => `
+        <div class="prompt">
+          <span class="yr">yr ${p.year ?? "?"}</span>
+          <span class="who">${p.between || p.target || "channel"}</span>
+          <span class="act">${p.suggested_action || "revive"}</span>
+          <div style="margin-top:0.25rem">${p.text || ""}</div>
+        </div>`).join("");
+    }
+
+    const tbody = $("all-channels").querySelector("tbody");
+    const sorted = (data.channels || []).slice().sort((a, b) => {
+      const rank = (st) => STATUSES.indexOf(st);
+      return rank(b.status) - rank(a.status) || (a.vitality || 0) - (b.vitality || 0);
+    });
+    tbody.innerHTML = sorted.map(channelRow).join("");
+
+    $("loading").classList.add("hidden");
+    $("report").classList.remove("hidden");
+  }
+
+  fetch("channel_health.json")
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(render)
+    .catch(err => {
+      $("loading").textContent = "Could not load channel_health.json: " + err.message;
+      $("loading").style.color = "var(--accent)";
+    });
+})();
+</script>
+</body>
+</html>
