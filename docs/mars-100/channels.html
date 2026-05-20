@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Mars-100 · Comm Channels Health</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+         margin: 0; padding: 24px;
+         background: #0a0a0f; color: #d8d8e0; }
+  h1 { margin: 0 0 4px; font-size: 22px; color: #f0f0f5; }
+  .sub { color: #888; font-size: 12px; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr));
+          gap: 12px; margin-bottom: 24px; }
+  .card { background: #15151c; border: 1px solid #25252f; border-radius: 6px;
+          padding: 14px; }
+  .card .label { font-size: 11px; color: #888; text-transform: uppercase;
+                 letter-spacing: 0.06em; }
+  .card .value { font-size: 26px; font-weight: 600; margin-top: 4px; }
+  .vital     { color: #6ee7a0; }
+  .fading    { color: #f5d96e; }
+  .flatlined { color: #ff6b6b; }
+  .revived   { color: #88c4ff; }
+  .dormant   { color: #a0a0a8; }
+  .inactive  { color: #555; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
+       color: #aaa; border-bottom: 1px solid #25252f; padding-bottom: 6px;
+       margin-top: 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px;
+            border-bottom: 1px solid #1c1c25; }
+  th { color: #888; font-weight: 500; font-size: 11px;
+       text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:hover td { background: #15151c; }
+  .prompt { background: #15151c; padding: 10px 14px; margin: 6px 0;
+            border-left: 3px solid #ff6b6b; border-radius: 3px;
+            font-size: 13px; }
+  .prompt .action { color: #88c4ff; font-size: 11px;
+                     text-transform: uppercase; }
+  .meta { color: #666; font-size: 11px; }
+  .trend-rising  { color: #6ee7a0; font-weight: 600; }
+  .trend-falling { color: #ff6b6b; font-weight: 600; }
+  .trend-stable  { color: #888;    font-weight: 600; }
+  .trend-unknown { color: #555;    font-weight: 600; }
+  .empty { color: #666; font-style: italic; padding: 16px; }
+  .bar { display: inline-block; height: 6px; background: #25252f;
+         border-radius: 3px; vertical-align: middle; margin-left: 8px; }
+  .bar > span { display: block; height: 100%; border-radius: 3px;
+                background: linear-gradient(90deg,#6ee7a0,#88c4ff); }
+  a { color: #88c4ff; }
+  footer { margin-top: 32px; color: #555; font-size: 11px; }
+  #sparkline { display: block; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <h1>Comm Channels Health</h1>
+  <div class="sub" id="sub">loading…</div>
+
+  <div class="grid" id="grid"></div>
+
+  <h2>Trend (vs rolling baseline)</h2>
+  <div id="trend" class="prompt">loading…</div>
+  <svg id="sparkline" width="100%" height="60"
+       viewBox="0 0 400 60" preserveAspectRatio="none"></svg>
+
+  <h2>Flatlined channels — need revival</h2>
+  <div id="flatlined"><div class="empty">loading…</div></div>
+
+  <h2>Revival prompts (most recent)</h2>
+  <div id="prompts"><div class="empty">loading…</div></div>
+
+  <h2>Top vital channels</h2>
+  <div id="vital"><div class="empty">loading…</div></div>
+
+  <footer>
+    organ: <code>comm-channels</code> · engine v12.1 ·
+    source: <a href="channel_health.json">channel_health.json</a> ·
+    history: <a href="channel_health_history.json">channel_health_history.json</a>
+  </footer>
+
+<script>
+const STATUS_CLASS = {
+  vital:'vital', fading:'fading', flatlined:'flatlined',
+  revived:'revived', dormant:'dormant', inactive:'inactive'
+};
+
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === 'class') n.className = attrs[k];
+    else if (k === 'html') n.innerHTML = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  }
+  for (const c of kids) {
+    if (c == null) continue;
+    n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  }
+  return n;
+}
+
+async function fetchJson(path) {
+  const r = await fetch(path + '?_=' + Date.now(), {cache: 'no-store'});
+  if (!r.ok) throw new Error(path + ' ' + r.status);
+  return r.json();
+}
+
+async function load() {
+  let report, history = null;
+  try {
+    report = await fetchJson('channel_health.json');
+  } catch (e) {
+    document.getElementById('sub').textContent =
+      'channel_health.json not found — run scripts/channel_health.py';
+    return;
+  }
+  try { history = await fetchJson('channel_health_history.json'); }
+  catch (e) { /* optional */ }
+
+  const m = report._meta || {};
+  document.getElementById('sub').textContent =
+    `year ${m.year_snapshot} · generated ${m.generated} · ` +
+    `flatline threshold ${m.flatline_threshold_years}y`;
+
+  const s = report.summary || {};
+  const total = s.total || 0;
+  const cards = [
+    ['Total',     total,                                                   'meta'],
+    ['Vital',     s.vital     || 0,                                        'vital'],
+    ['Fading',    s.fading    || 0,                                        'fading'],
+    ['Flatlined', s.flatlined || 0,                                        'flatlined'],
+    ['Revived',   s.revived   || 0,                                        'revived'],
+    ['Dormant',   s.dormant   || 0,                                        'dormant'],
+    ['Inactive',  s.inactive  || 0,                                        'inactive'],
+    ['Overall',   (report.overall_health_score * 100).toFixed(1) + '%',    'vital'],
+  ];
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for (const [label, val, cls] of cards) {
+    grid.appendChild(el('div', {class:'card'},
+      el('div', {class:'label'}, label),
+      el('div', {class:'value ' + cls}, String(val))
+    ));
+  }
+
+  const trendBox = document.getElementById('trend');
+  trendBox.innerHTML = '';
+  if (history && history.trend) {
+    const t = history.trend;
+    const cls = 'trend-' + (t.direction || 'unknown');
+    trendBox.appendChild(el('span', {class: cls}, (t.direction || '?').toUpperCase() + '  '));
+    trendBox.appendChild(document.createTextNode(
+      `Δhealth ${t.delta_health >= 0 ? '+' : ''}${t.delta_health}, ` +
+      `Δflatlined ${t.delta_flatlined >= 0 ? '+' : ''}${t.delta_flatlined}  ` +
+      `(baseline of ${t.baseline_count} prior runs, ` +
+      `${history.entries ? history.entries.length : 0} total entries)`));
+    drawSparkline((history.entries || []).map(e => e.overall_health));
+  } else {
+    trendBox.innerHTML = '<span class="meta">no history yet — first run</span>';
+  }
+
+  renderChannels('flatlined', report.flatlined_channels || [], 25);
+  renderChannels('vital',
+    (report.channels || [])
+      .filter(c => c.status === 'vital' && c.a_alive && c.b_alive)
+      .sort((x, y) => y.vitality - x.vitality)
+      .slice(0, 15), 15);
+
+  const pbox = document.getElementById('prompts');
+  pbox.innerHTML = '';
+  const prompts = (report.revival_prompts || []).slice(-12).reverse();
+  if (!prompts.length) {
+    pbox.appendChild(el('div', {class:'empty'},
+      'no active revival prompts — colony is well-connected'));
+  } else {
+    for (const p of prompts) {
+      const wrap = el('div', {class:'prompt'});
+      wrap.appendChild(document.createTextNode(p.text || ''));
+      wrap.appendChild(el('br'));
+      wrap.appendChild(el('span', {class:'action'},
+        `→ ${p.suggested_action || '?'} · year ${p.year} · silent ${p.silence_years}y`));
+      pbox.appendChild(wrap);
+    }
+  }
+}
+
+function renderChannels(boxId, rows, limit) {
+  const box = document.getElementById(boxId);
+  box.innerHTML = '';
+  if (!rows.length) {
+    box.appendChild(el('div', {class:'empty'},
+      boxId === 'flatlined'
+        ? 'none — all channels above flatline threshold'
+        : 'no vital channels yet'));
+    return;
+  }
+  const tbl = el('table');
+  const head = el('tr', null,
+    el('th', null, 'Pair'),
+    el('th', null, 'Status'),
+    el('th', null, 'Vitality'),
+    el('th', null, 'Silent (y)'),
+    el('th', null, 'Last contact'),
+    el('th', null, 'Contacts')
+  );
+  tbl.appendChild(head);
+  for (const r of rows.slice(0, limit)) {
+    const cls = STATUS_CLASS[r.status] || '';
+    const vpct = Math.max(0, Math.min(100, Math.round(r.vitality * 100)));
+    const tr = el('tr', null,
+      el('td', null, `${r.name_a} ↔ ${r.name_b}`),
+      el('td', {class: cls}, r.status),
+      el('td', {html: `${r.vitality.toFixed(2)} <span class="bar" ` +
+                       `style="width:60px"><span style="width:${vpct}%"></span></span>`}),
+      el('td', null, String(r.silence_streak)),
+      el('td', null, String(r.last_contact_year)),
+      el('td', null, `${r.total_contacts} (${r.strong_contacts} strong)`)
+    );
+    tbl.appendChild(tr);
+  }
+  box.appendChild(tbl);
+}
+
+function drawSparkline(values) {
+  const svg = document.getElementById('sparkline');
+  svg.innerHTML = '';
+  if (!values || values.length < 2) return;
+  const W = 400, H = 60, pad = 4;
+  const n = values.length;
+  const step = (W - pad * 2) / (n - 1);
+  const pts = values.map((v, i) => {
+    const x = pad + i * step;
+    const y = H - pad - (v * (H - pad * 2));
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const ns = 'http://www.w3.org/2000/svg';
+  const poly = document.createElementNS(ns, 'polyline');
+  poly.setAttribute('points', pts.join(' '));
+  poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', '#6ee7a0');
+  poly.setAttribute('stroke-width', '1.5');
+  svg.appendChild(poly);
+  // baseline at 0.5
+  const base = document.createElementNS(ns, 'line');
+  base.setAttribute('x1', pad); base.setAttribute('x2', W - pad);
+  const ymid = H - pad - 0.5 * (H - pad * 2);
+  base.setAttribute('y1', ymid); base.setAttribute('y2', ymid);
+  base.setAttribute('stroke', '#25252f');
+  base.setAttribute('stroke-dasharray', '2,3');
+  svg.insertBefore(base, poly);
+}
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
