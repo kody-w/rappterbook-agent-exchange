@@ -29,6 +29,8 @@ from src.mars100 import (
     CHANNEL_STATUS_FLATLINED, CHANNEL_STATUS_FADING, CHANNEL_STATUS_VITAL,
     CHANNEL_STATUS_REVIVED, CHANNEL_STATUS_DORMANT, CHANNEL_STATUS_INACTIVE,
     FLATLINE_SILENCE_YEARS,
+    compute_colonist_vitals, summarise_colonist_vitals,
+    colonist_vital_revival_prompts,
 )
 
 
@@ -66,14 +68,28 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
     overall_health = (sum(active_vitalities) / len(active_vitalities)
                        if active_vitalities else 1.0)
 
+    # Per-colonist comm vitals — engine v12.1 organ. Sits on top of the
+    # per-pair channel data and answers "who is drowning in silence?"
+    active_ids = [c.id for c in engine.colonists if c.is_active()]
+    name_lookup = {c.id: c.name for c in engine.colonists}
+    colonist_vitals = compute_colonist_vitals(
+        active_ids, state.channels, names=name_lookup)
+    colonist_vital_dicts = [v.to_dict() for v in colonist_vitals]
+    vitals_summary = summarise_colonist_vitals(colonist_vitals)
+    vital_prompts = colonist_vital_revival_prompts(
+        colonist_vitals, year=year, max_prompts=5)
+
+    combined_prompts = list(state.revival_log[-25:]) + vital_prompts
+
     return {
         "_meta": {
             "organ": "comm-channels",
             "engine": "mars-100",
-            "version": "12.0",
+            "version": "12.1",
             "generated": datetime.now(timezone.utc).isoformat(),
             "year_snapshot": year,
             "flatline_threshold_years": FLATLINE_SILENCE_YEARS,
+            "sub_organs": ["comm-channels", "colonist-comm-vitals"],
         },
         "summary": summary,
         "overall_health_score": round(overall_health, 4),
@@ -82,7 +98,9 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
         "flatlined_channels": flatlined,
         "fading_channels": fading,
         "channels": per_channel,
-        "revival_prompts": list(state.revival_log[-25:]),
+        "colonist_vitals_summary": vitals_summary,
+        "colonist_vitals": colonist_vital_dicts,
+        "revival_prompts": combined_prompts,
     }
 
 
@@ -127,6 +145,24 @@ def print_summary(report: dict) -> None:
             print(f"  - {d['name_a']}<->{d['name_b']}  silent "
                   f"{d['silence_streak']}y (last seen year "
                   f"{d['last_contact_year']})")
+    if "colonist_vitals_summary" in report:
+        cvs = report["colonist_vitals_summary"]
+        print(f"\nColonist comm vitals:")
+        print(f"  total_active:        {cvs.get('total_colonists', 0)}")
+        print(f"  healthy:             {cvs.get('healthy', 0)}")
+        print(f"  strained:            {cvs.get('strained', 0)}")
+        print(f"  isolated:            {cvs.get('isolated', 0)}")
+        print(f"  ghosted:             {cvs.get('ghosted', 0)}")
+        print(f"  lifelines:           {cvs.get('lifelines', 0)}")
+        print(f"  mean_urgency:        {cvs.get('mean_urgency', 0)}")
+        at_risk = [v for v in report.get("colonist_vitals", [])
+                   if v["classification"] != "healthy"][:5]
+        if at_risk:
+            print("\nHighest-urgency colonists:")
+            for v in at_risk:
+                lifeline = " [LIFELINE]" if v["is_lifeline"] else ""
+                print(f"  - {v['name']:20s} {v['classification']:10s} "
+                      f"urgency={v['urgency']}{lifeline}")
     if report["revival_prompts"]:
         print("\nRevival prompts (most recent):")
         for p in report["revival_prompts"][-5:]:

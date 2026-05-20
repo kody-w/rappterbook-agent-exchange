@@ -138,4 +138,14 @@ __all__ = [
     "CHANNEL_STATUS_VITAL", "CHANNEL_STATUS_FADING",
     "CHANNEL_STATUS_FLATLINED", "CHANNEL_STATUS_REVIVED",
     "CHANNEL_STATUS_DORMANT", "CHANNEL_STATUS_INACTIVE",
+    "ColonistCommVital", "compute_colonist_vitals",
+    "summarise_colonist_vitals", "colonist_vital_revival_prompts",
+    "COMM_VITALS_LIVE_STATUSES",
 ]
+
+from src.mars100.comm_vitals import (
+    ColonistCommVital, compute_colonist_vitals,
+    summarise as summarise_colonist_vitals,
+    revival_prompts as colonist_vital_revival_prompts,
+    LIVE_STATUSES as COMM_VITALS_LIVE_STATUSES,
+)
