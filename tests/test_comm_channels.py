@@ -389,3 +389,138 @@ def test_determinism():
                 rng=random.Random(seed))
         return state.to_dict()
     assert run(42) == run(42)
+
+
+# ----- prompt efficacy tracking (v12.2) ------------------------------------
+
+from src.mars100.comm_channels import (
+    compute_efficacy_rate, EFFICACY_WINDOW_YEARS,
+)
+
+
+def test_efficacy_rate_zero_with_no_revivals():
+    state = CommChannelsState()
+    assert compute_efficacy_rate(state) == 0.0
+
+
+def test_efficacy_rate_one_when_all_prompted():
+    state = CommChannelsState()
+    state.total_prompted_revivals = 3
+    state.total_organic_revivals = 0
+    assert compute_efficacy_rate(state) == 1.0
+
+
+def test_efficacy_rate_partial():
+    state = CommChannelsState()
+    state.total_prompted_revivals = 1
+    state.total_organic_revivals = 3
+    assert compute_efficacy_rate(state) == 0.25
+
+
+def test_prompt_counters_advance_when_flatlines_emit_prompts():
+    state = CommChannelsState()
+    ids = ["a", "b"]
+    for y in range(1, FLATLINE_SILENCE_YEARS + 4):
+        tick_comm_channels(state, ids,
+                            {"a": "rest", "b": "rest"},
+                            _social_get_factory(default=0.0), {},
+                            year=y, rng=random.Random(y))
+    ch = state.channels[("a", "b")]
+    assert state.total_prompts_fired >= 1
+    assert ch.prompt_count >= 1
+    assert ch.last_prompted_year > 0
+
+
+def test_prompted_revival_is_credited():
+    state = CommChannelsState()
+    ids = ["a", "b"]
+    # Phase 1: silence them into flatline so prompts fire.
+    for y in range(1, FLATLINE_SILENCE_YEARS + 3):
+        tick_comm_channels(state, ids,
+                            {"a": "rest", "b": "rest"},
+                            _social_get_factory(default=0.0), {},
+                            year=y, rng=random.Random(y))
+    assert state.total_prompts_fired >= 1
+    # Phase 2: immediate cooperate -> revival inside the efficacy window.
+    revival_year = FLATLINE_SILENCE_YEARS + 4
+    tick_comm_channels(state, ids,
+                        {"a": "cooperate", "b": "cooperate"},
+                        _social_get_factory(default=0.8), {},
+                        year=revival_year,
+                        rng=random.Random(revival_year))
+    assert state.total_prompted_revivals == 1
+    assert state.total_organic_revivals == 0
+    assert state.channels[("a", "b")].prompted_revivals == 1
+    assert compute_efficacy_rate(state) == 1.0
+
+
+def test_organic_revival_when_prompt_is_stale():
+    state = CommChannelsState()
+    ids = ["a", "b"]
+    # Force flatline + at least one prompt.
+    for y in range(1, FLATLINE_SILENCE_YEARS + 3):
+        tick_comm_channels(state, ids,
+                            {"a": "rest", "b": "rest"},
+                            _social_get_factory(default=0.0), {},
+                            year=y, rng=random.Random(y))
+    assert state.total_prompts_fired >= 1
+    ch = state.channels[("a", "b")]
+    # Manually age the prompt past the efficacy window.
+    late_year = FLATLINE_SILENCE_YEARS + 50
+    ch.last_prompted_year = late_year - (EFFICACY_WINDOW_YEARS + 2)
+    tick_comm_channels(state, ids,
+                        {"a": "cooperate", "b": "cooperate"},
+                        _social_get_factory(default=0.8), {},
+                        year=late_year, rng=random.Random(late_year))
+    assert state.total_organic_revivals == 1
+    assert state.total_prompted_revivals == 0
+
+
+def test_efficacy_is_serialized_in_state_dict():
+    state = CommChannelsState()
+    state.total_prompts_fired = 4
+    state.total_prompted_revivals = 1
+    state.total_organic_revivals = 1
+    d = state.to_dict()
+    assert d["total_prompts_fired"] == 4
+    assert d["total_prompted_revivals"] == 1
+    assert d["total_organic_revivals"] == 1
+    assert d["prompt_efficacy_rate"] == 0.5
+
+
+def test_channel_to_dict_includes_new_fields():
+    ch = Channel(a="a", b="b", born_year=0, last_contact_year=0)
+    ch.prompt_count = 2
+    ch.prompted_revivals = 1
+    ch.organic_revivals = 0
+    ch.last_prompted_year = 7
+    d = ch.to_dict()
+    assert d["prompt_count"] == 2
+    assert d["prompted_revivals"] == 1
+    assert d["organic_revivals"] == 0
+    assert d["last_prompted_year"] == 7
+
+
+def test_efficacy_invariant_totals_match_per_channel():
+    """Aggregate state totals must equal sum of per-channel counts."""
+    state = CommChannelsState()
+    ids = ["a", "b", "c", "d"]
+    actions_pool = ["rest", "cooperate", "mediate", "code"]
+    for y in range(1, 60):
+        rng = random.Random(y)
+        # Long stretches of silence punctuated by brief contact bursts.
+        if (y // 7) % 3 == 0:
+            acts = {x: "cooperate" for x in ids}
+            sg = _social_get_factory(default=0.8)
+        else:
+            acts = {x: "rest" for x in ids}
+            sg = _social_get_factory(default=0.0)
+        tick_comm_channels(state, ids, acts, sg, {}, year=y, rng=rng)
+    summed_prompted = sum(c.prompted_revivals
+                           for c in state.channels.values())
+    summed_organic = sum(c.organic_revivals
+                          for c in state.channels.values())
+    assert summed_prompted == state.total_prompted_revivals
+    assert summed_organic == state.total_organic_revivals
+    summed_fired = sum(c.prompt_count for c in state.channels.values())
+    assert summed_fired == state.total_prompts_fired

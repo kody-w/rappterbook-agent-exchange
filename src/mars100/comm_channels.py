@@ -33,6 +33,11 @@ REVIVED_GRACE_YEARS = 3
 MAX_REVIVAL_PROMPTS_PER_TICK = 6
 """Cap per year so we don't drown the action chooser."""
 
+EFFICACY_WINDOW_YEARS = 5
+"""How many years after a prompt fires we still credit a revival to it.
+Beyond this window, a revival counts as 'organic' (no prompt influence).
+This closes the feedback loop on whether revival prompts actually work."""
+
 STRONG_TRUST_THRESHOLD = 0.55
 """Trust at/above this counts as a 'passive' contact signal."""
 
@@ -61,6 +66,20 @@ REVIVAL_BLUEPRINTS = (
 
 # ----- data ----------------------------------------------------------------
 
+def compute_efficacy_rate(state: "CommChannelsState") -> float:
+    """Fraction of revivals that occurred within EFFICACY_WINDOW_YEARS of a prompt.
+
+    Returns 0.0 when there have been no revivals yet (nothing to credit).
+    1.0 means every revival followed a recent prompt; 0.0 means revivals
+    are purely organic. This is the feedback signal the autonomy loop
+    uses to know whether revival prompts are pulling their weight.
+    """
+    total = state.total_prompted_revivals + state.total_organic_revivals
+    if total == 0:
+        return 0.0
+    return round(state.total_prompted_revivals / total, 4)
+
+
 def pair_key(a: str, b: str) -> tuple[str, str]:
     """Canonical (sorted) pair key — channels are undirected."""
     if a == b:
@@ -84,6 +103,10 @@ class Channel:
     revival_count: int = 0
     last_flatline_year: int = -999
     last_revival_year: int = -999
+    last_prompted_year: int = -999
+    prompt_count: int = 0
+    prompted_revivals: int = 0
+    organic_revivals: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -97,6 +120,12 @@ class Channel:
             "status": self.status,
             "flatline_count": self.flatline_count,
             "revival_count": self.revival_count,
+            "last_flatline_year": self.last_flatline_year,
+            "last_revival_year": self.last_revival_year,
+            "last_prompted_year": self.last_prompted_year,
+            "prompt_count": self.prompt_count,
+            "prompted_revivals": self.prompted_revivals,
+            "organic_revivals": self.organic_revivals,
         }
 
 
@@ -124,6 +153,9 @@ class CommChannelsState:
     channels: dict = field(default_factory=dict)  # tuple[str,str] -> Channel
     revival_log: list = field(default_factory=list)
     flatline_log: list = field(default_factory=list)
+    total_prompts_fired: int = 0
+    total_prompted_revivals: int = 0
+    total_organic_revivals: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -131,6 +163,10 @@ class CommChannelsState:
                           for k, v in self.channels.items()},
             "revival_log": list(self.revival_log[-50:]),
             "flatline_log": list(self.flatline_log[-50:]),
+            "total_prompts_fired": self.total_prompts_fired,
+            "total_prompted_revivals": self.total_prompted_revivals,
+            "total_organic_revivals": self.total_organic_revivals,
+            "prompt_efficacy_rate": compute_efficacy_rate(self),
         }
 
 
@@ -353,6 +389,16 @@ def tick_comm_channels(
             if was_silent >= FLATLINE_SILENCE_YEARS:
                 ch.revival_count += 1
                 ch.last_revival_year = year
+                # Attribute revival to a prior prompt if one fired recently.
+                prompted = (ch.last_prompted_year >= 0 and
+                            (year - ch.last_prompted_year)
+                            <= EFFICACY_WINDOW_YEARS)
+                if prompted:
+                    ch.prompted_revivals += 1
+                    state.total_prompted_revivals += 1
+                else:
+                    ch.organic_revivals += 1
+                    state.total_organic_revivals += 1
                 revived.append("{}|{}".format(key[0], key[1]))
         else:
             # No contact this year — bump silence if both still active
@@ -392,6 +438,10 @@ def tick_comm_channels(
         prompt = generate_revival_prompt(ch, year, rng)
         revival_prompts.append(prompt)
         state.revival_log.append(prompt.to_dict())
+        # Mark the channel so we can credit any near-future revival.
+        ch.last_prompted_year = year
+        ch.prompt_count += 1
+        state.total_prompts_fired += 1
     state.revival_log = state.revival_log[-200:]
     state.flatline_log = state.flatline_log[-200:]
 

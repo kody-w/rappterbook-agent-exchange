@@ -28,7 +28,7 @@ from src.mars100 import (
     Mars100Engine,
     CHANNEL_STATUS_FLATLINED, CHANNEL_STATUS_FADING, CHANNEL_STATUS_VITAL,
     CHANNEL_STATUS_REVIVED, CHANNEL_STATUS_DORMANT, CHANNEL_STATUS_INACTIVE,
-    FLATLINE_SILENCE_YEARS,
+    FLATLINE_SILENCE_YEARS, EFFICACY_WINDOW_YEARS, compute_efficacy_rate,
 )
 
 
@@ -70,10 +70,11 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
         "_meta": {
             "organ": "comm-channels",
             "engine": "mars-100",
-            "version": "12.0",
+            "version": "12.2",
             "generated": datetime.now(timezone.utc).isoformat(),
             "year_snapshot": year,
             "flatline_threshold_years": FLATLINE_SILENCE_YEARS,
+            "efficacy_window_years": EFFICACY_WINDOW_YEARS,
         },
         "summary": summary,
         "overall_health_score": round(overall_health, 4),
@@ -83,6 +84,13 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
         "fading_channels": fading,
         "channels": per_channel,
         "revival_prompts": list(state.revival_log[-25:]),
+        "prompt_efficacy": {
+            "window_years": EFFICACY_WINDOW_YEARS,
+            "total_prompts_fired": state.total_prompts_fired,
+            "total_prompted_revivals": state.total_prompted_revivals,
+            "total_organic_revivals": state.total_organic_revivals,
+            "rate": compute_efficacy_rate(state),
+        },
     }
 
 
@@ -120,6 +128,13 @@ def print_summary(report: dict) -> None:
                        ("inactive", CHANNEL_STATUS_INACTIVE)):
         print(f"  {label:20s} {s.get(key, 0)}")
     print(f"  overall_health:      {report['overall_health_score']}")
+    eff = report.get("prompt_efficacy", {})
+    if eff:
+        print(f"  prompts_fired:       {eff.get('total_prompts_fired', 0)}")
+        print(f"  prompted_revivals:   {eff.get('total_prompted_revivals', 0)}")
+        print(f"  organic_revivals:    {eff.get('total_organic_revivals', 0)}")
+        print(f"  efficacy_rate:       {eff.get('rate', 0.0)} "
+              f"(window {eff.get('window_years', '?')}y)")
     if report["flatlined_channels"]:
         print(f"\nFlatlined channels needing revival "
               f"({len(report['flatlined_channels'])}):")

@@ -81,3 +81,29 @@ def test_summary_counts_consistent(tmp_path):
     assert sum(s.get(k, 0) for k in statuses) == s["total"]
     assert report["flatlined_count"] == len(report["flatlined_channels"])
     assert report["fading_count"] == len(report["fading_channels"])
+
+
+def test_report_includes_prompt_efficacy(tmp_path):
+    state_dir = tmp_path / "state"
+    docs_dir = tmp_path / "docs"
+    result = _run(state_dir, docs_dir, years=20, seed=4,
+                   extra_args=["--no-docs"])
+    assert result.returncode == 0, result.stderr
+    report = json.loads((state_dir / "channel_health.json").read_text())
+    assert "prompt_efficacy" in report
+    eff = report["prompt_efficacy"]
+    for k in ("window_years", "total_prompts_fired",
+              "total_prompted_revivals", "total_organic_revivals", "rate"):
+        assert k in eff
+    assert eff["window_years"] >= 1
+    assert eff["total_prompts_fired"] >= 0
+    assert 0.0 <= eff["rate"] <= 1.0
+    # Cross-check: state totals == sum across per-channel entries.
+    summed = (eff["total_prompted_revivals"]
+              + eff["total_organic_revivals"])
+    channel_revivals = sum(c.get("prompted_revivals", 0)
+                            + c.get("organic_revivals", 0)
+                            for c in report["channels"])
+    assert summed == channel_revivals
+    assert report["_meta"]["efficacy_window_years"] >= 1
+    assert report["_meta"]["version"] == "12.2"
