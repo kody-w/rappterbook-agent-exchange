@@ -29,6 +29,7 @@ from src.mars100 import (
     CHANNEL_STATUS_FLATLINED, CHANNEL_STATUS_FADING, CHANNEL_STATUS_VITAL,
     CHANNEL_STATUS_REVIVED, CHANNEL_STATUS_DORMANT, CHANNEL_STATUS_INACTIVE,
     FLATLINE_SILENCE_YEARS,
+    compute_topology, describe_topology,
 )
 
 
@@ -66,11 +67,16 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
     overall_health = (sum(active_vitalities) / len(active_vitalities)
                        if active_vitalities else 1.0)
 
+    active_ids = {c.id for c in engine.colonists if c.is_active()}
+    topology = compute_topology(state, active_ids, year=year)
+    topology_dict = topology.to_dict()
+    topology_dict["headlines"] = describe_topology(topology)
+
     return {
         "_meta": {
-            "organ": "comm-channels",
+            "organ": "comm-channels+topology",
             "engine": "mars-100",
-            "version": "12.0",
+            "version": "12.1",
             "generated": datetime.now(timezone.utc).isoformat(),
             "year_snapshot": year,
             "flatline_threshold_years": FLATLINE_SILENCE_YEARS,
@@ -83,6 +89,7 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
         "fading_channels": fading,
         "channels": per_channel,
         "revival_prompts": list(state.revival_log[-25:]),
+        "topology": topology_dict,
     }
 
 
@@ -127,6 +134,13 @@ def print_summary(report: dict) -> None:
             print(f"  - {d['name_a']}<->{d['name_b']}  silent "
                   f"{d['silence_streak']}y (last seen year "
                   f"{d['last_contact_year']})")
+    topo = report.get("topology", {})
+    if topo:
+        print(f"\nTopology:")
+        for line in topo.get("headlines", []):
+            print(f"  {line}")
+        print(f"  fragmentation_index: {topo.get('fragmentation_index')}")
+        print(f"  largest_cluster:     {topo.get('largest_component_size')}")
     if report["revival_prompts"]:
         print("\nRevival prompts (most recent):")
         for p in report["revival_prompts"][-5:]:

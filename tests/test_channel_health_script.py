@@ -42,7 +42,7 @@ def test_runs_and_writes_report(tmp_path):
               "channels", "revival_prompts"):
         assert k in report
 
-    assert report["_meta"]["organ"] == "comm-channels"
+    assert report["_meta"]["organ"].startswith("comm-channels")
     assert report["_meta"]["flatline_threshold_years"] >= 1
     assert isinstance(report["channels"], list)
     assert report["summary"]["total"] == len(report["channels"])

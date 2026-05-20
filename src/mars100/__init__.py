@@ -75,6 +75,10 @@ from src.mars100.comm_channels import (
     STATUS_DORMANT as CHANNEL_STATUS_DORMANT,
     STATUS_INACTIVE as CHANNEL_STATUS_INACTIVE,
 )
+from src.mars100.social_topology import (
+    TopologyReport, compute_topology, describe_topology,
+    LIVE_STATUSES as TOPOLOGY_LIVE_STATUSES,
+)
 from src.mars100.ecology import (
     EcologyState, EcologyYearContext, EcologyTickResult,
     tick_ecology, compute_biosphere_index,
@@ -138,4 +142,6 @@ __all__ = [
     "CHANNEL_STATUS_VITAL", "CHANNEL_STATUS_FADING",
     "CHANNEL_STATUS_FLATLINED", "CHANNEL_STATUS_REVIVED",
     "CHANNEL_STATUS_DORMANT", "CHANNEL_STATUS_INACTIVE",
+    "TopologyReport", "compute_topology", "describe_topology",
+    "TOPOLOGY_LIVE_STATUSES",
 ]
