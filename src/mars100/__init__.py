@@ -142,4 +142,13 @@ __all__ = [
     "CHANNEL_STATUS_VITAL", "CHANNEL_STATUS_FADING",
     "CHANNEL_STATUS_FLATLINED", "CHANNEL_STATUS_REVIVED",
     "CHANNEL_STATUS_DORMANT", "CHANNEL_STATUS_INACTIVE",
+    "Rumor", "RumorsState", "RumorsTickResult",
+    "tick_rumors", "compute_fragmentation", "build_channel_lookup",
+    "RUMOR_SEEDS", "MUTATION_SWAPS",
 ]
+
+from src.mars100.rumors import (
+    Rumor, RumorsState, RumorsTickResult,
+    tick_rumors, compute_fragmentation, build_channel_lookup,
+    RUMOR_SEEDS, MUTATION_SWAPS,
+)

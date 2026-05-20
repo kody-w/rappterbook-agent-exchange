@@ -62,6 +62,9 @@ from src.mars100.diplomacy import (
 from src.mars100.comm_channels import (
     CommChannelsState, tick_comm_channels, compute_revival_pressure,
 )
+from src.mars100.rumors import (
+    RumorsState, tick_rumors, build_channel_lookup,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -101,6 +104,7 @@ class YearResult:
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
     comm_channels: dict = field(default_factory=dict)
+    rumors: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -127,6 +131,7 @@ class YearResult:
             "behavior": self.behavior,
             "ecology": self.ecology,
             "comm_channels": self.comm_channels,
+            "rumors": self.rumors,
         }
 
 
@@ -237,6 +242,8 @@ class Mars100Engine:
         self.diplo_rng = random.Random(seed + 12553)
         self.comm_channels = CommChannelsState()
         self.comm_rng = random.Random(seed + 14401)
+        self.rumors = RumorsState()
+        self.rumors_rng = random.Random(seed + 15619)
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -956,6 +963,17 @@ class Mars100Engine:
             year=self.year,
             rng=self.comm_rng)
 
+        # --- rumors: information flow over the comm graph (engine v13.0) ---
+        # Vital channels carry; flatlined ones block. Rumors mutate over time.
+        rumor_lookup = build_channel_lookup(self.comm_channels)
+        rumor_result = tick_rumors(
+            state=self.rumors,
+            year=self.year,
+            active_colonist_ids=active_ids_for_comm,
+            channel_lookup=rumor_lookup,
+            rng=self.rumors_rng,
+        )
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -993,6 +1011,7 @@ class Mars100Engine:
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
             comm_channels=comm_result.to_dict(),
+            rumors=rumor_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
