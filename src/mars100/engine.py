@@ -62,6 +62,9 @@ from src.mars100.diplomacy import (
 from src.mars100.comm_channels import (
     CommChannelsState, tick_comm_channels, compute_revival_pressure,
 )
+from src.mars100.bridge_missions import (
+    BridgeMissionsState, tick_bridge_missions, parse_pair_label,
+)
 from src.mars100.colonist import create_immigrant
 
 ACTIONS = ["terraform", "farm", "mediate", "code", "pray",
@@ -101,6 +104,7 @@ class YearResult:
     behavior: dict = field(default_factory=dict)
     ecology: dict = field(default_factory=dict)
     comm_channels: dict = field(default_factory=dict)
+    bridge_missions: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -127,6 +131,7 @@ class YearResult:
             "behavior": self.behavior,
             "ecology": self.ecology,
             "comm_channels": self.comm_channels,
+            "bridge_missions": self.bridge_missions,
         }
 
 
@@ -162,10 +167,14 @@ class SimulationResult:
     final_comm_channels: dict = field(default_factory=dict)
     total_comm_flatlines: int = 0
     total_comm_revival_prompts: int = 0
+    final_bridge_missions: dict = field(default_factory=dict)
+    total_bridge_missions_spawned: int = 0
+    total_bridge_missions_succeeded: int = 0
+    total_bridge_missions_failed: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "12.0",
+            "_meta": {"engine": "mars-100", "version": "12.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -184,6 +193,9 @@ class SimulationResult:
                 "total_schisms": self.total_schisms,
                 "total_comm_flatlines": self.total_comm_flatlines,
                 "total_comm_revival_prompts": self.total_comm_revival_prompts,
+                "total_bridge_missions_spawned": self.total_bridge_missions_spawned,
+                "total_bridge_missions_succeeded": self.total_bridge_missions_succeeded,
+                "total_bridge_missions_failed": self.total_bridge_missions_failed,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -198,6 +210,7 @@ class SimulationResult:
             "final_ecology": self.final_ecology,
             "final_diplomacy": self.final_diplomacy,
             "final_comm_channels": self.final_comm_channels,
+            "final_bridge_missions": self.final_bridge_missions,
             "years": [y.to_dict() for y in self.years],
         }
 
@@ -233,6 +246,7 @@ class Mars100Engine:
         self.diplo_rng = random.Random(seed + 12553)
         self.comm_channels = CommChannelsState()
         self.comm_rng = random.Random(seed + 14401)
+        self.bridge_missions = BridgeMissionsState()
         self.pending_ecology_mods: dict[str, float] = {}
         self.next_id = 10
         active_ids = [c.id for c in self.colonists if c.is_active()]
@@ -952,6 +966,18 @@ class Mars100Engine:
             year=self.year,
             rng=self.comm_rng)
 
+        # Bridge missions — listens to comm_channels and dispatches
+        # a 3rd-party mediator for each newly flatlined pair. (v12.1)
+        bridge_result = tick_bridge_missions(
+            self.bridge_missions,
+            newly_flatlined_keys=[parse_pair_label(s)
+                                    for s in comm_result.flatlined],
+            revived_keys=[parse_pair_label(s) for s in comm_result.revived],
+            active_ids=active_ids_for_comm,
+            actions=actions,
+            social_get=self.social.get,
+            year=self.year)
+
         meta_events: list[dict] = []
         for colonist in self._active_colonists():
             meta = self._check_meta_awareness(colonist)
@@ -989,6 +1015,7 @@ class Mars100Engine:
             behavior=behavior_result.to_dict(),
             ecology=ecology_result.to_dict(),
             comm_channels=comm_result.to_dict(),
+            bridge_missions=bridge_result.to_dict(),
         )
 
     def run(self, callback: Any = None) -> SimulationResult:
@@ -998,6 +1025,7 @@ class Mars100Engine:
         total_immigrants = 0
         total_factions_formed = total_schisms = 0
         total_comm_flatlines = total_comm_revival_prompts = 0
+        total_bridge_spawned = total_bridge_succeeded = total_bridge_failed = 0
         for _ in range(self.total_years):
             if not self._active_colonists():
                 break
@@ -1016,6 +1044,10 @@ class Mars100Engine:
             total_comm_flatlines += len(result.comm_channels.get("flatlined", []))
             total_comm_revival_prompts += len(
                 result.comm_channels.get("revival_prompts", []))
+            bm = result.bridge_missions if isinstance(result.bridge_missions, dict) else {}
+            total_bridge_spawned += len(bm.get("spawned", []))
+            total_bridge_succeeded += len(bm.get("succeeded", []))
+            total_bridge_failed += len(bm.get("failed", []))
             if callback:
                 callback(result)
         return SimulationResult(
@@ -1044,6 +1076,10 @@ class Mars100Engine:
             final_comm_channels=self.comm_channels.to_dict(),
             total_comm_flatlines=total_comm_flatlines,
             total_comm_revival_prompts=total_comm_revival_prompts,
+            final_bridge_missions=self.bridge_missions.to_dict(),
+            total_bridge_missions_spawned=total_bridge_spawned,
+            total_bridge_missions_succeeded=total_bridge_succeeded,
+            total_bridge_missions_failed=total_bridge_failed,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),
