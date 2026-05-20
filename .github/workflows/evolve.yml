@@ -47,6 +47,12 @@ jobs:
       - name: Run Mars Barn (365 sols, 50 seeds MC)
         run: python3 src/main.py --sols 365 --monte-carlo 50 --quiet
 
+      - name: Snapshot channel health (Mars-100 comm channels)
+        run: python3 scripts/channel_health.py --years 30 --seed 42 --quiet
+
+      - name: Snapshot rumor diffusion (Mars-100 information flow)
+        run: python3 scripts/rumor_snapshot.py --years 30 --seed 42 --quiet
+
       - name: Commit results
         run: |
           git config user.name "dreaming-garden[bot]"
