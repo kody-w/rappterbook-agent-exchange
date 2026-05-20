@@ -162,10 +162,12 @@ class SimulationResult:
     final_comm_channels: dict = field(default_factory=dict)
     total_comm_flatlines: int = 0
     total_comm_revival_prompts: int = 0
+    total_bridge_prompts: int = 0
+    total_bridge_revivals: int = 0
 
     def to_dict(self) -> dict:
         return {
-            "_meta": {"engine": "mars-100", "version": "12.0",
+            "_meta": {"engine": "mars-100", "version": "12.1",
                       "total_years": len(self.years),
                       "generated": datetime.now(timezone.utc).isoformat()},
             "summary": {
@@ -184,6 +186,8 @@ class SimulationResult:
                 "total_schisms": self.total_schisms,
                 "total_comm_flatlines": self.total_comm_flatlines,
                 "total_comm_revival_prompts": self.total_comm_revival_prompts,
+                "total_bridge_prompts": self.total_bridge_prompts,
+                "total_bridge_revivals": self.total_bridge_revivals,
             },
             "final_colonists": self.final_colonists,
             "final_resources": self.final_resources,
@@ -1044,6 +1048,8 @@ class Mars100Engine:
             final_comm_channels=self.comm_channels.to_dict(),
             total_comm_flatlines=total_comm_flatlines,
             total_comm_revival_prompts=total_comm_revival_prompts,
+            total_bridge_prompts=self.comm_channels.total_bridge_prompts,
+            total_bridge_revivals=self.comm_channels.total_bridge_revivals,
             total_crises=sum(
                 len(y.psychology.get("crises", []))
                 for y in years if isinstance(y.psychology, dict)),

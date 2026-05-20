@@ -33,6 +33,23 @@ REVIVED_GRACE_YEARS = 3
 MAX_REVIVAL_PROMPTS_PER_TICK = 6
 """Cap per year so we don't drown the action chooser."""
 
+MAX_BRIDGE_PROMPTS_PER_TICK = 4
+"""Cap on third-party 'bridge' prompts emitted per year.
+
+A bridge prompt nominates a mutually-trusted third colonist to broker
+reconnection between a flatlined pair — friend-of-a-friend mediation.
+This complements the direct revival prompts: when A and B have gone
+silent, sometimes the answer isn't 'A, call B' but 'C, you know them
+both — bring them back together.'"""
+
+BRIDGE_TRUST_FLOOR = 0.45
+"""A bridge candidate must trust BOTH endpoints at least this much.
+Below this, the third party won't be motivated enough to mediate."""
+
+BRIDGE_COOLDOWN_YEARS = 4
+"""Don't re-nominate the same (bridge, pair) pair more often than this.
+Gives the previous nudge time to land before nagging again."""
+
 STRONG_TRUST_THRESHOLD = 0.55
 """Trust at/above this counts as a 'passive' contact signal."""
 
@@ -57,6 +74,18 @@ REVIVAL_BLUEPRINTS = (
     "{a}: bring {b} into your next cooperate action — bridge the silence.",
     "Old bond fading: {a} and {b} were close once. {n} years of silence.",
     "Mediator opening — repair {a}<->{b}, the colony's longest dead channel.",
+)
+
+BRIDGE_BLUEPRINTS = (
+    "{bridge}: you trust both {a} and {b}. Bring them back together "
+    "({n}y silent).",
+    "Triangulate: {bridge} mediates {a}<->{b} — the channel has been "
+    "dark for {n} years.",
+    "{bridge}, you're the bridge. Convene {a} and {b}, dead {n} years.",
+    "Friend-of-a-friend repair: {bridge} reconnects {a} and {b} "
+    "({n}y flatlined).",
+    "{bridge}: the colony needs a mediator. {a} and {b} have gone {n}y "
+    "without contact and you're the closest to both.",
 )
 
 # ----- data ----------------------------------------------------------------
@@ -119,11 +148,42 @@ class RevivalPrompt:
 
 
 @dataclass
+class BridgePrompt:
+    """Third-party nudge: 'You, bridge — bring A and B back together.'
+
+    Distinct from RevivalPrompt because it targets a colonist who is NOT
+    on the dead channel. The action chooser routes this to the bridge,
+    not to either endpoint. Always suggests 'mediate'."""
+    bridge: str
+    target_a: str
+    target_b: str
+    text: str
+    silence_years: int
+    bridge_trust_min: float
+    suggested_action: str
+    year: int
+
+    def to_dict(self) -> dict:
+        return {
+            "bridge": self.bridge,
+            "target_a": self.target_a, "target_b": self.target_b,
+            "text": self.text, "silence_years": self.silence_years,
+            "bridge_trust_min": round(self.bridge_trust_min, 4),
+            "suggested_action": self.suggested_action, "year": self.year,
+        }
+
+
+@dataclass
 class CommChannelsState:
     """Persistent comm-channel state, lives on the engine."""
     channels: dict = field(default_factory=dict)  # tuple[str,str] -> Channel
     revival_log: list = field(default_factory=list)
     flatline_log: list = field(default_factory=list)
+    bridge_log: list = field(default_factory=list)
+    # (bridge_id, pair_key) -> year of last bridge nomination, for cooldown.
+    bridge_last_used: dict = field(default_factory=dict)
+    total_bridge_prompts: int = 0
+    total_bridge_revivals: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -131,6 +191,10 @@ class CommChannelsState:
                           for k, v in self.channels.items()},
             "revival_log": list(self.revival_log[-50:]),
             "flatline_log": list(self.flatline_log[-50:]),
+            "bridge_log": list(self.bridge_log[-50:]),
+            "total_bridge_prompts": self.total_bridge_prompts,
+            "total_bridge_revivals": self.total_bridge_revivals,
+            "bridge_efficacy_rate": compute_bridge_efficacy_rate(self),
         }
 
 
@@ -143,6 +207,7 @@ class CommChannelsTickResult:
     revived: list
     fading: list
     revival_prompts: list
+    bridge_prompts: list
     summary: dict
     health_score: float
     dead_channel_names: list
@@ -156,6 +221,8 @@ class CommChannelsTickResult:
             "fading": list(self.fading),
             "revival_prompts": [p.to_dict() if hasattr(p, "to_dict") else p
                                  for p in self.revival_prompts],
+            "bridge_prompts": [p.to_dict() if hasattr(p, "to_dict") else p
+                                for p in self.bridge_prompts],
             "summary": dict(self.summary),
             "health_score": round(self.health_score, 4),
             "dead_channel_names": list(self.dead_channel_names),
@@ -271,6 +338,102 @@ def generate_revival_prompt(channel: Channel, year: int,
         suggested_action=suggested, year=year)
 
 
+def find_bridge_builder(
+    channel: Channel,
+    active_ids: list,
+    social_get: Callable,
+    excluded: set | None = None,
+    trust_floor: float = BRIDGE_TRUST_FLOOR,
+) -> tuple[str | None, float]:
+    """Pick the best third-party 'bridge' for a flatlined channel.
+
+    The bridge is the active colonist (not a, not b) whose minimum trust
+    toward a and b is highest — the colonist genuinely close to BOTH.
+
+    Args:
+      channel: the flatlined channel needing a mediator.
+      active_ids: ids of all currently-active colonists.
+      social_get: callable(a, b) -> object with `.trust` float attr.
+      excluded: set of bridge ids to skip (e.g. on cooldown for this pair).
+      trust_floor: min trust toward EACH endpoint to qualify.
+
+    Returns:
+      (bridge_id, min_trust). (None, 0.0) when no candidate qualifies.
+
+    Pure & deterministic — ties broken by alphabetical id.
+    """
+    a, b = channel.a, channel.b
+    skip = excluded or set()
+    best_id: str | None = None
+    best_score: float = -1.0
+    for cid in active_ids:
+        if cid == a or cid == b or cid in skip:
+            continue
+        try:
+            t_ca = max(getattr(social_get(cid, a), "trust", 0.0),
+                       getattr(social_get(a, cid), "trust", 0.0))
+            t_cb = max(getattr(social_get(cid, b), "trust", 0.0),
+                       getattr(social_get(b, cid), "trust", 0.0))
+        except Exception:
+            continue
+        score = min(t_ca, t_cb)
+        if score < trust_floor:
+            continue
+        if (score > best_score
+                or (score == best_score
+                    and (best_id is None or cid < best_id))):
+            best_score = score
+            best_id = cid
+    if best_id is None:
+        return (None, 0.0)
+    return (best_id, max(0.0, best_score))
+
+
+def generate_bridge_prompt(
+    channel: Channel, bridge_id: str, bridge_trust: float,
+    year: int, rng,
+) -> BridgePrompt:
+    """Build a deterministic bridge prompt for the chosen mediator."""
+    blueprint = BRIDGE_BLUEPRINTS[rng.randrange(len(BRIDGE_BLUEPRINTS))]
+    text = blueprint.format(bridge=bridge_id, a=channel.a, b=channel.b,
+                             n=channel.silence_streak)
+    return BridgePrompt(
+        bridge=bridge_id, target_a=channel.a, target_b=channel.b,
+        text=text, silence_years=channel.silence_streak,
+        bridge_trust_min=bridge_trust,
+        suggested_action="mediate", year=year)
+
+
+def compute_bridge_pressure(state: CommChannelsState,
+                             actions_pool: list) -> dict:
+    """Per-action nudge from recent bridge prompts.
+
+    Bridge prompts always suggest 'mediate', so pressure pools there.
+    Slightly stronger than revival pressure (0.05 vs 0.04) because
+    bridges are pickier — when one fires, it's a strong signal.
+    """
+    pressure = {a: 0.0 for a in actions_pool}
+    if not state.bridge_log:
+        return pressure
+    recent = state.bridge_log[-MAX_BRIDGE_PROMPTS_PER_TICK:]
+    for prompt in recent:
+        act = (prompt["suggested_action"] if isinstance(prompt, dict)
+               else prompt.suggested_action)
+        if act in pressure:
+            pressure[act] += 0.05
+    return pressure
+
+
+def compute_bridge_efficacy_rate(state: CommChannelsState) -> float:
+    """Fraction of bridge nominations that produced ANY revival downstream.
+
+    Returns 0.0 if no bridges have ever fired.
+    """
+    if state.total_bridge_prompts == 0:
+        return 0.0
+    return round(state.total_bridge_revivals / state.total_bridge_prompts, 4)
+
+
 def compute_revival_pressure(state: CommChannelsState,
                               actions_pool: list) -> dict:
     """Per-action nudge for the action chooser, summed across all prompts.
@@ -354,6 +517,14 @@ def tick_comm_channels(
                 ch.revival_count += 1
                 ch.last_revival_year = year
                 revived.append("{}|{}".format(key[0], key[1]))
+                # Credit a recent bridge nomination if any fits the window.
+                for (bridge_id, pkey), used_year in \
+                        list(state.bridge_last_used.items()):
+                    if (pkey == key
+                            and (year - used_year) <= BRIDGE_COOLDOWN_YEARS):
+                        state.total_bridge_revivals += 1
+                        # Only credit the most recent bridge once.
+                        break
         else:
             # No contact this year — bump silence if both still active
             if both_active:
@@ -392,8 +563,35 @@ def tick_comm_channels(
         prompt = generate_revival_prompt(ch, year, rng)
         revival_prompts.append(prompt)
         state.revival_log.append(prompt.to_dict())
+
+    # 3.5 Nominate a bridge-builder for the deepest dead channels.
+    # Picks a third-party mutual friend respecting per-(bridge,pair) cooldown.
+    bridge_prompts: list = []
+    for ch in flatlined_channels[:MAX_BRIDGE_PROMPTS_PER_TICK]:
+        pkey = pair_key(ch.a, ch.b)
+        # Build cooldown exclude set: bridges still on cooldown for THIS pair.
+        on_cooldown = {b_id for (b_id, p), used in
+                       state.bridge_last_used.items()
+                       if p == pkey
+                       and (year - used) < BRIDGE_COOLDOWN_YEARS}
+        bridge_id, trust = find_bridge_builder(
+            ch, active_ids, social_get, excluded=on_cooldown)
+        if bridge_id is None:
+            continue
+        bprompt = generate_bridge_prompt(ch, bridge_id, trust, year, rng)
+        bridge_prompts.append(bprompt)
+        state.bridge_log.append(bprompt.to_dict())
+        state.bridge_last_used[(bridge_id, pkey)] = year
+        state.total_bridge_prompts += 1
+
     state.revival_log = state.revival_log[-200:]
     state.flatline_log = state.flatline_log[-200:]
+    state.bridge_log = state.bridge_log[-200:]
+    # Prune bridge_last_used so it doesn't grow unbounded.
+    state.bridge_last_used = {
+        k: v for k, v in state.bridge_last_used.items()
+        if (year - v) <= BRIDGE_COOLDOWN_YEARS * 2
+    }
 
     # 4. Summary
     summary: dict = {}
@@ -404,5 +602,7 @@ def tick_comm_channels(
     return CommChannelsTickResult(
         year=year, new_channels=new_channels, flatlined=flatlined,
         revived=revived, fading=fading,
-        revival_prompts=revival_prompts, summary=summary,
+        revival_prompts=revival_prompts,
+        bridge_prompts=bridge_prompts,
+        summary=summary,
         health_score=health, dead_channel_names=dead_names)

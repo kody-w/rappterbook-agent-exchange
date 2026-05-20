@@ -389,3 +389,221 @@ def test_determinism():
                 rng=random.Random(seed))
         return state.to_dict()
     assert run(42) == run(42)
+
+
+# ----- bridge-builder organ (v12.1) ---------------------------------------
+
+from src.mars100.comm_channels import (
+    BridgePrompt, find_bridge_builder, generate_bridge_prompt,
+    compute_bridge_pressure, compute_bridge_efficacy_rate,
+    BRIDGE_TRUST_FLOOR, BRIDGE_COOLDOWN_YEARS, MAX_BRIDGE_PROMPTS_PER_TICK,
+)
+
+
+def _flatlined(a="a", b="b", silence=12):
+    return Channel(a=a, b=b, born_year=0, last_contact_year=0,
+                   silence_streak=silence, status=STATUS_FLATLINED)
+
+
+def test_bridge_prompt_to_dict_roundtrip():
+    p = BridgePrompt(bridge="c", target_a="a", target_b="b",
+                     text="hi", silence_years=12, bridge_trust_min=0.7,
+                     suggested_action="mediate", year=20)
+    d = p.to_dict()
+    assert d["bridge"] == "c"
+    assert d["target_a"] == "a" and d["target_b"] == "b"
+    assert d["bridge_trust_min"] == 0.7
+    assert d["suggested_action"] == "mediate"
+
+
+def test_find_bridge_picks_highest_min_trust():
+    ch = _flatlined("a", "b")
+    trust_map = {("c", "a"): 0.9, ("c", "b"): 0.5,
+                 ("d", "a"): 0.8, ("d", "b"): 0.7,
+                 ("e", "a"): 0.95, ("e", "b"): 0.2}
+    bridge_id, score = find_bridge_builder(
+        ch, ["a", "b", "c", "d", "e"],
+        _social_get_factory(trust_map, default=0.0))
+    assert bridge_id == "d"
+    assert abs(score - 0.7) < 1e-9
+
+
+def test_find_bridge_excludes_endpoints():
+    ch = _flatlined("a", "b")
+    bridge_id, _ = find_bridge_builder(
+        ch, ["a", "b"], _social_get_factory(default=0.9))
+    assert bridge_id is None
+
+
+def test_find_bridge_respects_trust_floor():
+    ch = _flatlined("a", "b")
+    bridge_id, score = find_bridge_builder(
+        ch, ["a", "b", "c"], _social_get_factory(default=0.1))
+    assert bridge_id is None
+    assert score == 0.0
+
+
+def test_find_bridge_respects_excluded():
+    ch = _flatlined("a", "b")
+    bridge_id, _ = find_bridge_builder(
+        ch, ["a", "b", "c", "d"],
+        _social_get_factory(default=0.9),
+        excluded={"c"})
+    assert bridge_id == "d"
+
+
+def test_find_bridge_tie_breaks_alphabetically():
+    ch = _flatlined("a", "b")
+    trust_map = {("c", "a"): 0.6, ("c", "b"): 0.6,
+                 ("d", "a"): 0.6, ("d", "b"): 0.6}
+    bridge_id, _ = find_bridge_builder(
+        ch, ["a", "b", "d", "c"],
+        _social_get_factory(trust_map, default=0.0))
+    assert bridge_id == "c"
+
+
+def test_generate_bridge_prompt_format():
+    ch = _flatlined("alice", "bob", silence=14)
+    p = generate_bridge_prompt(ch, "carol", 0.72, year=50,
+                                rng=random.Random(0))
+    assert p.bridge == "carol"
+    assert p.target_a == "alice"
+    assert p.target_b == "bob"
+    assert p.silence_years == 14
+    assert p.suggested_action == "mediate"
+    assert "carol" in p.text
+    assert "alice" in p.text and "bob" in p.text
+
+
+def test_compute_bridge_pressure_pools_at_mediate():
+    state = CommChannelsState()
+    state.bridge_log = [
+        {"bridge": "c", "suggested_action": "mediate"},
+        {"bridge": "d", "suggested_action": "mediate"},
+    ]
+    p = compute_bridge_pressure(state, ["cooperate", "mediate", "rest"])
+    assert p["mediate"] > p["cooperate"]
+    assert p["mediate"] > p["rest"]
+    assert p["mediate"] == pytest.approx(0.1)
+
+
+def test_bridge_efficacy_rate_zero_when_no_prompts():
+    state = CommChannelsState()
+    assert compute_bridge_efficacy_rate(state) == 0.0
+
+
+def test_bridge_efficacy_rate_ratio():
+    state = CommChannelsState()
+    state.total_bridge_prompts = 10
+    state.total_bridge_revivals = 3
+    assert compute_bridge_efficacy_rate(state) == 0.3
+
+
+def test_tick_emits_bridge_prompts_when_flatline_with_bridge():
+    state = CommChannelsState()
+    ids = ["a", "b", "c"]
+    trust_map = {("c", "a"): 0.8, ("c", "b"): 0.8,
+                 ("a", "c"): 0.4, ("b", "c"): 0.4,
+                 ("a", "b"): 0.0, ("b", "a"): 0.0}
+    social = _social_get_factory(trust_map, default=0.0)
+    actions = {"a": "rest", "b": "rest", "c": "rest"}
+    bridge_fired_year = None
+    for y in range(1, 16):
+        r = tick_comm_channels(state, ids, actions, social, {},
+                                year=y, rng=random.Random(y))
+        if r.bridge_prompts:
+            bridge_fired_year = y
+            break
+    assert bridge_fired_year is not None
+    assert state.total_bridge_prompts >= 1
+    assert state.bridge_log[-1]["bridge"] == "c"
+
+
+def test_tick_bridge_cooldown_blocks_repeat_nomination():
+    state = CommChannelsState()
+    ids = ["a", "b", "c"]
+    trust_map = {("c", "a"): 0.8, ("c", "b"): 0.8}
+    social = _social_get_factory(trust_map, default=0.0)
+    actions = {"a": "rest", "b": "rest", "c": "rest"}
+    fires = []
+    for y in range(1, 18):
+        r = tick_comm_channels(state, ids, actions, social, {},
+                                year=y, rng=random.Random(y))
+        if r.bridge_prompts:
+            fires.append(y)
+    if len(fires) >= 2:
+        gap = fires[1] - fires[0]
+        assert gap >= BRIDGE_COOLDOWN_YEARS, \
+            f"expected >= {BRIDGE_COOLDOWN_YEARS}y gap, got {gap}"
+
+
+def test_tick_bridge_revival_credit():
+    state = CommChannelsState()
+    ids = ["a", "b", "c"]
+    trust_map = {("c", "a"): 0.8, ("c", "b"): 0.8}
+    social = _social_get_factory(trust_map, default=0.0)
+    for y in range(1, 14):
+        tick_comm_channels(
+            state, ids, {"a": "rest", "b": "rest", "c": "rest"},
+            social, {}, year=y, rng=random.Random(y))
+    assert state.total_bridge_prompts >= 1
+    fired_count = state.total_bridge_prompts
+    tick_comm_channels(
+        state, ids, {"a": "cooperate", "b": "cooperate", "c": "rest"},
+        social, {}, year=14, rng=random.Random(14))
+    assert state.total_bridge_revivals >= 1
+    assert compute_bridge_efficacy_rate(state) <= 1.0
+    assert compute_bridge_efficacy_rate(state) > 0.0
+    assert state.total_bridge_revivals <= fired_count + 1
+
+
+def test_tick_result_has_bridge_prompts_field():
+    state = CommChannelsState()
+    r = tick_comm_channels(
+        state, ["a", "b"], {"a": "rest", "b": "rest"},
+        _social_get_factory(default=0.5), {}, year=1, rng=random.Random(0))
+    assert hasattr(r, "bridge_prompts")
+    assert isinstance(r.bridge_prompts, list)
+    d = r.to_dict()
+    assert "bridge_prompts" in d
+
+
+def test_state_to_dict_serializes_bridge_fields():
+    state = CommChannelsState()
+    state.total_bridge_prompts = 5
+    state.total_bridge_revivals = 2
+    d = state.to_dict()
+    assert d["total_bridge_prompts"] == 5
+    assert d["total_bridge_revivals"] == 2
+    assert d["bridge_efficacy_rate"] == 0.4
+    assert "bridge_log" in d
+
+
+def test_bridge_prompts_capped_per_tick():
+    state = CommChannelsState()
+    ids = [chr(ord("a") + i) for i in range(8)]
+    social = _social_get_factory(default=0.9)
+    actions = {x: "rest" for x in ids}
+    tick_comm_channels(state, ids, actions, social, {},
+                        year=1, rng=random.Random(1))
+    last_r = None
+    for y in range(2, 16):
+        last_r = tick_comm_channels(state, ids, actions, social, {},
+                                     year=y, rng=random.Random(y))
+    assert last_r is not None
+    assert len(last_r.bridge_prompts) <= MAX_BRIDGE_PROMPTS_PER_TICK
+
+
+def test_smoke_with_bridges_no_crash():
+    state = CommChannelsState()
+    ids = ["a", "b", "c", "d", "e"]
+    social = _social_get_factory(default=0.7)
+    for y in range(1, 31):
+        actions = {x: "rest" for x in ids}
+        r = tick_comm_channels(state, ids, actions, social, {},
+                                year=y, rng=random.Random(y))
+        assert 0.0 <= r.health_score <= 1.0
+        assert isinstance(r.bridge_prompts, list)
+        for bp in r.bridge_prompts:
+            assert bp.bridge not in (bp.target_a, bp.target_b)
+            assert bp.bridge_trust_min >= BRIDGE_TRUST_FLOOR

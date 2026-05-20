@@ -480,7 +480,7 @@ class TestEngineWithEconomics:
         engine = Mars100Engine(seed=42, total_years=100)
         result = engine.run()
         d = result.to_dict()
-        assert d["_meta"]["version"] == "12.0"
+        assert d["_meta"]["version"] == "12.1"
         assert "final_economics" in d
         assert d["final_economics"]["total_trades"] >= 0
         assert len(d["final_economics"]["gini_history"]) > 0
