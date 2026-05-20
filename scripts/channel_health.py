@@ -28,7 +28,7 @@ from src.mars100 import (
     Mars100Engine,
     CHANNEL_STATUS_FLATLINED, CHANNEL_STATUS_FADING, CHANNEL_STATUS_VITAL,
     CHANNEL_STATUS_REVIVED, CHANNEL_STATUS_DORMANT, CHANNEL_STATUS_INACTIVE,
-    FLATLINE_SILENCE_YEARS,
+    FLATLINE_SILENCE_YEARS, BRIDGE_TRUST_FLOOR, BRIDGE_COOLDOWN_YEARS,
 )
 
 
@@ -70,10 +70,12 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
         "_meta": {
             "organ": "comm-channels",
             "engine": "mars-100",
-            "version": "12.0",
+            "version": "12.1",
             "generated": datetime.now(timezone.utc).isoformat(),
             "year_snapshot": year,
             "flatline_threshold_years": FLATLINE_SILENCE_YEARS,
+            "bridge_trust_floor": BRIDGE_TRUST_FLOOR,
+            "bridge_cooldown_years": BRIDGE_COOLDOWN_YEARS,
         },
         "summary": summary,
         "overall_health_score": round(overall_health, 4),
@@ -83,6 +85,15 @@ def build_report(engine: Mars100Engine, year: int) -> dict:
         "fading_channels": fading,
         "channels": per_channel,
         "revival_prompts": list(state.revival_log[-25:]),
+        "bridge_prompts": list(state.bridge_log[-25:]),
+        "bridge_stats": {
+            "total_bridge_prompts": state.total_bridge_prompts,
+            "total_bridge_revivals": state.total_bridge_revivals,
+            "bridge_efficacy_rate": (
+                round(state.total_bridge_revivals
+                      / state.total_bridge_prompts, 4)
+                if state.total_bridge_prompts else 0.0),
+        },
     }
 
 
@@ -131,6 +142,16 @@ def print_summary(report: dict) -> None:
         print("\nRevival prompts (most recent):")
         for p in report["revival_prompts"][-5:]:
             print(f"  ! {p['text']} [{p['suggested_action']}]")
+    bs = report.get("bridge_stats", {})
+    if bs.get("total_bridge_prompts", 0):
+        print(f"\nBridge-builder stats: "
+              f"{bs['total_bridge_prompts']} nominations, "
+              f"{bs['total_bridge_revivals']} credited revivals "
+              f"({bs['bridge_efficacy_rate'] * 100:.1f}% efficacy)")
+    if report.get("bridge_prompts"):
+        print("\nBridge prompts (most recent):")
+        for p in report["bridge_prompts"][-5:]:
+            print(f"  ~ {p['text']}")
 
 
 def main() -> int:
