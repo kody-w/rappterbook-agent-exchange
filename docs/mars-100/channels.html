@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mars-100 · Comm Channels — Who's Still Talking?</title>
+<style>
+:root{
+  --bg:#0a0a12;--surface:#12121f;--border:#2a2a3f;--text:#e0e0f0;--muted:#888;
+  --vital:#44ff88;--fading:#ffaa44;--flatlined:#ff4444;
+  --revived:#aa44ff;--dormant:#888aa0;--inactive:#3a3a4a;
+  --gold:#ffaa44;--blue:#4488ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Menlo','Courier New',monospace;background:var(--bg);color:var(--text);line-height:1.5;padding:18px;max-width:1400px;margin:0 auto}
+h1{font-size:1.6em;color:var(--gold);margin-bottom:2px}
+h2{font-size:1.05em;color:var(--blue);margin:16px 0 8px;border-bottom:1px solid var(--border);padding-bottom:4px}
+a{color:var(--blue)}
+.subtitle{color:var(--muted);font-size:0.85em;margin-bottom:14px}
+.crumbs{font-size:0.8em;color:var(--muted);margin-bottom:10px}
+.grid{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:0.78em;color:var(--muted);margin-bottom:10px}
+.swatch{display:inline-block;width:14px;height:4px;vertical-align:middle;margin-right:4px;border-radius:2px}
+canvas{display:block;width:100%;height:520px;background:#08080f;border-radius:6px;cursor:crosshair}
+.tip{position:absolute;pointer-events:none;background:#1a1a2a;border:1px solid var(--border);padding:6px 10px;font-size:0.78em;border-radius:6px;color:var(--text);max-width:240px;display:none;z-index:10}
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.kpi{background:#0d0d18;border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center}
+.kpi .n{font-size:1.4em;color:var(--gold);font-weight:bold}
+.kpi .l{font-size:0.7em;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.status-bar{display:flex;height:14px;border-radius:4px;overflow:hidden;margin:6px 0 12px;background:#0d0d18;border:1px solid var(--border)}
+.status-seg{display:flex;align-items:center;justify-content:center;font-size:0.65em;color:#000;font-weight:bold}
+.list{max-height:240px;overflow-y:auto;font-size:0.82em}
+.list .row{display:flex;justify-content:space-between;padding:5px 8px;border-bottom:1px solid var(--border)}
+.list .row:hover{background:rgba(255,170,68,0.05)}
+.list .row .pair{color:var(--text)}
+.list .row .meta{color:var(--muted);font-size:0.85em}
+.prompt{padding:7px 10px;border-left:3px solid var(--gold);background:rgba(255,170,68,0.05);margin:6px 0;font-size:0.82em;border-radius:0 4px 4px 0}
+.prompt .text{color:var(--text)}
+.prompt .meta{color:var(--muted);font-size:0.7em;margin-top:2px}
+.empty{color:var(--muted);font-size:0.85em;font-style:italic;padding:14px;text-align:center}
+.controls{display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:0.8em;color:var(--muted);flex-wrap:wrap}
+.controls label{cursor:pointer}
+.controls input{accent-color:var(--gold)}
+.foot{margin-top:18px;color:var(--muted);font-size:0.75em;text-align:center;border-top:1px solid var(--border);padding-top:10px}
+.err{color:var(--flatlined);padding:20px;text-align:center}
+.pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:0.7em;margin-left:4px}
+.pill-vital{background:#0d3a1f;color:var(--vital)}
+.pill-fading{background:#3a2a0d;color:var(--fading)}
+.pill-flatlined{background:#3a0d0d;color:var(--flatlined)}
+.pill-revived{background:#2a0d3a;color:var(--revived)}
+.pill-dormant{background:#2a2a3a;color:var(--dormant)}
+.pill-inactive{background:#1a1a2a;color:var(--inactive)}
+</style>
+</head>
+<body>
+<div class="crumbs">📡 <a href="./">← Mars-100</a> / Comm Channels</div>
+<h1>📡 Comm Channels — Who's Still Talking?</h1>
+<p class="subtitle">Engine v12.0 · per-pair colonist communication health · flatlines highlighted in <span style="color:var(--flatlined)">red</span></p>
+
+<div id="loading" class="empty">Loading channel_health.json…</div>
+<div id="app" style="display:none">
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="n" id="kpi-total">—</div><div class="l">channels</div></div>
+  <div class="kpi"><div class="n" id="kpi-health">—</div><div class="l">overall health</div></div>
+  <div class="kpi"><div class="n" id="kpi-flatlined">—</div><div class="l">flatlined</div></div>
+</div>
+
+<div class="status-bar" id="status-bar"></div>
+
+<div class="grid">
+  <div class="card">
+    <h2>🌐 Sociogram</h2>
+    <div class="controls">
+      <label><input type="checkbox" id="hide-inactive" checked> hide inactive (deceased)</label>
+      <label><input type="checkbox" id="dim-vital"> dim vital ties</label>
+      <span style="margin-left:auto" id="edge-count"></span>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--vital)"></span>vital</span>
+      <span><span class="swatch" style="background:var(--fading)"></span>fading</span>
+      <span><span class="swatch" style="background:var(--flatlined)"></span>flatlined</span>
+      <span><span class="swatch" style="background:var(--revived)"></span>revived</span>
+      <span><span class="swatch" style="background:var(--dormant)"></span>dormant</span>
+      <span><span class="swatch" style="background:var(--inactive)"></span>inactive (death)</span>
+    </div>
+    <div style="position:relative">
+      <canvas id="cv" width="800" height="520"></canvas>
+      <div id="tip" class="tip"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>💔 Flatlined — Needs Revival</h2>
+      <div id="flatlined-list" class="list"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>⚠️  Fading</h2>
+      <div id="fading-list" class="list"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>🔔 Recent Revival Prompts</h2>
+      <div id="prompts"></div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  <span id="meta-foot"></span>
+  <br>Generated by <code>scripts/channel_health.py</code>
+</div>
+
+</div>
+
+<script>
+const STATUS_ORDER=['vital','revived','fading','flatlined','dormant','inactive'];
+const STATUS_COLOR={vital:'#44ff88',fading:'#ffaa44',flatlined:'#ff4444',revived:'#aa44ff',dormant:'#888aa0',inactive:'#3a3a4a'};
+
+function nameKey(d){return d.name_a+' ↔ '+d.name_b}
+
+function colonists(data){
+  const map=new Map();
+  for(const c of data.channels){
+    if(!map.has(c.a))map.set(c.a,{id:c.a,name:c.name_a,alive:c.a_alive});
+    if(!map.has(c.b))map.set(c.b,{id:c.b,name:c.name_b,alive:c.b_alive});
+  }
+  return Array.from(map.values()).sort(function(x,y){return x.id.localeCompare(y.id)});
+}
+
+function layout(nodes,w,h){
+  const cx=w/2,cy=h/2,r=Math.min(w,h)/2-50;
+  const n=nodes.length;
+  return nodes.map(function(node,i){
+    const a=(i/n)*Math.PI*2 - Math.PI/2;
+    return Object.assign({},node,{x:cx+Math.cos(a)*r,y:cy+Math.sin(a)*r,a:a});
+  });
+}
+
+function hexA(hex,a){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+a+')';
+}
+
+function draw(state){
+  const cv=document.getElementById('cv');
+  const ctx=cv.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  const w=cv.clientWidth, h=cv.clientHeight;
+  cv.width=w*dpr; cv.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const hideInactive=document.getElementById('hide-inactive').checked;
+  const dimVital=document.getElementById('dim-vital').checked;
+  const nodes=hideInactive ? state.allNodes.filter(function(n){return n.alive}) : state.allNodes;
+  const idIdx=new Map(nodes.map(function(n,i){return [n.id,i]}));
+  const placed=layout(nodes,w,h);
+
+  let visibleEdges=0;
+  for(const c of state.data.channels){
+    if(!idIdx.has(c.a)||!idIdx.has(c.b))continue;
+    if(c.status==='inactive' && hideInactive)continue;
+    if(c.status==='vital' && dimVital && !state.hoverId)continue;
+    const A=placed[idIdx.get(c.a)], B=placed[idIdx.get(c.b)];
+    const col=STATUS_COLOR[c.status]||'#666';
+    const lw=c.status==='flatlined'?2.5:c.status==='fading'?2:c.status==='revived'?2:1;
+    let alpha=c.status==='vital'?0.16:c.status==='inactive'?0.07:0.85;
+    if(state.hoverId){
+      if(c.a===state.hoverId||c.b===state.hoverId){alpha=Math.min(1,alpha+0.5)}
+      else{alpha*=0.25}
+    }
+    ctx.strokeStyle=hexA(col,alpha);
+    ctx.lineWidth=lw;
+    ctx.beginPath();
+    ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y);
+    ctx.stroke();
+    visibleEdges++;
+  }
+
+  for(const n of placed){
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,n.alive?7:5,0,Math.PI*2);
+    ctx.fillStyle=n.alive?'#e0e0f0':'#5a5a6a';
+    if(state.hoverId===n.id){ctx.fillStyle='#ffaa44'}
+    ctx.fill();
+    ctx.strokeStyle='#0a0a12'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=state.hoverId===n.id?'#ffaa44':'#aaa';
+    ctx.font='10px Menlo,monospace';
+    const lx=n.x+Math.cos(n.a)*16, ly=n.y+Math.sin(n.a)*16;
+    ctx.textAlign=Math.cos(n.a)<-0.3?'right':Math.cos(n.a)>0.3?'left':'center';
+    ctx.textBaseline=Math.sin(n.a)<-0.3?'bottom':Math.sin(n.a)>0.3?'top':'middle';
+    ctx.fillText(n.name,lx,ly);
+  }
+
+  document.getElementById('edge-count').textContent=visibleEdges+' edges';
+  state.placed=placed;
+  state.idIdx=idIdx;
+}
+
+function nearestNode(state,mx,my){
+  if(!state.placed)return null;
+  let best=null,bd=20;
+  for(const n of state.placed){
+    const d=Math.hypot(n.x-mx,n.y-my);
+    if(d<bd){bd=d;best=n}
+  }
+  return best;
+}
+
+function render(data){
+  document.getElementById('loading').style.display='none';
+  document.getElementById('app').style.display='block';
+
+  const s=data.summary||{};
+  document.getElementById('kpi-total').textContent=s.total||0;
+  document.getElementById('kpi-health').textContent=((data.overall_health_score||0)*100|0)+'%';
+  document.getElementById('kpi-flatlined').textContent=data.flatlined_count||0;
+
+  const bar=document.getElementById('status-bar');
+  bar.innerHTML='';
+  const total=s.total||1;
+  for(const k of STATUS_ORDER){
+    const n=s[k]||0; if(!n)continue;
+    const pct=n/total*100;
+    const seg=document.createElement('div');
+    seg.className='status-seg';
+    seg.style.width=pct+'%';
+    seg.style.background=STATUS_COLOR[k];
+    seg.title=k+': '+n+' ('+pct.toFixed(0)+'%)';
+    seg.textContent=pct>6?(k+' '+n):'';
+    bar.appendChild(seg);
+  }
+
+  const fl=document.getElementById('flatlined-list');
+  if(!data.flatlined_channels||!data.flatlined_channels.length){
+    fl.innerHTML='<div class="empty">No flatlined channels — colony is talking. ✨</div>';
+  }else{
+    fl.innerHTML=data.flatlined_channels.map(function(c){
+      return '<div class="row"><span class="pair">'+nameKey(c)+' <span class="pill pill-flatlined">flatlined</span></span>'+
+        '<span class="meta">'+c.silence_streak+'y silent · last y'+c.last_contact_year+'</span></div>';
+    }).join('');
+  }
+
+  const fa=document.getElementById('fading-list');
+  if(!data.fading_channels||!data.fading_channels.length){
+    fa.innerHTML='<div class="empty">No fading channels.</div>';
+  }else{
+    fa.innerHTML=data.fading_channels.map(function(c){
+      return '<div class="row"><span class="pair">'+nameKey(c)+' <span class="pill pill-fading">fading</span></span>'+
+        '<span class="meta">'+c.silence_streak+'y silent</span></div>';
+    }).join('');
+  }
+
+  const pp=document.getElementById('prompts');
+  const prompts=data.revival_prompts||[];
+  if(!prompts.length){
+    pp.innerHTML='<div class="empty">No revival prompts on the log yet.</div>';
+  }else{
+    pp.innerHTML=prompts.slice(-8).reverse().map(function(p){
+      return '<div class="prompt"><div class="text">'+(p.text||'')+'</div>'+
+        '<div class="meta">year '+(p.year||'?')+' · '+(p.suggested_action||'?')+' · '+(p.silence_years||0)+'y silent</div></div>';
+    }).join('');
+  }
+
+  const state={data:data,allNodes:colonists(data),hoverId:null,placed:null,idIdx:null};
+  draw(state);
+
+  const cv=document.getElementById('cv');
+  const tip=document.getElementById('tip');
+  cv.addEventListener('mousemove',function(ev){
+    const r=cv.getBoundingClientRect();
+    const mx=ev.clientX-r.left, my=ev.clientY-r.top;
+    const n=nearestNode(state,mx,my);
+    const newId=n?n.id:null;
+    if(newId!==state.hoverId){state.hoverId=newId;draw(state)}
+    if(n){
+      const ties=data.channels.filter(function(c){return c.a===n.id||c.b===n.id});
+      const byStatus={};
+      ties.forEach(function(c){byStatus[c.status]=(byStatus[c.status]||0)+1});
+      const parts=STATUS_ORDER.filter(function(k){return byStatus[k]})
+        .map(function(k){return '<span class="pill pill-'+k+'">'+k+' '+byStatus[k]+'</span>'}).join(' ');
+      tip.innerHTML='<b>'+n.name+'</b> '+(n.alive?'':'<span class="pill pill-inactive">deceased</span>')+'<br>'+(parts||'no ties');
+      tip.style.display='block';
+      tip.style.left=(ev.clientX+12)+'px';
+      tip.style.top=(ev.clientY+12)+'px';
+    }else{tip.style.display='none'}
+  });
+  cv.addEventListener('mouseleave',function(){state.hoverId=null;tip.style.display='none';draw(state)});
+  document.getElementById('hide-inactive').addEventListener('change',function(){draw(state)});
+  document.getElementById('dim-vital').addEventListener('change',function(){draw(state)});
+  window.addEventListener('resize',function(){draw(state)});
+
+  const m=data._meta||{};
+  document.getElementById('meta-foot').innerHTML=
+    'Snapshot year '+(m.year_snapshot||'?')+' · engine v'+(m.version||'?')+' · flatline threshold '+(m.flatline_threshold_years||'?')+'y · '+(m.generated||'');
+}
+
+fetch('channel_health.json?t='+Date.now())
+  .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+  .then(render)
+  .catch(function(err){
+    document.getElementById('loading').innerHTML=
+      '<div class="err">Could not load <code>channel_health.json</code>: '+err.message+
+      '<br><br>Run <code>python3 scripts/channel_health.py --years 80</code> to generate it.</div>';
+  });
+</script>
+</body>
+</html>
